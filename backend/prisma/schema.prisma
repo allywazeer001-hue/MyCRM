@@ -1,0 +1,1048 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  USER
+  VIEWER
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  RICH_TEXT
+  NUMBER
+  DECIMAL
+  CURRENCY
+  BOOLEAN
+  CHECKBOX
+  RADIO
+  DROPDOWN
+  MULTI_SELECT
+  DATE
+  DATETIME
+  EMAIL
+  PHONE
+  URL
+  FILE
+  IMAGE
+  SIGNATURE
+  USER_SELECT
+  TAGS
+  FORMULA
+  LOOKUP
+  AUTO_NUMBER
+  STATUS
+  RATING
+  PROGRESS
+  COLOR_PICKER
+  GLOBAL_RELATION
+  INLINE_SUBFORM
+}
+
+enum RelationType {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_ONE
+  MANY_TO_MANY
+}
+
+enum WorkflowTrigger {
+  RECORD_CREATED
+  RECORD_UPDATED
+  RECORD_DELETED
+  FIELD_CHANGED
+  SCHEDULED
+  MANUAL
+  WEBHOOK
+}
+
+enum WorkflowActionType {
+  SEND_EMAIL
+  CREATE_RECORD
+  UPDATE_RECORD
+  SEND_NOTIFICATION
+  WEBHOOK_CALL
+  ASSIGN_USER
+  SET_FIELD
+}
+
+enum ViewType {
+  TABLE
+  KANBAN
+  CALENDAR
+  GALLERY
+  FORM
+  TIMELINE
+}
+
+enum WidgetType {
+  KPI_CARD
+  BAR_CHART
+  PIE_CHART
+  LINE_CHART
+  AREA_CHART
+  DONUT_CHART
+  TABLE
+  FUNNEL
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  website     String?
+  phone       String?
+  address     String?
+  settings    Json     @default("{}")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users            User[]
+  modules          DynamicModule[]
+  relationships    Relationship[]
+  workflows        Workflow[]
+  dashboards       Dashboard[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  files            File[]
+  permissions      Permission[]
+  views            View[]
+  records          Record[]
+  globalLists      GlobalList[]
+  forms            Form[]
+  analyticsViews   AnalyticsView[]
+  analyticsTargets AnalyticsTarget[]
+  savedFilters         SavedFilter[]
+  blueprints           Blueprint[]
+  portalUsers          PortalUser[]
+  portalAnnouncements  PortalAnnouncement[]
+  portalSettings       PortalSettings?
+  portalModuleConfigs  PortalModuleConfig[]
+  portalPages          PortalPage[]
+  portalMenuItems      PortalMenuItem[]
+  portalFields         PortalField[]
+  portalSections       PortalSection[]
+  portalDocuments      PortalDocument[]
+  portalTemplates      PortalTemplate[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  password       String
+  firstName      String
+  lastName       String
+  avatar         String?
+  phone          String?
+  jobTitle       String?
+  role           UserRole @default(USER)
+  isActive       Boolean  @default(true)
+  refreshToken   String?
+  lastLoginAt    DateTime?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  createdRecords   Record[]      @relation("RecordCreator")
+  updatedRecords   Record[]      @relation("RecordUpdater")
+  comments         Comment[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  dashboards       Dashboard[]
+  views            View[]
+  uploadedFiles    File[]
+  createdForms     Form[]
+  analyticsViews   AnalyticsView[]
+  savedFilters     SavedFilter[]
+  userPreferences  UserPreference[]
+
+  @@index([email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model DynamicModule {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  icon           String?
+  color          String?
+  order          Int      @default(0)
+  isActive       Boolean  @default(true)
+  settings       Json     @default("{}")
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization          Organization          @relation(fields: [organizationId], references: [id])
+  fields                Field[]
+  records               Record[]
+  views                 View[]
+  fromRelations         Relationship[]        @relation("FromModule")
+  toRelations           Relationship[]        @relation("ToModule")
+  workflows             Workflow[]
+  permissions           Permission[]
+  forms                 Form[]
+  analyticsTargets      AnalyticsTarget[]
+  blueprints            Blueprint[]
+  portalConfig          PortalModuleConfig?
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@map("dynamic_modules")
+}
+
+model Field {
+  id                String    @id @default(cuid())
+  name              String
+  label             String
+  type              FieldType
+  order             Int       @default(0)
+  isRequired        Boolean   @default(false)
+  isUnique          Boolean   @default(false)
+  isReadonly        Boolean   @default(false)
+  isHidden          Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  placeholder       String?
+  helpText          String?
+  defaultValue      String?
+  validation        Json?
+  conditionalLogic  Json?
+  settings          Json      @default("{}")
+  moduleId          String
+  lookupModuleId    String?
+  lookupFieldId     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  module  DynamicModule @relation(fields: [moduleId], references: [id])
+  options FieldOption[]
+
+  @@index([moduleId])
+  @@map("fields")
+}
+
+model FieldOption {
+  id        String   @id @default(cuid())
+  label     String
+  value     String
+  color     String?
+  order     Int      @default(0)
+  fieldId   String
+  createdAt DateTime @default(now())
+
+  field Field @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@index([fieldId])
+  @@map("field_options")
+}
+
+model Record {
+  id             String    @id @default(cuid())
+  moduleId       String
+  organizationId String
+  data           Json      @default("{}")
+  isDeleted      Boolean   @default(false)
+  deletedAt      DateTime?
+  createdById    String
+  updatedById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  module       DynamicModule @relation(fields: [moduleId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    User          @relation("RecordCreator", fields: [createdById], references: [id])
+  updatedBy    User?         @relation("RecordUpdater", fields: [updatedById], references: [id])
+  comments     Comment[]
+  files        File[]
+
+  @@index([moduleId])
+  @@index([organizationId])
+  @@index([isDeleted])
+  @@map("records")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  recordId  String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  record Record @relation(fields: [recordId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([recordId])
+  @@map("comments")
+}
+
+model File {
+  id             String   @id @default(cuid())
+  name           String
+  originalName   String
+  mimeType       String
+  size           Int
+  url            String
+  path           String?
+  recordId       String?
+  organizationId String
+  uploadedById   String
+  createdAt      DateTime @default(now())
+
+  record       Record?      @relation(fields: [recordId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+
+  @@index([recordId])
+  @@index([organizationId])
+  @@map("files")
+}
+
+model Relationship {
+  id             String       @id @default(cuid())
+  name           String
+  type           RelationType
+  fromModuleId   String
+  toModuleId     String
+  fromFieldId    String?
+  toFieldId      String?
+  organizationId String
+  createdAt      DateTime     @default(now())
+
+  fromModule   DynamicModule @relation("FromModule", fields: [fromModuleId], references: [id])
+  toModule     DynamicModule @relation("ToModule", fields: [toModuleId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("relationships")
+}
+
+model View {
+  id             String   @id @default(cuid())
+  name           String
+  type           ViewType @default(TABLE)
+  moduleId       String
+  organizationId String
+  createdById    String
+  isDefault      Boolean  @default(false)
+  isPublic       Boolean  @default(false)
+  isPinned       Boolean  @default(false)
+  config         Json     @default("{}")
+  filters        Json     @default("[]")
+  sorts          Json     @default("[]")
+  groupBy        String?
+  columns        Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  module       DynamicModule @relation(fields: [moduleId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+
+  @@index([moduleId])
+  @@map("views")
+}
+
+model Workflow {
+  id             String              @id @default(cuid())
+  name           String
+  description    String?
+  trigger        WorkflowTrigger
+  triggerConfig  Json                @default("{}")
+  conditions     Json                @default("[]")
+  actions        WorkflowAction[]
+  moduleId       String?
+  organizationId String
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  module       DynamicModule? @relation(fields: [moduleId], references: [id])
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  executions   WorkflowExecution[]
+
+  @@index([organizationId])
+  @@map("workflows")
+}
+
+model WorkflowAction {
+  id         String             @id @default(cuid())
+  type       WorkflowActionType
+  config     Json               @default("{}")
+  order      Int                @default(0)
+  workflowId String
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+
+  @@map("workflow_actions")
+}
+
+model WorkflowExecution {
+  id         String   @id @default(cuid())
+  workflowId String
+  status     String   @default("PENDING")
+  input      Json     @default("{}")
+  output     Json     @default("{}")
+  error      String?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  workflow Workflow @relation(fields: [workflowId], references: [id])
+
+  @@map("workflow_executions")
+}
+
+model Dashboard {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  isDefault      Boolean  @default(false)
+  isPublic       Boolean  @default(false)
+  organizationId String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  createdBy    User              @relation(fields: [createdById], references: [id])
+  widgets      DashboardWidget[]
+
+  @@index([organizationId])
+  @@map("dashboards")
+}
+
+model DashboardWidget {
+  id          String     @id @default(cuid())
+  dashboardId String
+  type        WidgetType
+  title       String
+  moduleId    String?
+  config      Json       @default("{}")
+  filters     Json       @default("[]")
+  position    Json       @default("{}")
+  order       Int        @default(0)
+  createdAt   DateTime   @default(now())
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id])
+
+  @@index([dashboardId])
+  @@map("dashboard_widgets")
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  title          String
+  message        String
+  type           String   @default("INFO")
+  link           String?
+  isRead         Boolean  @default(false)
+  userId         String
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  action         String
+  entityType     String
+  entityId       String
+  metadata       Json     @default("{}")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model Permission {
+  id                String   @id @default(cuid())
+  organizationId    String
+  role              String
+  moduleId          String
+  canCreate         Boolean  @default(true)
+  canRead           Boolean  @default(true)
+  canUpdate         Boolean  @default(true)
+  canDelete         Boolean  @default(false)
+  canExport         Boolean  @default(true)
+  canPrint          Boolean  @default(true)
+  canApprove        Boolean  @default(false)
+  canManage         Boolean  @default(false)
+  canFormBuilder    Boolean  @default(false)
+  canDashboard      Boolean  @default(true)
+  canAnalytics      Boolean  @default(true)
+  canSettings       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  module       DynamicModule @relation(fields: [moduleId], references: [id])
+
+  @@unique([organizationId, role, moduleId])
+  @@map("permissions")
+}
+
+model GlobalList {
+  id               String           @id @default(cuid())
+  name             String
+  slug             String
+  description      String?
+  organizationId   String
+  isActive         Boolean          @default(true)
+  levelDefinitions Json             @default("[]")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  items          GlobalListItem[]
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@map("global_lists")
+}
+
+model GlobalListItem {
+  id        String           @id @default(cuid())
+  listId    String
+  parentId  String?
+  label     String
+  value     String
+  level     Int              @default(0)
+  order     Int              @default(0)
+  metadata  Json             @default("{}")
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  list      GlobalList       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  parent    GlobalListItem?  @relation("ItemChildren", fields: [parentId], references: [id])
+  children  GlobalListItem[] @relation("ItemChildren")
+
+  @@index([listId])
+  @@index([parentId])
+  @@map("global_list_items")
+}
+
+model Form {
+  id             String           @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  moduleId       String?
+  organizationId String
+  type           String           @default("INTERNAL")
+  isActive       Boolean          @default(true)
+  settings       Json             @default("{}")
+  token          String?          @unique
+  createdById    String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  module         DynamicModule?   @relation(fields: [moduleId], references: [id])
+  createdBy      User             @relation(fields: [createdById], references: [id])
+  sections       FormSection[]
+  fields         FormField[]
+  permissions    FormPermission[]
+  submissions    FormSubmission[]
+
+  @@unique([slug, organizationId])
+  @@index([organizationId])
+  @@map("forms")
+}
+
+model FormSection {
+  id          String      @id @default(cuid())
+  formId      String
+  label       String
+  description String?
+  order       Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  form        Form        @relation(fields: [formId], references: [id], onDelete: Cascade)
+  fields      FormField[]
+
+  @@index([formId])
+  @@map("form_sections")
+}
+
+model FormField {
+  id                String       @id @default(cuid())
+  formId            String
+  fieldId           String
+  sectionId         String?
+  order             Int          @default(0)
+  isHidden          Boolean      @default(false)
+  isReadonly        Boolean      @default(false)
+  isRequired        Boolean?
+  conditionalLogic  Json?
+  customLabel       String?
+  customPlaceholder String?
+  createdAt         DateTime     @default(now())
+
+  form              Form         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  section           FormSection? @relation(fields: [sectionId], references: [id])
+
+  @@index([formId])
+  @@map("form_fields")
+}
+
+model FormPermission {
+  id               String   @id @default(cuid())
+  formId           String
+  role             String
+  organizationId   String
+  canView          Boolean  @default(true)
+  canSubmit        Boolean  @default(true)
+  canEdit          Boolean  @default(false)
+  canDelete        Boolean  @default(false)
+  canShare         Boolean  @default(false)
+  canManageBuilder Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  form             Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@unique([formId, role, organizationId])
+  @@index([formId])
+  @@map("form_permissions")
+}
+
+model AnalyticsView {
+  id             String   @id @default(cuid())
+  name           String
+  organizationId String
+  createdById    String
+  config         Json     @default("{}")
+  isDefault      Boolean  @default(false)
+  isPinned       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdBy      User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@map("analytics_views")
+}
+
+model SavedFilter {
+  id             String   @id @default(cuid())
+  name           String
+  moduleId       String?
+  organizationId String
+  createdById    String
+  conditions     Json     @default("[]")
+  logic          String   @default("AND")
+  context        String   @default("analytics")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdBy      User         @relation(fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@map("saved_filters")
+}
+
+model AnalyticsTarget {
+  id             String    @id @default(cuid())
+  name           String
+  moduleId       String
+  organizationId String
+  fieldName      String?
+  aggregation    String    @default("COUNT")
+  targetValue    Float
+  currentValue   Float     @default(0)
+  period         String    @default("MONTHLY")
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  module         DynamicModule @relation(fields: [moduleId], references: [id])
+
+  @@index([organizationId])
+  @@map("analytics_targets")
+}
+
+model FormSubmission {
+  id        String   @id @default(cuid())
+  formId    String
+  data      Json     @default("{}")
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@map("form_submissions")
+}
+
+model UserPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("user_preferences")
+}
+
+model Blueprint {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  moduleId        String
+  statusFieldName String
+  phases          Json     @default("[]")
+  transitions     Json     @default("[]")
+  fieldLocks      Json     @default("{}")
+  rules           Json     @default("[]")
+  treeData        Json?
+  isActive        Boolean  @default(true)
+  organizationId  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  module       DynamicModule @relation(fields: [moduleId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([moduleId])
+  @@map("blueprints")
+}
+
+// ── Portal Models ──────────────────────────────────────────────────────────────
+
+model PortalUser {
+  id               String    @id @default(cuid())
+  email            String
+  password         String
+  firstName        String
+  lastName         String
+  phone            String?
+  profilePicture   String?
+  type             String    @default("member")
+  accountStatus    String    @default("PENDING_ACTIVATION")
+  organizationId   String
+  moduleId         String?
+  recordId         String?
+  isActive         Boolean   @default(true)
+  isFirstLogin     Boolean   @default(true)
+  isEmailVerified  Boolean   @default(false)
+  lastLoginAt      DateTime?
+  resetToken       String?   @unique
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  isPortalAdmin    Boolean   @default(false)
+  customData       Json      @default("{}")
+  portalRole       String    @default("user")
+
+  organization   Organization         @relation(fields: [organizationId], references: [id])
+  notifications  PortalNotification[]
+  documents      PortalDocument[]
+
+  @@unique([email, organizationId])
+  @@index([organizationId])
+  @@index([recordId])
+  @@index([accountStatus])
+  @@map("portal_users")
+}
+
+model PortalNotification {
+  id           String   @id @default(cuid())
+  portalUserId String
+  title        String
+  body         String
+  type         String   @default("info")
+  isRead       Boolean  @default(false)
+  link         String?
+  createdAt    DateTime @default(now())
+
+  portalUser PortalUser @relation(fields: [portalUserId], references: [id], onDelete: Cascade)
+
+  @@index([portalUserId])
+  @@map("portal_notifications")
+}
+
+model PortalAnnouncement {
+  id             String    @id @default(cuid())
+  organizationId String
+  title          String
+  body           String
+  type           String    @default("general")
+  targetTypes    Json      @default("[]")
+  isPublished    Boolean   @default(true)
+  publishedAt    DateTime  @default(now())
+  scheduledAt    DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("portal_announcements")
+}
+
+model PortalPage {
+  id                String    @id @default(cuid())
+  organizationId    String
+  title             String
+  slug              String
+  description       String?
+  icon              String?
+  layoutTemplate    String    @default("single")
+  status            String    @default("DRAFT")
+  accessTypes       Json      @default("[]")
+  blocks            Json      @default("[]")
+  primaryModuleId   String?
+  primaryModuleSlug String?
+  publishedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  fields       PortalField[]   @relation("PageFields")
+  sections     PortalSection[] @relation("PageSections")
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("portal_pages")
+}
+
+model PortalMenuItem {
+  id             String    @id @default(cuid())
+  organizationId String
+  label          String
+  icon           String?
+  type           String    @default("page")
+  target         String?
+  parentId       String?
+  order          Int       @default(0)
+  isVisible      Boolean   @default(true)
+  accessTypes    Json      @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  parent       PortalMenuItem?  @relation("MenuItemChildren", fields: [parentId], references: [id])
+  children     PortalMenuItem[] @relation("MenuItemChildren")
+
+  @@index([organizationId])
+  @@map("portal_menu_items")
+}
+
+// ── Portal Association Models ─────────────────────────────────────────────────
+
+model PortalModuleConfig {
+  id              String   @id @default(cuid())
+  organizationId  String
+  moduleId        String   @unique
+  isEnabled       Boolean  @default(true)
+  portalLabel     String
+  portalType      String   @default("standard")
+  menuItems       Json     @default("[]")
+  dashboardLayout Json     @default("{}")
+  theme           Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  module         DynamicModule       @relation(fields: [moduleId], references: [id])
+  fieldMappings  PortalFieldMapping[]
+  portalFields   PortalField[]
+  portalSections PortalSection[]
+
+  @@index([organizationId])
+  @@map("portal_module_configs")
+}
+
+model PortalFieldMapping {
+  id                   String   @id @default(cuid())
+  portalModuleConfigId String
+  crmFieldName         String
+  portalFieldName      String
+  displayLabel         String
+  isIdentity           Boolean  @default(false)
+  isEditable           Boolean  @default(false)
+  isVisible            Boolean  @default(true)
+  order                Int      @default(0)
+  createdAt            DateTime @default(now())
+
+  config PortalModuleConfig @relation(fields: [portalModuleConfigId], references: [id], onDelete: Cascade)
+
+  @@index([portalModuleConfigId])
+  @@map("portal_field_mappings")
+}
+
+model PortalSettings {
+  id                     String   @id @default(cuid())
+  organizationId         String   @unique
+  minPasswordLength      Int      @default(8)
+  requireUppercase       Boolean  @default(true)
+  requireLowercase       Boolean  @default(true)
+  requireNumber          Boolean  @default(true)
+  requireSpecial         Boolean  @default(false)
+  passwordExpiryDays     Int      @default(0)
+  forceResetOnFirstLogin Boolean  @default(true)
+  defaultPasswordStrategy String  @default("last_name")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("portal_settings")
+}
+
+// ── Portal Admin Builder Models ───────────────────────────────────────────────
+
+model PortalSection {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  portalModuleConfigId String?
+  label                String
+  type                 String   @default("section")
+  icon                 String?
+  columnIndex          Int      @default(0)
+  order                Int      @default(0)
+  isCollapsible        Boolean  @default(false)
+  isVisible            Boolean  @default(true)
+  isAdminOnly          Boolean  @default(false)
+  status               String   @default("PUBLISHED")
+  crmModuleSlug        String?
+  crmRelationField     String?
+  crmSectionType       String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  moduleConfig PortalModuleConfig?  @relation(fields: [portalModuleConfigId], references: [id])
+  fields       PortalField[]
+  portalPageId String?
+  portalPage   PortalPage?          @relation("PageSections", fields: [portalPageId], references: [id])
+
+  @@index([organizationId])
+  @@index([portalModuleConfigId])
+  @@index([portalPageId])
+  @@map("portal_sections")
+}
+
+model PortalField {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  portalModuleConfigId String?
+  sectionId            String?
+  label                String
+  fieldKey             String
+  fieldType            String   @default("text")
+  placeholder          String?
+  defaultValue         String?
+  helpText             String?
+  options              Json     @default("[]")
+  isRequired           Boolean  @default(false)
+  isVisible            Boolean  @default(true)
+  isEditable           Boolean  @default(true)
+  isReadOnly           Boolean  @default(false)
+  isAdminOnly          Boolean  @default(false)
+  mappedCrmFieldName   String?
+  mappedCrmModuleSlug  String?
+  formula              String?
+  order                Int      @default(0)
+  status               String   @default("ACTIVE")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  moduleConfig PortalModuleConfig?  @relation(fields: [portalModuleConfigId], references: [id])
+  section      PortalSection?       @relation(fields: [sectionId], references: [id])
+  portalPageId String?
+  portalPage   PortalPage?          @relation("PageFields", fields: [portalPageId], references: [id])
+
+  @@index([organizationId])
+  @@index([portalModuleConfigId])
+  @@index([portalPageId])
+  @@map("portal_fields")
+}
+
+model PortalDocument {
+  id             String   @id @default(cuid())
+  organizationId String
+  portalUserId   String
+  recordId       String?
+  moduleId       String?
+  fieldKey       String?
+  fileName       String
+  originalName   String
+  fileSize       Int
+  mimeType       String
+  filePath       String
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  portalUser   PortalUser   @relation(fields: [portalUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([portalUserId])
+  @@map("portal_documents")
+}
+
+model PortalTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  category       String   @default("custom")
+  thumbnail      String?
+  snapshot       Json
+  isBuiltIn      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("portal_templates")
+}

@@ -1,0 +1,125 @@
+
+> mycrm@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.184.237:3000
+- Environments: .env.local
+✓ Ready in 577ms
+- Experiments (use with caution):
+  · optimizePackageImports
+
+ GET /login 200 in 457ms (next.js: 178ms, application-code: 279ms)
+ GET /login 200 in 125ms (next.js: 16ms, application-code: 109ms)
+ GET / 307 in 523ms (next.js: 106ms, application-code: 418ms)
+ GET /dashboard 200 in 282ms (next.js: 90ms, application-code: 192ms)
+ GET /login 200 in 86ms (next.js: 11ms, application-code: 75ms)
+ GET /sw.js 404 in 149ms (next.js: 76ms, application-code: 73ms)
+ GET /dashboard 200 in 63ms (next.js: 11ms, application-code: 52ms)
+ GET /m/scholar 200 in 613ms (next.js: 542ms, application-code: 71ms)
+ GET /analytics 200 in 144ms (next.js: 77ms, application-code: 67ms)
+ GET /workflows 200 in 131ms (next.js: 76ms, application-code: 54ms)
+ GET /analytics 200 in 55ms (next.js: 10ms, application-code: 44ms)
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+ GET /workflows 200 in 55ms (next.js: 7ms, application-code: 47ms)
+ GET /analytics 200 in 58ms (next.js: 10ms, application-code: 48ms)
+ GET /forms 200 in 127ms (next.js: 77ms, application-code: 50ms)
+ GET /forms/cmpi86s3m001f13wwtilkkqoo/builder 200 in 537ms (next.js: 476ms, application-code: 61ms)
+ GET /forms 200 in 51ms (next.js: 7ms, application-code: 45ms)
+ GET /dashboard 200 in 51ms (next.js: 6ms, application-code: 45ms)
+ GET /workflows 200 in 44ms (next.js: 8ms, application-code: 37ms)
+ GET /analytics 200 in 51ms (next.js: 6ms, application-code: 45ms)
+ GET /admin/departments 200 in 125ms (next.js: 70ms, application-code: 55ms)
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+ GET /analytics 200 in 59ms (next.js: 8ms, application-code: 51ms)
+ GET /dashboard 200 in 50ms (next.js: 7ms, application-code: 43ms)
+ GET /analytics 200 in 59ms (next.js: 6ms, application-code: 53ms)
+ GET /workflows 200 in 55ms (next.js: 5ms, application-code: 51ms)
+ GET /forms 200 in 52ms (next.js: 9ms, application-code: 43ms)
+ GET /notifications 200 in 109ms (next.js: 62ms, application-code: 47ms)
+ GET /dashboard 200 in 59ms (next.js: 8ms, application-code: 51ms)
+ GET /m/scholar 200 in 71ms (next.js: 22ms, application-code: 49ms)
+ GET /m/payment 200 in 72ms (next.js: 26ms, application-code: 47ms)
+ GET /m/payment/new 200 in 561ms (next.js: 508ms, application-code: 53ms)
+ GET /m/payment 200 in 66ms (next.js: 19ms, application-code: 47ms)
+ GET /m/scholar 200 in 72ms (next.js: 23ms, application-code: 49ms)
+ GET /m/scholar/cmpi1mr5q0009qo0qa0matbb1 200 in 522ms (next.js: 470ms, application-code: 52ms)
+ GET /m/scholar 200 in 70ms (next.js: 23ms, application-code: 47ms)
+ GET /m/scholar/cmpi4osvz000313wwa5t1p1ux 200 in 74ms (next.js: 22ms, application-code: 53ms)
+ GET /m/scholar 200 in 71ms (next.js: 22ms, application-code: 48ms)
+ GET /m/payment 200 in 77ms (next.js: 18ms, application-code: 59ms)
+ GET /m/payment/cmpjtjl7a0007ijw2imq00xks 200 in 67ms (next.js: 20ms, application-code: 47ms)
+ GET /m/payment 200 in 69ms (next.js: 19ms, application-code: 50ms)
+ GET /m/scholar 200 in 64ms (next.js: 21ms, application-code: 43ms)
+ GET /m/scholar/cmpjs0eq3000t1114w8i30du2 200 in 68ms (next.js: 19ms, application-code: 49ms)
+ GET /m/scholar 200 in 67ms (next.js: 22ms, application-code: 45ms)
+ GET /notifications 200 in 50ms (next.js: 8ms, application-code: 42ms)
+ GET /analytics 200 in 95ms (next.js: 16ms, application-code: 78ms)
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+ GET /workflows 200 in 52ms (next.js: 9ms, application-code: 43ms)
+ GET /dashboard 200 in 55ms (next.js: 7ms, application-code: 49ms)
+ GET /workflows 200 in 51ms (next.js: 7ms, application-code: 45ms)
+ GET /forms 200 in 52ms (next.js: 10ms, application-code: 42ms)
+ GET /notifications 200 in 67ms (next.js: 8ms, application-code: 59ms)
+ GET /m/scholar 200 in 75ms (next.js: 21ms, application-code: 54ms)
+ GET /m/scholar/cmpi1mr5q0009qo0qa0matbb1 200 in 65ms (next.js: 19ms, application-code: 46ms)
+ GET /m/scholar 200 in 68ms (next.js: 19ms, application-code: 49ms)
+ GET /studio 200 in 140ms (next.js: 87ms, application-code: 53ms)
+ GET /studio/new 200 in 134ms (next.js: 73ms, application-code: 61ms)
+ GET /studio/cmpjts34i000hijw23pbeeq3s 200 in 542ms (next.js: 489ms, application-code: 53ms)
+[browser] Uncaught ReferenceError: useRef is not defined
+    at StudioEditorPage (app/(dashboard)/studio/[id]/page.tsx:184:25)
+  182 |   const [modules, setModules] = useState<any[]>([]);
+  183 |   const [globalLists, setGlobalLists] = useState<any[]>([]);
+> 184 |   const dragActiveRef = useRef(false);
+      |                         ^
+  185 |
+  186 |   const sensors = useSensors(
+  187 |     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+ GET / 307 in 261ms (next.js: 7ms, application-code: 253ms)
+ GET /dashboard 200 in 98ms (next.js: 10ms, application-code: 88ms)
+ GET /login 200 in 69ms (next.js: 8ms, application-code: 61ms)
+ GET /sw.js 404 in 159ms (next.js: 16ms, application-code: 143ms)
+ GET /dashboard 200 in 58ms (next.js: 8ms, application-code: 49ms)
+ GET /m/contacts 200 in 78ms (next.js: 20ms, application-code: 58ms)
+ GET /m/contacts/new 200 in 77ms (next.js: 19ms, application-code: 58ms)
+ GET /studio/cmpjts34i000hijw23pbeeq3s 200 in 85ms (next.js: 19ms, application-code: 66ms)
+[browser] Uncaught ReferenceError: useRef is not defined
+    at StudioEditorPage (app/(dashboard)/studio/[id]/page.tsx:184:25)
+  182 |   const [modules, setModules] = useState<any[]>([]);
+  183 |   const [globalLists, setGlobalLists] = useState<any[]>([]);
+> 184 |   const dragActiveRef = useRef(false);
+      |                         ^
+  185 |
+  186 |   const sensors = useSensors(
+  187 |     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+ GET / 307 in 251ms (next.js: 8ms, application-code: 243ms)
+ GET /dashboard 200 in 95ms (next.js: 8ms, application-code: 88ms)
+ GET /login 200 in 62ms (next.js: 8ms, application-code: 54ms)
+ GET /sw.js 404 in 94ms (next.js: 10ms, application-code: 84ms)
+ GET /dashboard 200 in 65ms (next.js: 11ms, application-code: 54ms)
+ GET /m/scholar 200 in 68ms (next.js: 20ms, application-code: 49ms)
+ GET /notifications 200 in 56ms (next.js: 7ms, application-code: 48ms)
+✓ Compiled in 280ms
+ GET /login 200 in 284ms (next.js: 58ms, application-code: 226ms)
+ GET /notifications 200 in 284ms (next.js: 107ms, application-code: 177ms)
+ GET /login 200 in 120ms (next.js: 6ms, application-code: 114ms)
+ GET /notifications 200 in 91ms (next.js: 15ms, application-code: 76ms)
+ GET /login 200 in 57ms (next.js: 2ms, application-code: 54ms)
+ GET /notifications 200 in 34ms (next.js: 3ms, application-code: 31ms)
+ GET /login 200 in 130ms (next.js: 54ms, application-code: 76ms)
+ GET /notifications 200 in 130ms (next.js: 101ms, application-code: 29ms)
+ GET /login 200 in 125ms (next.js: 100ms, application-code: 25ms)
+ GET /notifications 200 in 128ms (next.js: 58ms, application-code: 71ms)
+ GET /login 200 in 125ms (next.js: 53ms, application-code: 72ms)
+ GET /notifications 200 in 42ms (next.js: 13ms, application-code: 29ms)
+ GET /login 200 in 186ms (next.js: 61ms, application-code: 125ms)
+ GET /notifications 200 in 91ms (next.js: 27ms, application-code: 64ms)
+ GET /login 200 in 151ms (next.js: 56ms, application-code: 95ms)
+ GET /notifications 200 in 64ms (next.js: 29ms, application-code: 35ms)
