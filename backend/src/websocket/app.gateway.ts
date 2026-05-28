@@ -37,11 +37,21 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { event: 'joined', data: `module:${moduleId}` };
   }
 
+  @SubscribeMessage('join-user')
+  handleJoinUser(@ConnectedSocket() client: Socket, @MessageBody() userId: string) {
+    client.join(`user:${userId}`);
+    return { event: 'joined', data: `user:${userId}` };
+  }
+
   emitToOrg(orgId: string, event: string, data: any) {
     this.server.to(`org:${orgId}`).emit(event, data);
   }
 
   emitToModule(moduleId: string, event: string, data: any) {
     this.server.to(`module:${moduleId}`).emit(event, data);
+  }
+
+  emitToUser(userId: string, event: string, data: any) {
+    this.server.to(`user:${userId}`).emit(event, data);
   }
 }

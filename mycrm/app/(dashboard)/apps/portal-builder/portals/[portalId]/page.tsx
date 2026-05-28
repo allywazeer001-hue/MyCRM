@@ -73,6 +73,29 @@ export default function PortalBuilderPage() {
       .finally(() => setLoading(false));
   }, [portalId]);
 
+  // Hooks must be unconditional — computed before any early returns
+  const sections = useMemo<CanvasSection[]>(() => {
+    if (!page) return [];
+    return page.sections.map(s => {
+      const { cols, ratio } = parseSectionCols(s.icon);
+      return {
+        ...s,
+        sectionColumns: cols,
+        columnRatio: ratio,
+        isVisible: s.isVisible ?? true,
+        isCollapsible: s.isCollapsible ?? false,
+        fields: (s.fields ?? []).map(f => ({
+          ...f,
+          options: (f.options ?? []) as Array<{ label: string; value: string }>,
+          isAdminOnly: f.isAdminOnly ?? false,
+          isVisible: f.isVisible ?? true,
+        })),
+      };
+    });
+  }, [page]);
+
+  const templateColumns = page ? (TEMPLATE_COLS[page.layoutTemplate] ?? 1) : 1;
+
   if (loading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gray-950">
@@ -101,25 +124,6 @@ export default function PortalBuilderPage() {
       </div>
     );
   }
-
-  const sections = useMemo<CanvasSection[]>(() => page.sections.map(s => {
-    const { cols, ratio } = parseSectionCols(s.icon);
-    return {
-      ...s,
-      sectionColumns: cols,
-      columnRatio: ratio,
-      isVisible: s.isVisible ?? true,
-      isCollapsible: s.isCollapsible ?? false,
-      fields: (s.fields ?? []).map(f => ({
-        ...f,
-        options: (f.options ?? []) as Array<{ label: string; value: string }>,
-        isAdminOnly: f.isAdminOnly ?? false,
-        isVisible: f.isVisible ?? true,
-      })),
-    };
-  }), [page]);
-
-  const templateColumns = TEMPLATE_COLS[page.layoutTemplate] ?? 1;
 
   return (
     <PortalCanvasBuilder

@@ -13,6 +13,11 @@ export declare class AppGateway implements OnGatewayConnection, OnGatewayDisconn
         event: string;
         data: string;
     };
+    handleJoinUser(client: Socket, userId: string): {
+        event: string;
+        data: string;
+    };
     emitToOrg(orgId: string, event: string, data: any): void;
     emitToModule(moduleId: string, event: string, data: any): void;
+    emitToUser(userId: string, event: string, data: any): void;
 }

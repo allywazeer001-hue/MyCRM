@@ -34,11 +34,18 @@ let AppGateway = class AppGateway {
         client.join(`module:${moduleId}`);
         return { event: 'joined', data: `module:${moduleId}` };
     }
+    handleJoinUser(client, userId) {
+        client.join(`user:${userId}`);
+        return { event: 'joined', data: `user:${userId}` };
+    }
     emitToOrg(orgId, event, data) {
         this.server.to(`org:${orgId}`).emit(event, data);
     }
     emitToModule(moduleId, event, data) {
         this.server.to(`module:${moduleId}`).emit(event, data);
+    }
+    emitToUser(userId, event, data) {
+        this.server.to(`user:${userId}`).emit(event, data);
     }
 };
 exports.AppGateway = AppGateway;
@@ -62,6 +69,14 @@ __decorate([
     __metadata("design:paramtypes", [socket_io_1.Socket, String]),
     __metadata("design:returntype", void 0)
 ], AppGateway.prototype, "handleJoinModule", null);
+__decorate([
+    (0, websockets_1.SubscribeMessage)('join-user'),
+    __param(0, (0, websockets_1.ConnectedSocket)()),
+    __param(1, (0, websockets_1.MessageBody)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [socket_io_1.Socket, String]),
+    __metadata("design:returntype", void 0)
+], AppGateway.prototype, "handleJoinUser", null);
 exports.AppGateway = AppGateway = __decorate([
     (0, websockets_1.WebSocketGateway)({ cors: { origin: '*' }, namespace: '/' })
 ], AppGateway);

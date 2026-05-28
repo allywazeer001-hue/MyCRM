@@ -10,10 +10,16 @@ exports.NotificationsModule = void 0;
 const common_1 = require("@nestjs/common");
 const notifications_service_1 = require("./notifications.service");
 const notifications_controller_1 = require("./notifications.controller");
+const websocket_module_1 = require("../websocket/websocket.module");
 let NotificationsModule = class NotificationsModule {
 };
 exports.NotificationsModule = NotificationsModule;
 exports.NotificationsModule = NotificationsModule = __decorate([
-    (0, common_1.Module)({ controllers: [notifications_controller_1.NotificationsController], providers: [notifications_service_1.NotificationsService], exports: [notifications_service_1.NotificationsService] })
+    (0, common_1.Module)({
+        imports: [websocket_module_1.WebsocketModule],
+        controllers: [notifications_controller_1.NotificationsController],
+        providers: [notifications_service_1.NotificationsService],
+        exports: [notifications_service_1.NotificationsService],
+    })
 ], NotificationsModule);
 //# sourceMappingURL=notifications.module.js.map

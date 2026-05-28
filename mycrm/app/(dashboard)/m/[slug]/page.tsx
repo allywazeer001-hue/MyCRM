@@ -7,7 +7,7 @@ import {
   List, Loader2, AlertCircle, Columns3, X,
   ChevronDown, Check, LayoutGrid, Download, Save, BookOpen,
   SlidersHorizontal, Upload, FileText, CheckCircle2, Pin, PinOff,
-  Pencil, Mail, Zap
+  Pencil, Mail, Zap, GripVertical
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -412,7 +412,8 @@ function ColumnPicker({ fields, visibleIds, onChange }: { fields: Field[]; visib
 
 // ── Kanban View (DnD) ─────────────────────────────────────────────────────
 
-function KanbanCard({ record, titleField }: { record: CrmRecord; titleField: Field | undefined }) {
+function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleField: Field | undefined; slug: string }) {
+  const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: record.id,
     data: { record },
@@ -424,14 +425,24 @@ function KanbanCard({ record, titleField }: { record: CrmRecord; titleField: Fie
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className="p-3 rounded-lg border border-gray-200 bg-white hover:shadow-sm cursor-grab active:cursor-grabbing transition-shadow space-y-1.5"
+      className="p-3 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:border-blue-200 cursor-pointer transition-all space-y-1.5"
+      onClick={() => !isDragging && router.push(`/m/${slug}/${record.id}`)}
     >
-      <p className="text-sm font-medium text-gray-800 truncate">
-        {titleField ? record.data[titleField.name] || "Untitled" : record.id.slice(0, 8)}
-      </p>
-      <p className="text-xs text-gray-400">{formatDate(record.createdAt)}</p>
+      <div className="flex items-start gap-1.5">
+        <div
+          {...listeners}
+          {...attributes}
+          className="mt-0.5 shrink-0 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors touch-none"
+          onClick={e => e.stopPropagation()}
+          title="Drag to move"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+        <p className="text-sm font-medium text-gray-800 truncate flex-1">
+          {titleField ? record.data[titleField.name] || "Untitled" : record.id.slice(0, 8)}
+        </p>
+      </div>
+      <p className="text-xs text-gray-400 pl-5">{formatDate(record.createdAt)}</p>
     </div>
   );
 }
@@ -457,7 +468,7 @@ function KanbanColumn({ col, records, titleField, slug }: {
         )}
       >
         {records.map(record => (
-          <KanbanCard key={record.id} record={record} titleField={titleField} />
+          <KanbanCard key={record.id} record={record} titleField={titleField} slug={slug} />
         ))}
         {records.length === 0 && (
           <div className={cn(
@@ -1166,6 +1177,17 @@ export default function ModuleRecordsPage() {
   const [view, setViewLocal] = useState<"table" | "kanban">(storeView);
   const setView = useCallback((v: "table" | "kanban") => { setViewLocal(v); setModuleView(slug, v); }, [slug, setModuleView]);
   const [visibleFieldIds, setVisibleFieldIds] = useState<string[]>([]);
+  const columnSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modIdRef = useRef<string | null>(null);
+  const handleColumnChange = useCallback((ids: string[]) => {
+    setVisibleFieldIds(ids);
+    if (columnSaveTimer.current) clearTimeout(columnSaveTimer.current);
+    columnSaveTimer.current = setTimeout(() => {
+      if (modIdRef.current) {
+        api.put(`/user-preferences/columns:${modIdRef.current}`, { value: ids }).catch(() => {});
+      }
+    }, 800);
+  }, []);
 
   // Filters
   const [filterOpen, setFilterOpen] = useState(false);
@@ -1187,6 +1209,19 @@ export default function ModuleRecordsPage() {
     try {
       const { data } = await api.get(`/modules/by-slug/${slug}`);
       setMod(data);
+      modIdRef.current = data.id;
+      // Restore persisted column preferences, fall back to default first 7
+      try {
+        const prefRes = await api.get(`/user-preferences/columns:${data.id}`);
+        if (prefRes.data?.value && Array.isArray(prefRes.data.value)) {
+          const validIds = new Set((data.fields || []).map((f: Field) => f.id));
+          const stored = (prefRes.data.value as string[]).filter(id => validIds.has(id));
+          if (stored.length > 0) {
+            setVisibleFieldIds(stored);
+            return data;
+          }
+        }
+      } catch {}
       const defaultVisible = (data.fields || [])
         .filter((f: Field) => !f.isHidden)
         .slice(0, 7)
@@ -1583,7 +1618,7 @@ export default function ModuleRecordsPage() {
           </Button>
 
           {view === "table" && mod?.fields && (
-            <ColumnPicker fields={mod.fields} visibleIds={visibleFieldIds} onChange={setVisibleFieldIds} />
+            <ColumnPicker fields={mod.fields} visibleIds={visibleFieldIds} onChange={handleColumnChange} />
           )}
 
           <div className="flex rounded-md border border-gray-200 overflow-hidden">
