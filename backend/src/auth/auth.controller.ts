@@ -36,4 +36,24 @@ export class AuthController {
   logout(@CurrentUser() user: any) {
     return this.authService.logout(user.id);
   }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(200)
+  changePassword(
+    @CurrentUser() user: any,
+    @Body('currentPassword') currentPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    return this.authService.changePassword(user.id, currentPassword, newPassword);
+  }
+
+  @Post('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(200)
+  getProfile(@CurrentUser() user: any) {
+    return this.authService.getProfile(user.id);
+  }
 }

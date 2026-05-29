@@ -125,6 +125,9 @@ let PortalPadminController = class PortalPadminController {
     publishPage(user, id, dto) {
         return this.builderService.updatePage(user.organizationId, id, { status: dto.status ?? 'PUBLISHED' });
     }
+    republishPage(user, id) {
+        return this.builderService.republishPage(user.organizationId, id);
+    }
     listTemplates(user) {
         return this.builderService.listTemplates(user.organizationId);
     }
@@ -436,6 +439,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, Object]),
     __metadata("design:returntype", void 0)
 ], PortalPadminController.prototype, "publishPage", null);
+__decorate([
+    (0, common_1.Post)('pages/:id/republish'),
+    __param(0, CurrentPortalUser()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], PortalPadminController.prototype, "republishPage", null);
 __decorate([
     (0, common_1.Get)('templates'),
     __param(0, CurrentPortalUser()),

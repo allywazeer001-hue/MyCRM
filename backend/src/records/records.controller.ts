@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { RecordsService } from './records.service';
+import { PermissionCheckService } from '../permissions/permission-check.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -28,10 +29,14 @@ export class LookupController {
 @UseGuards(JwtAuthGuard)
 @Controller('modules/:moduleId/records')
 export class RecordsController {
-  constructor(private recordsService: RecordsService) {}
+  constructor(
+    private recordsService: RecordsService,
+    private permCheck: PermissionCheckService,
+  ) {}
 
   @Post()
-  create(@Param('moduleId') moduleId: string, @Body() body: any, @CurrentUser() user: any) {
+  async create(@Param('moduleId') moduleId: string, @Body() body: any, @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canCreate');
     return this.recordsService.create(moduleId, user.organizationId, user.id, body);
   }
 
@@ -46,28 +51,27 @@ export class RecordsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+  async update(@Param('moduleId') moduleId: string, @Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canEdit');
     return this.recordsService.update(id, user.organizationId, user.id, body);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentUser() user: any) {
+  async remove(@Param('moduleId') moduleId: string, @Param('id') id: string, @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canDelete');
     return this.recordsService.softDelete(id, user.organizationId, user.id);
   }
 
   @Post('bulk-delete')
-  bulkDelete(@Body('ids') ids: string[], @CurrentUser() user: any) {
+  async bulkDelete(@Param('moduleId') moduleId: string, @Body('ids') ids: string[], @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canDelete');
     return this.recordsService.bulkDelete(ids, user.organizationId, user.id);
   }
 
   @Post('bulk-update')
-  bulkUpdate(@Body() body: any, @CurrentUser() user: any) {
-    return this.recordsService.bulkUpdateField(
-      body.ids,
-      body.fieldName,
-      body.value,
-      user.organizationId,
-    );
+  async bulkUpdate(@Param('moduleId') moduleId: string, @Body() body: any, @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canEdit');
+    return this.recordsService.bulkUpdateField(body.ids, body.fieldName, body.value, user.organizationId);
   }
 
   @Get('import/template')
@@ -88,12 +92,13 @@ export class RecordsController {
   }
 
   @Post('import/run')
-  importRun(
+  async importRun(
     @Param('moduleId') moduleId: string,
     @Body('csvText') csvText: string,
     @Body('mapping') mapping: Record<string, string>,
     @CurrentUser() user: any,
   ) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canImport');
     return this.recordsService.importCsv(moduleId, user.organizationId, user.id, csvText, mapping);
   }
 
@@ -104,6 +109,7 @@ export class RecordsController {
     @CurrentUser() user: any,
     @Res() res: Response,
   ) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canExport');
     const csv = await this.recordsService.exportCsv(moduleId, user.organizationId, filterGroup);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="export-${Date.now()}.csv"`);

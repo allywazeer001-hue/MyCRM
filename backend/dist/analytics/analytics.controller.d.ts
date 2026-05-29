@@ -30,6 +30,7 @@ export declare class AnalyticsController {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -41,7 +42,6 @@ export declare class AnalyticsController {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         };

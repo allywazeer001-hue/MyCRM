@@ -33,6 +33,7 @@ const analytics_module_1 = require("./analytics/analytics.module");
 const user_preferences_module_1 = require("./user-preferences/user-preferences.module");
 const blueprints_module_1 = require("./blueprints/blueprints.module");
 const portal_module_1 = require("./portal/portal.module");
+const departments_module_1 = require("./departments/departments.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -64,6 +65,7 @@ exports.AppModule = AppModule = __decorate([
             user_preferences_module_1.UserPreferencesModule,
             blueprints_module_1.BlueprintsModule,
             portal_module_1.PortalModule,
+            departments_module_1.DepartmentsModule,
         ],
     })
 ], AppModule);

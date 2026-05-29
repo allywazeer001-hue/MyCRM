@@ -1,7 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkflowsService } from '../workflows/workflows.service';
 export declare class FormsService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private workflows;
+    constructor(prisma: PrismaService, workflows: WorkflowsService);
     findAll(orgId: string): Promise<({
         _count: {
             fields: number;
@@ -14,9 +16,9 @@ export declare class FormsService {
             icon: string;
         };
         createdBy: {
-            id: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;
@@ -28,8 +30,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     })[]>;
@@ -40,11 +42,11 @@ export declare class FormsService {
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
+            canView: boolean;
+            canEdit: boolean;
             canDelete: boolean;
             formId: string;
-            canView: boolean;
             canSubmit: boolean;
-            canEdit: boolean;
             canShare: boolean;
             canManageBuilder: boolean;
         }[];
@@ -78,9 +80,9 @@ export declare class FormsService {
             icon: string;
         };
         createdBy: {
-            id: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
         sections: {
             id: string;
@@ -100,8 +102,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -113,9 +115,9 @@ export declare class FormsService {
             icon: string;
         };
         createdBy: {
-            id: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;
@@ -127,8 +129,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -142,8 +144,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -157,8 +159,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -237,11 +239,11 @@ export declare class FormsService {
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
+        canView: boolean;
+        canEdit: boolean;
         canDelete: boolean;
         formId: string;
-        canView: boolean;
         canSubmit: boolean;
-        canEdit: boolean;
         canShare: boolean;
         canManageBuilder: boolean;
     }[]>;
@@ -251,11 +253,11 @@ export declare class FormsService {
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
+        canView: boolean;
+        canEdit: boolean;
         canDelete: boolean;
         formId: string;
-        canView: boolean;
         canSubmit: boolean;
-        canEdit: boolean;
         canShare: boolean;
         canManageBuilder: boolean;
     }>;
@@ -277,6 +279,7 @@ export declare class FormsService {
         name: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
+        moduleId: string;
         label: string;
         type: import(".prisma/client").$Enums.FieldType;
         isRequired: boolean;
@@ -288,7 +291,6 @@ export declare class FormsService {
         defaultValue: string | null;
         validation: import("@prisma/client/runtime/library").JsonValue | null;
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-        moduleId: string;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
     })[]>;
@@ -302,8 +304,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -317,8 +319,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;
@@ -370,8 +372,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }) | {
@@ -394,6 +396,7 @@ export declare class FormsService {
                 name: string;
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
+                moduleId: string;
                 label: string;
                 type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
@@ -405,7 +408,6 @@ export declare class FormsService {
                 defaultValue: string | null;
                 validation: import("@prisma/client/runtime/library").JsonValue | null;
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-                moduleId: string;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
             };
@@ -476,8 +478,8 @@ export declare class FormsService {
         slug: string;
         settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
-        type: string;
         moduleId: string | null;
+        type: string;
         createdById: string;
         token: string | null;
     }>;

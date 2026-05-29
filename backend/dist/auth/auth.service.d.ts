@@ -16,6 +16,9 @@ export declare class AuthService {
         refreshToken: string;
         user: any;
     }>;
+    changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{
+        success: boolean;
+    }>;
     refreshToken(userId: string, refreshToken: string): Promise<{
         accessToken: string;
         refreshToken: string;
@@ -26,23 +29,29 @@ export declare class AuthService {
     }>;
     logout(userId: string): Promise<void>;
     validateUser(email: string, password: string): Promise<{
-        id: string;
         email: string;
         password: string;
         firstName: string;
         lastName: string;
+        id: string;
         avatar: string | null;
         phone: string | null;
         jobTitle: string | null;
         role: import(".prisma/client").$Enums.UserRole;
         isActive: boolean;
+        status: string;
+        mustChangePassword: boolean;
+        suspendedAt: Date | null;
+        lockedAt: Date | null;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;
+        departmentId: string | null;
         createdAt: Date;
         updatedAt: Date;
     }>;
     private generateTokens;
     private updateRefreshToken;
     private sanitizeUser;
+    getProfile(userId: string): Promise<any>;
 }

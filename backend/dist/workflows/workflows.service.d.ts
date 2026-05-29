@@ -1,7 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { AppGateway } from '../websocket/app.gateway';
 export declare class WorkflowsService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private gateway;
+    constructor(prisma: PrismaService, gateway: AppGateway);
     create(orgId: string, data: any): Promise<{
         actions: {
             id: string;
@@ -128,8 +130,8 @@ export declare class WorkflowsService {
     getExecutions(workflowId: string, orgId: string): Promise<{
         error: string | null;
         id: string;
-        workflowId: string;
         status: string;
+        workflowId: string;
         input: import("@prisma/client/runtime/library").JsonValue;
         output: import("@prisma/client/runtime/library").JsonValue;
         startedAt: Date;

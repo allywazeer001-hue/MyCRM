@@ -47,10 +47,10 @@ export declare class PortalService {
         record: {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
             data: import("@prisma/client/runtime/library").JsonValue;
+            moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
             createdById: string;
@@ -69,15 +69,15 @@ export declare class PortalService {
                 }[];
             } & {
                 id: string;
-                type: import(".prisma/client").$Enums.FieldType;
-                moduleId: string;
                 isActive: boolean;
                 createdAt: Date;
                 updatedAt: Date;
                 name: string;
-                order: number;
                 settings: import("@prisma/client/runtime/library").JsonValue;
+                order: number;
+                moduleId: string;
                 label: string;
+                type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -92,17 +92,17 @@ export declare class PortalService {
             })[];
         } & {
             id: string;
-            organizationId: string;
             isActive: boolean;
+            organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             name: string;
             slug: string;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
             icon: string | null;
             color: string | null;
             order: number;
-            settings: import("@prisma/client/runtime/library").JsonValue;
         };
         fields: ({
             options: {
@@ -116,15 +116,15 @@ export declare class PortalService {
             }[];
         } & {
             id: string;
-            type: import(".prisma/client").$Enums.FieldType;
-            moduleId: string;
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
             name: string;
-            order: number;
             settings: import("@prisma/client/runtime/library").JsonValue;
+            order: number;
+            moduleId: string;
             label: string;
+            type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -170,13 +170,13 @@ export declare class PortalService {
     getNotifications(portalUserId: string, page?: number, limit?: number): Promise<{
         notifications: {
             id: string;
-            type: string;
             createdAt: Date;
             link: string | null;
-            portalUserId: string;
+            type: string;
             title: string;
-            body: string;
             isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
         total: number;
         unreadCount: number;
@@ -185,30 +185,30 @@ export declare class PortalService {
     }>;
     markNotificationRead(portalUserId: string, notificationId: string): Promise<{
         id: string;
-        type: string;
         createdAt: Date;
         link: string | null;
-        portalUserId: string;
+        type: string;
         title: string;
-        body: string;
         isRead: boolean;
+        body: string;
+        portalUserId: string;
     }>;
     markAllNotificationsRead(portalUserId: string): Promise<{
         message: string;
     }>;
     getAnnouncements(organizationId: string): Promise<{
         id: string;
-        type: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
+        expiresAt: Date | null;
+        type: string;
         title: string;
         body: string;
         targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
         publishedAt: Date;
         scheduledAt: Date | null;
-        expiresAt: Date | null;
     }[]>;
     getDashboardSummary(portalUserId: string): Promise<{
         user: {
@@ -231,44 +231,44 @@ export declare class PortalService {
         unreadCount: number;
         latestNotifications: {
             id: string;
-            type: string;
             createdAt: Date;
             link: string | null;
-            portalUserId: string;
+            type: string;
             title: string;
-            body: string;
             isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
         announcements: {
             id: string;
-            type: string;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
+            expiresAt: Date | null;
+            type: string;
             title: string;
             body: string;
             targetTypes: import("@prisma/client/runtime/library").JsonValue;
             isPublished: boolean;
             publishedAt: Date;
             scheduledAt: Date | null;
-            expiresAt: Date | null;
         }[];
         recordSummary: any;
     }>;
     listUsers(organizationId: string, page?: number, limit?: number): Promise<{
         users: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
-            type: string;
-            accountStatus: string;
-            moduleId: string;
-            recordId: string;
-            isFirstLogin: boolean;
-            isEmailVerified: boolean;
+            id: string;
             lastLoginAt: Date;
             createdAt: Date;
+            moduleId: string;
+            type: string;
+            recordId: string;
+            accountStatus: string;
+            isFirstLogin: boolean;
+            isEmailVerified: boolean;
             isPortalAdmin: boolean;
             portalRole: string;
         }[];
@@ -277,46 +277,46 @@ export declare class PortalService {
         limit: number;
     }>;
     updateAccountStatus(organizationId: string, userId: string, status: string): Promise<{
-        id: string;
         email: string;
+        id: string;
         accountStatus: string;
     }>;
     resetToFirstLogin(organizationId: string, userId: string): Promise<{
         message: string;
     }>;
     getAdminUserDetail(organizationId: string, userId: string): Promise<{
-        id: string;
         email: string;
         firstName: string;
         lastName: string;
+        id: string;
         phone: string;
-        type: string;
-        accountStatus: string;
-        moduleId: string;
-        recordId: string;
-        isFirstLogin: boolean;
-        isEmailVerified: boolean;
         lastLoginAt: Date;
         createdAt: Date;
         notifications: {
             id: string;
-            type: string;
             createdAt: Date;
             link: string | null;
-            portalUserId: string;
+            type: string;
             title: string;
-            body: string;
             isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
+        moduleId: string;
+        type: string;
+        recordId: string;
+        accountStatus: string;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
     }>;
     setPortalAdminFlag(organizationId: string, userId: string, isPortalAdmin: boolean): Promise<{
-        id: string;
         email: string;
+        id: string;
         isPortalAdmin: boolean;
     }>;
     setPortalRole(organizationId: string, userId: string, portalRole: string): Promise<{
-        id: string;
         email: string;
+        id: string;
         isPortalAdmin: boolean;
         portalRole: string;
     }>;

@@ -19,4 +19,8 @@ export declare class AuthController {
         refreshToken: string;
     }>;
     logout(user: any): Promise<void>;
+    changePassword(user: any, currentPassword: string, newPassword: string): Promise<{
+        success: boolean;
+    }>;
+    getProfile(user: any): Promise<any>;
 }

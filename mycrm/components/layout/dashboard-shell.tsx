@@ -1,6 +1,6 @@
 "use client";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useAuthStore } from "@/store/auth.store";
@@ -9,7 +9,8 @@ import { ToastProvider } from "@/components/ui/toast";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const pathname = usePathname();
+  const { isAuthenticated, user } = useAuthStore();
   const { fetchModules } = useModulesStore();
 
   useEffect(() => {
@@ -17,8 +18,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       router.push("/login");
       return;
     }
+    // Force password change before any other navigation
+    if ((user as any)?.mustChangePassword && pathname !== "/change-password") {
+      router.push("/change-password");
+      return;
+    }
     fetchModules();
-  }, [isAuthenticated, router, fetchModules]);
+  }, [isAuthenticated, user, pathname, router, fetchModules]);
 
   if (!isAuthenticated) return null;
 

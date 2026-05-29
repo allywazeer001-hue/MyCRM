@@ -63,6 +63,8 @@ interface FilterGroup {
 type AggregationType = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
 type ChartType = "bar" | "pie" | "line" | "area" | "kpi" | "stat" | "table" | "target";
 
+type WidgetSize = "1" | "2" | "3" | "4"; // columns in a 4-col grid: 25% / 50% / 75% / 100%
+
 interface Widget {
   id: string;
   title: string;
@@ -73,7 +75,7 @@ interface Widget {
   aggregateField?: string;
   filterGroup?: FilterGroup;
   targetId?: string;
-  size?: "1" | "2";
+  size?: WidgetSize;
   height?: number;
   // runtime
   data?: any[];
@@ -941,7 +943,15 @@ function TargetManagerDialog({
 
 // ── Widget Renderers ───────────────────────────────────────────────────────
 
-function KpiWidget({ total }: { total: number }) {
+function KpiWidget({ total, compact }: { total: number; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex flex-col items-center justify-center py-5">
+        <p className="text-3xl font-bold text-blue-600">{total.toLocaleString()}</p>
+        <p className="text-gray-400 mt-1 text-xs">Total</p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center justify-center py-8">
       <p className="text-5xl font-bold text-blue-600">{total.toLocaleString()}</p>
@@ -1156,13 +1166,13 @@ function WidgetCard({
     }
 
     switch (widget.type) {
-      case "kpi":   return <KpiWidget total={total} />;
+      case "kpi":   return <KpiWidget total={total} compact={widget.size === "1"} />;
       case "stat":  return <StatWidget data={data} total={total} />;
       case "target": return <TargetWidget target={target} />;
       case "table": return <TableWidget data={data} />;
       case "pie":
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
             <PieChart>
               <Pie data={data} cx="50%" cy="50%" outerRadius={90} dataKey="value"
                 label={({ name, percent }: any) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`} labelLine={false}>
@@ -1174,7 +1184,7 @@ function WidgetCard({
         );
       case "line":
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
             <LineChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -1186,7 +1196,7 @@ function WidgetCard({
         );
       case "area":
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
             <AreaChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
               <defs>
                 <linearGradient id={`areaGrad-${widget.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -1204,7 +1214,7 @@ function WidgetCard({
         );
       default:
         return (
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
             <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
@@ -1242,14 +1252,13 @@ function WidgetCard({
             <Copy className="w-3.5 h-3.5" />
           </Button>
           <Button
-            variant="ghost" size="icon" className="h-7 w-7"
+            variant="ghost" size="icon" className="h-7 w-7 relative"
             onClick={onResize}
-            title={widget.size === "2" ? "Shrink to half width" : "Expand to full width"}
+            title={`Width: ${["25%","50%","75%","100%"][Number(widget.size||"2")-1]} — click to cycle`}
           >
-            {widget.size === "2"
-              ? <Minimize2 className="w-3.5 h-3.5" />
-              : <Maximize2 className="w-3.5 h-3.5" />
-            }
+            <span className="text-[10px] font-bold text-gray-500 leading-none">
+              {widget.size === "1" ? "¼" : widget.size === "3" ? "¾" : widget.size === "4" ? "■" : "½"}
+            </span>
           </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRefresh}>
             <RefreshCw className="w-3.5 h-3.5" />
@@ -1378,7 +1387,8 @@ export default function AnalyticsPage() {
 
   const addWidget = async (draft: Omit<Widget, "id">) => {
     const id = `w-${Date.now()}`;
-    const widget: Widget = { ...draft, id, loading: true };
+    const defaultSize: WidgetSize = draft.type === "kpi" ? "1" : draft.type === "table" ? "4" : "2";
+    const widget: Widget = { ...draft, id, size: draft.size || defaultSize, loading: true };
     setWidgets((prev) => [...prev, widget]);
     const loaded = await loadWidgetData(widget);
     setWidgets((prev) => prev.map((w) => w.id === id ? loaded : w));
@@ -1417,8 +1427,13 @@ export default function AnalyticsPage() {
   };
 
   const resizeWidget = (id: string) => {
+    const cycle: WidgetSize[] = ["1", "2", "4"];
     setWidgets((prev) =>
-      prev.map((w) => w.id === id ? { ...w, size: w.size === "2" ? "1" : "2" } : w)
+      prev.map((w) => {
+        if (w.id !== id) return w;
+        const idx = cycle.indexOf((w.size as WidgetSize) || "2");
+        return { ...w, size: cycle[(idx + 1) % cycle.length] };
+      })
     );
     markDirty();
   };
@@ -1764,11 +1779,12 @@ export default function AnalyticsPage() {
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" style={{ gridAutoFlow: "dense" }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(4,1fr)", gridAutoFlow: "dense" }}>
               {widgets.map((widget) => (
                 <div
                   key={widget.id}
-                  className={cn(widget.size === "2" && "lg:col-span-2")}
+                  className="min-w-0"
+                  style={{ gridColumn: `span ${widget.size || (widget.type === "kpi" ? "1" : "2")} / span ${widget.size || (widget.type === "kpi" ? "1" : "2")}` }}
                 >
                   <SortableWidgetWrapper id={widget.id}>
                     {(dragHandleProps) => (

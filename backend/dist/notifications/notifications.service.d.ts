@@ -1,7 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { AppGateway } from '../websocket/app.gateway';
 export declare class NotificationsService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private gateway;
+    constructor(prisma: PrismaService, gateway: AppGateway);
     create(userId: string, orgId: string, data: {
         title: string;
         message: string;
@@ -29,7 +31,7 @@ export declare class NotificationsService {
         message: string;
         isRead: boolean;
     }[]>;
-    markRead(id: string, userId: string): Promise<{
+    markRead(id: string, _userId: string): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;

@@ -10,15 +10,16 @@ import {
 import { cn } from "@/lib/utils";
 import { useModulesStore } from "@/store/modules.store";
 import { useAuthStore } from "@/store/auth.store";
+import { usePermissionsStore } from "@/store/permissions.store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 const coreNavItems = [
-  { href: "/dashboard",            label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/analytics",            label: "Data Visualization", icon: BarChart3 },
-  { href: "/workflows",            label: "Workflows",     icon: Workflow },
-  { href: "/forms",                label: "Forms",         icon: FileText },
-  { href: "/apps/report-builder",  label: "Reports",       icon: FileBarChart2 },
-  { href: "/notifications",        label: "Notifications", icon: Bell },
+  { href: "/dashboard",            label: "Dashboard",          icon: LayoutDashboard, permKey: "canDashboard" as const },
+  { href: "/analytics",            label: "Data Visualization", icon: BarChart3,        permKey: "canAnalytics" as const },
+  { href: "/workflows",            label: "Workflows",          icon: Workflow,          permKey: "canWorkflow"  as const },
+  { href: "/forms",                label: "Forms",              icon: FileText,          permKey: "canForms"     as const },
+  { href: "/apps/report-builder",  label: "Reports",            icon: FileBarChart2,     permKey: null },
+  { href: "/notifications",        label: "Notifications",      icon: Bell,              permKey: null },
 ];
 
 const adminNavItems = [
@@ -42,10 +43,24 @@ export function Sidebar() {
   const pathname = usePathname();
   const { modules } = useModulesStore();
   const { user } = useAuthStore();
+  const { system, canView } = usePermissionsStore();
   const [collapsed, setCollapsed] = useState(false);
   const [modulesExpanded, setModulesExpanded] = useState(true);
 
-  const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
+  const isSuperAdmin = (user as any)?.role === "SUPER_ADMIN";
+  const isAdmin = isSuperAdmin || user?.role === "ADMIN";
+
+  const visibleCoreNavItems = isSuperAdmin
+    ? coreNavItems
+    : isAdmin
+      ? coreNavItems
+      : coreNavItems.filter(item => !item.permKey || system[item.permKey]);
+
+  const visibleModules = isSuperAdmin
+    ? modules
+    : isAdmin
+      ? modules
+      : modules.filter(mod => canView(mod.slug));
 
   const isActive = (href: string) => {
     if (href === "/settings") return pathname === "/settings" || pathname.startsWith("/settings/") || pathname.startsWith("/admin/");
@@ -85,7 +100,7 @@ export function Sidebar() {
       <ScrollArea className="flex-1">
         <nav className="p-2 space-y-0.5">
           {/* Core Nav */}
-          {coreNavItems.map((item) => (
+          {visibleCoreNavItems.map((item) => (
             <Link key={item.href} href={item.href}>
               <div className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
@@ -114,7 +129,7 @@ export function Sidebar() {
 
           {modulesExpanded && (
             <>
-              {modules.map((mod) => (
+              {visibleModules.map((mod) => (
                 <Link key={mod.id} href={`/m/${mod.slug}`}>
                   <div className={cn(
                     "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",

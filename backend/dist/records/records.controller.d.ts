@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { RecordsService } from './records.service';
+import { PermissionCheckService } from '../permissions/permission-check.service';
 export declare class LookupController {
     private recordsService;
     constructor(recordsService: RecordsService);
@@ -11,7 +12,8 @@ export declare class LookupController {
 }
 export declare class RecordsController {
     private recordsService;
-    constructor(recordsService: RecordsService);
+    private permCheck;
+    constructor(recordsService: RecordsService, permCheck: PermissionCheckService);
     create(moduleId: string, body: any, user: any): Promise<{
         id: string;
         organizationId: string;
@@ -27,10 +29,10 @@ export declare class RecordsController {
     findAll(moduleId: string, query: any, user: any): Promise<{
         data: ({
             createdBy: {
-                id: string;
                 email: string;
                 firstName: string;
                 lastName: string;
+                id: string;
             };
         } & {
             id: string;
@@ -54,9 +56,9 @@ export declare class RecordsController {
     findOne(id: string, user: any): Promise<{
         comments: ({
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
+                id: string;
             };
         } & {
             id: string;
@@ -98,6 +100,7 @@ export declare class RecordsController {
                 name: string;
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
+                moduleId: string;
                 label: string;
                 type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
@@ -109,7 +112,6 @@ export declare class RecordsController {
                 defaultValue: string | null;
                 validation: import("@prisma/client/runtime/library").JsonValue | null;
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-                moduleId: string;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
             })[];
@@ -128,10 +130,10 @@ export declare class RecordsController {
             order: number;
         };
         createdBy: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;
@@ -145,7 +147,7 @@ export declare class RecordsController {
         createdById: string;
         updatedById: string | null;
     }>;
-    update(id: string, body: any, user: any): Promise<{
+    update(moduleId: string, id: string, body: any, user: any): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
@@ -157,14 +159,14 @@ export declare class RecordsController {
         createdById: string;
         updatedById: string | null;
     }>;
-    remove(id: string, user: any): Promise<{
+    remove(moduleId: string, id: string, user: any): Promise<{
         success: boolean;
     }>;
-    bulkDelete(ids: string[], user: any): Promise<{
+    bulkDelete(moduleId: string, ids: string[], user: any): Promise<{
         success: boolean;
         count: number;
     }>;
-    bulkUpdate(body: any, user: any): Promise<{
+    bulkUpdate(moduleId: string, body: any, user: any): Promise<{
         updated: number;
         errors: string[];
         total: number;
@@ -183,9 +185,9 @@ export declare class RecordsController {
     exportCsv(moduleId: string, filterGroup: string, user: any, res: Response): Promise<void>;
     addComment(id: string, content: string, user: any): Promise<{
         user: {
-            id: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;

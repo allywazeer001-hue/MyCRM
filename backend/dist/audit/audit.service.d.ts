@@ -4,10 +4,10 @@ export declare class AuditService {
     constructor(prisma: PrismaService);
     findAll(orgId: string, query: any): Promise<({
         user: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;

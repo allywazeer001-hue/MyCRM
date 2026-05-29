@@ -24,6 +24,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { UserPreferencesModule } from './user-preferences/user-preferences.module';
 import { BlueprintsModule } from './blueprints/blueprints.module';
 import { PortalModule } from './portal/portal.module';
+import { DepartmentsModule } from './departments/departments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -51,6 +52,7 @@ import { PortalModule } from './portal/portal.module';
     UserPreferencesModule,
     BlueprintsModule,
     PortalModule,
+    DepartmentsModule,
   ],
 })
 export class AppModule {}

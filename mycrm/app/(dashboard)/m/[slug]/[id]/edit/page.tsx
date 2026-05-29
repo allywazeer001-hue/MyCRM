@@ -486,7 +486,14 @@ export default function EditRecordPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Auto-save state tracking
+  const isLoaded = useRef(false);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modIdRef = useRef<string | null>(null);
+  const recordIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -494,6 +501,8 @@ export default function EditRecordPage() {
         const modRes = await api.get(`/modules/by-slug/${slug}`);
         const module = modRes.data;
         setMod(module);
+        modIdRef.current = module.id;
+        recordIdRef.current = id;
         const recRes = await api.get(`/modules/${module.id}/records/${id}`);
         const loaded = (recRes.data.data as Record<string, any>) || {};
         setFormData(recomputeFormulaFields(loaded, module.fields || []));
@@ -501,10 +510,32 @@ export default function EditRecordPage() {
         router.push(`/m/${slug}`);
       } finally {
         setLoading(false);
+        // Mark loaded after a tick so initial formData set doesn't trigger auto-save
+        setTimeout(() => { isLoaded.current = true; }, 200);
       }
     };
     load();
   }, [slug, id, router]);
+
+  // Reactive auto-save: fire 800ms after last field change → triggers workflow evaluation on backend
+  useEffect(() => {
+    if (!isLoaded.current) return;
+    const mId = modIdRef.current;
+    const rId = recordIdRef.current;
+    if (!mId || !rId) return;
+
+    const captured = formData;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaving(true);
+      try {
+        await api.patch(`/modules/${mId}/records/${rId}`, captured);
+      } catch {}
+      finally { setAutoSaving(false); }
+    }, 800);
+
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [formData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -589,13 +620,23 @@ export default function EditRecordPage() {
               </div>
             ))}
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-              <Link href={`/m/${slug}/${id}`}>
-                <Button type="button" variant="outline">Cancel</Button>
-              </Link>
-              <Button type="submit" disabled={saving} className="gap-2">
-                {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : <><Save className="w-4 h-4" />Save Changes</>}
-              </Button>
+            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+              <div className="flex items-center gap-2 text-xs text-gray-400 h-6">
+                {autoSaving && (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Auto-saving…</span>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Link href={`/m/${slug}/${id}`}>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </Link>
+                <Button type="submit" disabled={saving} className="gap-2">
+                  {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : <><Save className="w-4 h-4" />Save Changes</>}
+                </Button>
+              </div>
             </div>
           </form>
         </CardContent>

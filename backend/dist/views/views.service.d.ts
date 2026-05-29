@@ -8,8 +8,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;
@@ -26,8 +26,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;
@@ -44,8 +44,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;
@@ -62,8 +62,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;
@@ -80,8 +80,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;
@@ -98,8 +98,8 @@ export declare class ViewsService {
         createdAt: Date;
         updatedAt: Date;
         name: string;
-        type: import(".prisma/client").$Enums.ViewType;
         moduleId: string;
+        type: import(".prisma/client").$Enums.ViewType;
         config: import("@prisma/client/runtime/library").JsonValue;
         createdById: string;
         isDefault: boolean;

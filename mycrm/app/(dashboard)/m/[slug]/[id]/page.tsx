@@ -18,6 +18,7 @@ import {
 import { api } from "@/lib/api";
 import { formatDate, cn } from "@/lib/utils";
 import { Field, useModulesStore } from "@/store/modules.store";
+import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
 
 // ── Interfaces ─────────────────────────────────────────────────────────────
 
@@ -443,6 +444,7 @@ export default function RecordDetailPage() {
   const { slug, id } = useParams<{ slug: string; id: string }>();
   const router = useRouter();
   const { modules, fetchModules } = useModulesStore();
+  const perm = useModulePermission(slug ?? "");
   const [record, setRecord] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -598,12 +600,14 @@ export default function RecordDetailPage() {
             <Printer className="w-4 h-4" />
             Print
           </Button>
-          <Link href={`/m/${slug}/${id}/edit`}>
-            <Button size="sm" className="gap-2">
-              <Edit className="w-4 h-4" />
-              Edit
-            </Button>
-          </Link>
+          <PermissionGate slug={slug ?? ""} action="canEdit">
+            <Link href={`/m/${slug}/${id}/edit`}>
+              <Button size="sm" className="gap-2">
+                <Edit className="w-4 h-4" />
+                Edit
+              </Button>
+            </Link>
+          </PermissionGate>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" className="h-9 w-9">
@@ -641,15 +645,17 @@ export default function RecordDetailPage() {
                   )}
                 </>
               )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleDelete}
-                disabled={deleting}
-                className="text-red-600 focus:text-red-600 focus:bg-red-50 gap-2 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                {deleting ? "Deleting..." : "Delete Record"}
-              </DropdownMenuItem>
+              {perm.canDelete && <DropdownMenuSeparator />}
+              {perm.canDelete && (
+                <DropdownMenuItem
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="text-red-600 focus:text-red-600 focus:bg-red-50 gap-2 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deleting ? "Deleting..." : "Delete Record"}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -856,20 +862,24 @@ export default function RecordDetailPage() {
             </Card>
 
             <div className="flex flex-col gap-2">
-              <Link href={`/m/${slug}/${id}/edit`}>
-                <Button variant="outline" className="w-full gap-2">
-                  <Edit className="w-4 h-4" /> Edit Record
+              <PermissionGate slug={slug ?? ""} action="canEdit">
+                <Link href={`/m/${slug}/${id}/edit`}>
+                  <Button variant="outline" className="w-full gap-2">
+                    <Edit className="w-4 h-4" /> Edit Record
+                  </Button>
+                </Link>
+              </PermissionGate>
+              {perm.canDelete && (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {deleting ? "Deleting..." : "Delete Record"}
                 </Button>
-              </Link>
-              <Button
-                variant="outline"
-                className="w-full gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                <Trash2 className="w-4 h-4" />
-                {deleting ? "Deleting..." : "Delete Record"}
-              </Button>
+              )}
             </div>
           </div>
         </div>

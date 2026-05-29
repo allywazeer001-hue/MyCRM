@@ -21,6 +21,7 @@ export declare class AnalyticsService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -32,7 +33,6 @@ export declare class AnalyticsService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         };

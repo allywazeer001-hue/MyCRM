@@ -12,9 +12,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkflowsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const app_gateway_1 = require("../websocket/app.gateway");
 let WorkflowsService = class WorkflowsService {
-    constructor(prisma) {
+    constructor(prisma, gateway) {
         this.prisma = prisma;
+        this.gateway = gateway;
     }
     async create(orgId, data) {
         const { actions = [], ...rest } = data;
@@ -158,11 +160,13 @@ let WorkflowsService = class WorkflowsService {
                     break;
                 const value = cfg.value === '__NOW__' ? new Date().toISOString() : cfg.value;
                 const newData = { ...record.data, [cfg.field]: value };
-                await this.prisma.record.update({
+                const setResult = await this.prisma.record.update({
                     where: { id: record.id },
                     data: { data: newData },
                 });
                 record.data = newData;
+                this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: newData });
+                this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: newData, updatedAt: setResult.updatedAt });
                 break;
             }
             case 'UPDATE_RECORD': {
@@ -173,11 +177,13 @@ let WorkflowsService = class WorkflowsService {
                     patch[u.field] = u.value === '__NOW__' ? new Date().toISOString() : u.value;
                 }
                 const updated = { ...record.data, ...patch };
-                await this.prisma.record.update({
+                const upResult = await this.prisma.record.update({
                     where: { id: record.id },
                     data: { data: updated },
                 });
                 record.data = updated;
+                this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: updated });
+                this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: upResult.updatedAt });
                 break;
             }
             case 'SEND_NOTIFICATION': {
@@ -188,15 +194,19 @@ let WorkflowsService = class WorkflowsService {
                 const targets = cfg.userIds?.length
                     ? users.filter(u => cfg.userIds.includes(u.id))
                     : users;
-                await this.prisma.notification.createMany({
-                    data: targets.map(u => ({
-                        userId: u.id,
-                        organizationId: orgId,
-                        title: cfg.title || 'Workflow Notification',
-                        message: cfg.message || `Workflow action triggered on record ${record.id}`,
-                        type: 'WORKFLOW',
-                    })),
-                });
+                for (const u of targets) {
+                    const notif = await this.prisma.notification.create({
+                        data: {
+                            userId: u.id,
+                            organizationId: orgId,
+                            title: cfg.title || 'Workflow Notification',
+                            message: cfg.message || `Workflow action triggered on record ${record.id}`,
+                            type: 'WORKFLOW',
+                        },
+                    });
+                    const unreadCount = await this.prisma.notification.count({ where: { userId: u.id, isRead: false } });
+                    this.gateway.emitToUser(u.id, 'notification:new', { ...notif, unreadCount });
+                }
                 break;
             }
             case 'ASSIGN_USER': {
@@ -239,6 +249,7 @@ let WorkflowsService = class WorkflowsService {
 exports.WorkflowsService = WorkflowsService;
 exports.WorkflowsService = WorkflowsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        app_gateway_1.AppGateway])
 ], WorkflowsService);
 //# sourceMappingURL=workflows.service.js.map

@@ -12,12 +12,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const app_gateway_1 = require("../websocket/app.gateway");
 let NotificationsService = class NotificationsService {
-    constructor(prisma) {
+    constructor(prisma, gateway) {
         this.prisma = prisma;
+        this.gateway = gateway;
     }
     async create(userId, orgId, data) {
-        return this.prisma.notification.create({ data: { userId, organizationId: orgId, ...data } });
+        const notif = await this.prisma.notification.create({ data: { userId, organizationId: orgId, ...data } });
+        const unreadCount = await this.prisma.notification.count({ where: { userId, isRead: false } });
+        this.gateway.emitToUser(userId, 'notification:new', { ...notif, unreadCount });
+        return notif;
     }
     async findAll(userId, orgId) {
         return this.prisma.notification.findMany({
@@ -26,7 +31,7 @@ let NotificationsService = class NotificationsService {
             take: 50,
         });
     }
-    async markRead(id, userId) {
+    async markRead(id, _userId) {
         return this.prisma.notification.update({ where: { id }, data: { isRead: true } });
     }
     async markAllRead(userId) {
@@ -39,6 +44,7 @@ let NotificationsService = class NotificationsService {
 exports.NotificationsService = NotificationsService;
 exports.NotificationsService = NotificationsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        app_gateway_1.AppGateway])
 ], NotificationsService);
 //# sourceMappingURL=notifications.service.js.map

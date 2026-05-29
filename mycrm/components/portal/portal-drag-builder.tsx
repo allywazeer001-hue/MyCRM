@@ -42,6 +42,7 @@ export interface BuilderSection {
   columnIndex: number;
   order: number;
   isCollapsible: boolean;
+  status?: string;
   fields: BuilderField[];
   crmModuleSlug?: string;
   crmRelationField?: string;
@@ -374,14 +375,18 @@ function SectionCard({
   const [showPalette, setShowPalette] = useState(false);
   const fieldIds = section.fields.map(f => f.id);
   const isCrmSection = !!section.crmModuleSlug;
+  const isDraft = section.status !== 'PUBLISHED';
 
   return (
-    <div className={`border rounded-xl overflow-hidden ${isCrmSection ? "bg-emerald-50/30 border-emerald-200" : "bg-gray-50 border-gray-200"}`}>
+    <div className={`border rounded-xl overflow-hidden ${isDraft ? "border-amber-300" : isCrmSection ? "bg-emerald-50/30 border-emerald-200" : "bg-gray-50 border-gray-200"}`}>
       {/* Section header */}
-      <div className={`flex items-center gap-2 px-4 py-3 border-b ${isCrmSection ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-200"}`}>
-        {isCrmSection && <Database className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+      <div className={`flex items-center gap-2 px-4 py-3 border-b ${isDraft ? "bg-amber-50 border-amber-200" : isCrmSection ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-200"}`}>
+        {isCrmSection && !isDraft && <Database className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
         <span className="flex-1 text-sm font-semibold text-gray-700 truncate">{section.label}</span>
-        {isCrmSection && (
+        {isDraft && (
+          <span className="text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-medium shrink-0">DRAFT</span>
+        )}
+        {isCrmSection && !isDraft && (
           <span className="text-xs text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded font-mono shrink-0">
             {section.crmModuleSlug}
           </span>
@@ -660,8 +665,12 @@ export function PortalDragBuilder({ pageId, sections: initialSections, templateC
           label: section.label, columnIndex: section.columnIndex,
           isCollapsible: section.isCollapsible, order: section.order,
         });
-        if (section.fields.length > 0) {
-          await portalApi.post('/portal/padmin/fields/reorder', { ids: section.fields.map(f => f.id) });
+        // Update each field's sectionId and order — persists cross-section drags
+        for (let i = 0; i < section.fields.length; i++) {
+          await portalApi.patch(`/portal/padmin/fields/${section.fields[i].id}`, {
+            sectionId: section.id,
+            order: i,
+          });
         }
       }
       setSavedMsg("Saved");
@@ -675,7 +684,7 @@ export function PortalDragBuilder({ pageId, sections: initialSections, templateC
       const res = await portalApi.post('/portal/padmin/sections', {
         label: 'New Section', portalPageId: pageId, columnIndex: 0, order: sections.length,
       });
-      const newSection: BuilderSection = { ...res.data, fields: [] };
+      const newSection: BuilderSection = { ...res.data, fields: [], status: res.data.status ?? 'DRAFT' };
       const updated = [...sections, newSection];
       setSections(updated);
       onSectionsChange?.(updated);
@@ -711,9 +720,10 @@ export function PortalDragBuilder({ pageId, sections: initialSections, templateC
 
   const handleSaveSection = async (updated: Partial<BuilderSection>) => {
     if (!editingSection) return;
+    const { status: _status, ...patch } = updated as any;
     try {
-      await portalApi.patch(`/portal/padmin/sections/${editingSection.id}`, updated);
-      const updatedSections = sections.map(s => s.id === editingSection.id ? { ...s, ...updated } : s);
+      await portalApi.patch(`/portal/padmin/sections/${editingSection.id}`, patch);
+      const updatedSections = sections.map(s => s.id === editingSection.id ? { ...s, ...patch } : s);
       setSections(updatedSections);
       onSectionsChange?.(updatedSections);
     } catch {}

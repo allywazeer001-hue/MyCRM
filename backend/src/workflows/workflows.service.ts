@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppGateway } from '../websocket/app.gateway';
 
 @Injectable()
 export class WorkflowsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private gateway: AppGateway,
+  ) {}
 
   async create(orgId: string, data: any) {
     const { actions = [], ...rest } = data;
@@ -165,11 +169,14 @@ export class WorkflowsService {
         if (!cfg.field) break;
         const value = cfg.value === '__NOW__' ? new Date().toISOString() : cfg.value;
         const newData = { ...(record.data as any), [cfg.field]: value };
-        await this.prisma.record.update({
+        const setResult = await this.prisma.record.update({
           where: { id: record.id },
           data: { data: newData },
         });
         record.data = newData;
+        // Notify all clients watching this module/record instantly
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: newData });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: newData, updatedAt: setResult.updatedAt });
         break;
       }
 
@@ -180,11 +187,13 @@ export class WorkflowsService {
           patch[u.field] = u.value === '__NOW__' ? new Date().toISOString() : u.value;
         }
         const updated = { ...(record.data as any), ...patch };
-        await this.prisma.record.update({
+        const upResult = await this.prisma.record.update({
           where: { id: record.id },
           data: { data: updated },
         });
         record.data = updated;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: updated });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: upResult.updatedAt });
         break;
       }
 
@@ -196,15 +205,20 @@ export class WorkflowsService {
         const targets = cfg.userIds?.length
           ? users.filter(u => cfg.userIds.includes(u.id))
           : users;
-        await this.prisma.notification.createMany({
-          data: targets.map(u => ({
-            userId: u.id,
-            organizationId: orgId,
-            title: cfg.title || 'Workflow Notification',
-            message: cfg.message || `Workflow action triggered on record ${record.id}`,
-            type: 'WORKFLOW',
-          })),
-        });
+        // Create individually so we have IDs for WebSocket push
+        for (const u of targets) {
+          const notif = await this.prisma.notification.create({
+            data: {
+              userId: u.id,
+              organizationId: orgId,
+              title: cfg.title || 'Workflow Notification',
+              message: cfg.message || `Workflow action triggered on record ${record.id}`,
+              type: 'WORKFLOW',
+            },
+          });
+          const unreadCount = await this.prisma.notification.count({ where: { userId: u.id, isRead: false } });
+          this.gateway.emitToUser(u.id, 'notification:new', { ...notif, unreadCount });
+        }
         break;
       }
 

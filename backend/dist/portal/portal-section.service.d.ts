@@ -12,6 +12,7 @@ export declare class PortalSectionService {
         }[];
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -19,7 +20,6 @@ export declare class PortalSectionService {
         order: number;
         label: string;
         type: string;
-        status: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
@@ -42,6 +42,7 @@ export declare class PortalSectionService {
         isAdminOnly?: boolean;
     }): Promise<{
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -49,7 +50,6 @@ export declare class PortalSectionService {
         order: number;
         label: string;
         type: string;
-        status: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
@@ -72,6 +72,7 @@ export declare class PortalSectionService {
         status: string;
     }>): Promise<{
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -79,7 +80,6 @@ export declare class PortalSectionService {
         order: number;
         label: string;
         type: string;
-        status: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;

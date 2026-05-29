@@ -123,8 +123,8 @@ export declare class WorkflowsController {
     getExecutions(id: string, user: any): Promise<{
         error: string | null;
         id: string;
-        workflowId: string;
         status: string;
+        workflowId: string;
         input: import("@prisma/client/runtime/library").JsonValue;
         output: import("@prisma/client/runtime/library").JsonValue;
         startedAt: Date;

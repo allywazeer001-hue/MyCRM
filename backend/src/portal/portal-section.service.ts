@@ -40,7 +40,7 @@ export class PortalSectionService {
         isCollapsible: dto.isCollapsible ?? false,
         isVisible: dto.isVisible ?? true,
         isAdminOnly: dto.isAdminOnly ?? false,
-        status: 'PUBLISHED',
+        status: 'DRAFT',
       },
     });
   }

@@ -63,27 +63,27 @@ export declare class PortalController {
         unreadCount: number;
         latestNotifications: {
             id: string;
-            type: string;
             createdAt: Date;
-            portalUserId: string;
-            title: string;
-            body: string;
-            isRead: boolean;
             link: string | null;
+            type: string;
+            title: string;
+            isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
         announcements: {
             id: string;
-            type: string;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
+            expiresAt: Date | null;
+            type: string;
             title: string;
             body: string;
             targetTypes: import("@prisma/client/runtime/library").JsonValue;
             isPublished: boolean;
             publishedAt: Date;
             scheduledAt: Date | null;
-            expiresAt: Date | null;
         }[];
         recordSummary: any;
     }>;
@@ -91,10 +91,10 @@ export declare class PortalController {
         record: {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
             data: import("@prisma/client/runtime/library").JsonValue;
+            moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
             createdById: string;
@@ -113,15 +113,15 @@ export declare class PortalController {
                 }[];
             } & {
                 id: string;
-                type: import(".prisma/client").$Enums.FieldType;
-                moduleId: string;
                 isActive: boolean;
                 createdAt: Date;
                 updatedAt: Date;
                 name: string;
-                order: number;
                 settings: import("@prisma/client/runtime/library").JsonValue;
+                order: number;
+                moduleId: string;
                 label: string;
+                type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -136,17 +136,17 @@ export declare class PortalController {
             })[];
         } & {
             id: string;
-            organizationId: string;
             isActive: boolean;
+            organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             name: string;
             slug: string;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
             icon: string | null;
             color: string | null;
             order: number;
-            settings: import("@prisma/client/runtime/library").JsonValue;
         };
         fields: ({
             options: {
@@ -160,15 +160,15 @@ export declare class PortalController {
             }[];
         } & {
             id: string;
-            type: import(".prisma/client").$Enums.FieldType;
-            moduleId: string;
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
             name: string;
-            order: number;
             settings: import("@prisma/client/runtime/library").JsonValue;
+            order: number;
+            moduleId: string;
             label: string;
+            type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -216,13 +216,13 @@ export declare class PortalController {
     getNotifications(user: any, page: number, limit: number): Promise<{
         notifications: {
             id: string;
-            type: string;
             createdAt: Date;
-            portalUserId: string;
-            title: string;
-            body: string;
-            isRead: boolean;
             link: string | null;
+            type: string;
+            title: string;
+            isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
         total: number;
         unreadCount: number;
@@ -234,33 +234,34 @@ export declare class PortalController {
     }>;
     markRead(user: any, id: string): Promise<{
         id: string;
-        type: string;
         createdAt: Date;
-        portalUserId: string;
-        title: string;
-        body: string;
-        isRead: boolean;
         link: string | null;
+        type: string;
+        title: string;
+        isRead: boolean;
+        body: string;
+        portalUserId: string;
     }>;
     getAnnouncements(user: any): Promise<{
         id: string;
-        type: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
+        expiresAt: Date | null;
+        type: string;
         title: string;
         body: string;
         targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
         publishedAt: Date;
         scheduledAt: Date | null;
-        expiresAt: Date | null;
     }[]>;
     getMenu(user: any): Promise<any[]>;
     getPage(user: any, slug: string): Promise<{
         sections: ({
             fields: {
                 id: string;
+                status: string;
                 organizationId: string;
                 createdAt: Date;
                 updatedAt: Date;
@@ -271,11 +272,10 @@ export declare class PortalController {
                 helpText: string | null;
                 defaultValue: string | null;
                 options: import("@prisma/client/runtime/library").JsonValue;
+                sectionId: string | null;
                 portalModuleConfigId: string | null;
                 isEditable: boolean;
                 isVisible: boolean;
-                status: string;
-                sectionId: string | null;
                 fieldKey: string;
                 fieldType: string;
                 isReadOnly: boolean;
@@ -287,16 +287,16 @@ export declare class PortalController {
             }[];
         } & {
             id: string;
-            type: string;
+            status: string;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             icon: string | null;
             order: number;
             label: string;
+            type: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
-            status: string;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
@@ -307,17 +307,17 @@ export declare class PortalController {
         })[];
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
-        title: string;
-        publishedAt: Date | null;
         slug: string;
         description: string | null;
         icon: string | null;
-        accessTypes: import("@prisma/client/runtime/library").JsonValue;
+        title: string;
+        publishedAt: Date | null;
         layoutTemplate: string;
-        status: string;
+        accessTypes: import("@prisma/client/runtime/library").JsonValue;
         blocks: import("@prisma/client/runtime/library").JsonValue;
         primaryModuleId: string | null;
         primaryModuleSlug: string | null;
@@ -331,16 +331,16 @@ export declare class PortalController {
         sections: {
             fields: any[];
             id: string;
-            type: string;
+            status: string;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             icon: string | null;
             order: number;
             label: string;
+            type: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
-            status: string;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
@@ -353,10 +353,10 @@ export declare class PortalController {
         record: {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
             data: import("@prisma/client/runtime/library").JsonValue;
+            moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
             createdById: string;
@@ -378,27 +378,27 @@ export declare class PortalController {
     listDocuments(user: any): Promise<{
         id: string;
         createdAt: Date;
+        originalName: string;
+        mimeType: string;
         fieldKey: string;
         fileName: string;
-        originalName: string;
         fileSize: number;
-        mimeType: string;
         filePath: string;
     }[]>;
     uploadDocument(user: any, file: any, dto: any): Promise<{
         id: string;
+        status: string;
         organizationId: string;
-        moduleId: string | null;
-        recordId: string | null;
         createdAt: Date;
         updatedAt: Date;
+        moduleId: string | null;
+        recordId: string | null;
+        originalName: string;
+        mimeType: string;
         portalUserId: string;
-        status: string;
         fieldKey: string | null;
         fileName: string;
-        originalName: string;
         fileSize: number;
-        mimeType: string;
         filePath: string;
     }>;
     deleteDocument(user: any, id: string): Promise<{

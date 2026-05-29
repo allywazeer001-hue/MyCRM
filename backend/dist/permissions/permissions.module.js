@@ -10,10 +10,15 @@ exports.PermissionsModule = void 0;
 const common_1 = require("@nestjs/common");
 const permissions_service_1 = require("./permissions.service");
 const permissions_controller_1 = require("./permissions.controller");
+const permission_check_service_1 = require("./permission-check.service");
 let PermissionsModule = class PermissionsModule {
 };
 exports.PermissionsModule = PermissionsModule;
 exports.PermissionsModule = PermissionsModule = __decorate([
-    (0, common_1.Module)({ controllers: [permissions_controller_1.PermissionsController], providers: [permissions_service_1.PermissionsService], exports: [permissions_service_1.PermissionsService] })
+    (0, common_1.Module)({
+        controllers: [permissions_controller_1.PermissionsController],
+        providers: [permissions_service_1.PermissionsService, permission_check_service_1.PermissionCheckService],
+        exports: [permissions_service_1.PermissionsService, permission_check_service_1.PermissionCheckService],
+    })
 ], PermissionsModule);
 //# sourceMappingURL=permissions.module.js.map

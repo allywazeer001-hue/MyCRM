@@ -12,10 +12,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FormsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const workflows_service_1 = require("../workflows/workflows.service");
 const crypto_1 = require("crypto");
 let FormsService = class FormsService {
-    constructor(prisma) {
+    constructor(prisma, workflows) {
         this.prisma = prisma;
+        this.workflows = workflows;
     }
     async findAll(orgId) {
         return this.prisma.form.findMany({
@@ -265,7 +267,7 @@ let FormsService = class FormsService {
                             recordData[autoField.name] = await this.generateAutoNumber(autoField, form.moduleId, form.organizationId);
                         }
                     }
-                    await this.prisma.record.create({
+                    const newRecord = await this.prisma.record.create({
                         data: {
                             moduleId: form.moduleId,
                             organizationId: form.organizationId,
@@ -273,6 +275,9 @@ let FormsService = class FormsService {
                             data: recordData,
                         },
                     });
+                    this.workflows
+                        .executeForRecord('RECORD_CREATED', form.moduleId, form.organizationId, newRecord)
+                        .catch(() => { });
                 }
             }
             catch (err) {
@@ -305,6 +310,7 @@ let FormsService = class FormsService {
 exports.FormsService = FormsService;
 exports.FormsService = FormsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        workflows_service_1.WorkflowsService])
 ], FormsService);
 //# sourceMappingURL=forms.service.js.map

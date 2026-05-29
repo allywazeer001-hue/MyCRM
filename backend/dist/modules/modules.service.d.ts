@@ -14,6 +14,7 @@ export declare class ModulesService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -25,7 +26,6 @@ export declare class ModulesService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         }[];
@@ -43,6 +43,59 @@ export declare class ModulesService {
         color: string | null;
         order: number;
     }>;
+    findAllPlatform(): Promise<({
+        _count: {
+            records: number;
+            forms: number;
+            fields: number;
+        };
+        fields: ({
+            options: {
+                id: string;
+                createdAt: Date;
+                color: string | null;
+                order: number;
+                label: string;
+                value: string;
+                fieldId: string;
+            }[];
+        } & {
+            id: string;
+            isActive: boolean;
+            createdAt: Date;
+            updatedAt: Date;
+            name: string;
+            settings: import("@prisma/client/runtime/library").JsonValue;
+            order: number;
+            moduleId: string;
+            label: string;
+            type: import(".prisma/client").$Enums.FieldType;
+            isRequired: boolean;
+            isUnique: boolean;
+            isReadonly: boolean;
+            isHidden: boolean;
+            placeholder: string | null;
+            helpText: string | null;
+            defaultValue: string | null;
+            validation: import("@prisma/client/runtime/library").JsonValue | null;
+            conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
+            lookupModuleId: string | null;
+            lookupFieldId: string | null;
+        })[];
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        settings: import("@prisma/client/runtime/library").JsonValue;
+        description: string | null;
+        icon: string | null;
+        color: string | null;
+        order: number;
+    })[]>;
     findAll(orgId: string): Promise<({
         _count: {
             records: number;
@@ -67,6 +120,7 @@ export declare class ModulesService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -78,7 +132,6 @@ export declare class ModulesService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         })[];
@@ -115,6 +168,7 @@ export declare class ModulesService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -126,7 +180,6 @@ export declare class ModulesService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         })[];
@@ -163,6 +216,7 @@ export declare class ModulesService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -174,7 +228,6 @@ export declare class ModulesService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         })[];
@@ -211,6 +264,7 @@ export declare class ModulesService {
             name: string;
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
+            moduleId: string;
             label: string;
             type: import(".prisma/client").$Enums.FieldType;
             isRequired: boolean;
@@ -222,7 +276,6 @@ export declare class ModulesService {
             defaultValue: string | null;
             validation: import("@prisma/client/runtime/library").JsonValue | null;
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-            moduleId: string;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
         })[];

@@ -24,6 +24,26 @@ let ModulesService = ModulesService_1 = class ModulesService {
             include: { fields: { orderBy: { order: 'asc' } } },
         });
     }
+    async findAllPlatform() {
+        try {
+            return await this.prisma.dynamicModule.findMany({
+                where: { isActive: true },
+                include: {
+                    fields: {
+                        where: { isActive: true },
+                        orderBy: { order: 'asc' },
+                        include: { options: { orderBy: { order: 'asc' } } },
+                    },
+                    _count: { select: { fields: true, forms: true, records: true } },
+                },
+                orderBy: { order: 'asc' },
+            });
+        }
+        catch (err) {
+            this.logger.error('findAllPlatform modules error:', err);
+            return [];
+        }
+    }
     async findAll(orgId) {
         try {
             return await this.prisma.dynamicModule.findMany({

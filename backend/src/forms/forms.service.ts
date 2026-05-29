@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkflowsService } from '../workflows/workflows.service';
 import { randomBytes } from 'crypto';
 
 @Injectable()
 export class FormsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private workflows: WorkflowsService,
+  ) {}
 
   // ── Forms CRUD ──────────────────────────────────────────────────────────────
 
@@ -284,7 +288,7 @@ export class FormsService {
             }
           }
 
-          await this.prisma.record.create({
+          const newRecord = await this.prisma.record.create({
             data: {
               moduleId: form.moduleId,
               organizationId: form.organizationId,
@@ -292,6 +296,9 @@ export class FormsService {
               data: recordData,
             },
           });
+          this.workflows
+            .executeForRecord('RECORD_CREATED', form.moduleId, form.organizationId, newRecord)
+            .catch(() => {});
         }
       } catch (err) {
         // Don't fail the submission if record creation fails — log and continue

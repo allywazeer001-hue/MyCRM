@@ -87,6 +87,7 @@ export default function PageEditorPage() {
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const [publishing, setPublishing] = useState(false);
+  const [republishing, setRepublishing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,6 +138,18 @@ export default function PageEditorPage() {
     setPublishing(false);
   };
 
+  const handleRepublish = async () => {
+    if (!page) return;
+    setRepublishing(true);
+    try {
+      const res = await portalApi.post(`/portal/padmin/pages/${pageId}/republish`);
+      setPage(res.data);
+      // Reload sections since their status changed to PUBLISHED
+      await load();
+    } catch {}
+    setRepublishing(false);
+  };
+
   const handleTemplateChange = async (templateId: string) => {
     try {
       const res = await portalApi.patch(`/portal/padmin/pages/${pageId}`, { layoutTemplate: templateId });
@@ -174,6 +187,7 @@ export default function PageEditorPage() {
 
   const currentTemplate = TEMPLATES.find(t => t.id === (page.layoutTemplate ?? "single")) ?? TEMPLATES[0];
   const templateColumns = currentTemplate.columns;
+  const draftSectionCount = sections.filter(s => s.status !== "PUBLISHED").length;
 
   // Build a RenderedPage for preview
   const renderedPage: RenderedPage = {
@@ -225,18 +239,35 @@ export default function PageEditorPage() {
             <span className="text-xs text-gray-600">{currentTemplate.name}</span>
           </div>
         </div>
-        <button
-          onClick={handlePublish}
-          disabled={publishing}
-          className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-            page.status === "PUBLISHED"
-              ? "bg-amber-900/20 text-amber-400 hover:bg-amber-900/40"
-              : "bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40"
-          }`}
-        >
-          {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : page.status === "PUBLISHED" ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
-          {page.status === "PUBLISHED" ? "Unpublish" : "Publish"}
-        </button>
+        <div className="flex items-center gap-2">
+          {draftSectionCount > 0 && (
+            <span className="text-xs text-amber-400 bg-amber-900/20 px-2 py-1 rounded-lg">
+              {draftSectionCount} draft section{draftSectionCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          {page.status === "PUBLISHED" && (
+            <button
+              onClick={handleRepublish}
+              disabled={republishing}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-900/20 text-blue-400 hover:bg-blue-900/40"
+            >
+              {republishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+              Republish
+            </button>
+          )}
+          <button
+            onClick={handlePublish}
+            disabled={publishing}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              page.status === "PUBLISHED"
+                ? "bg-amber-900/20 text-amber-400 hover:bg-amber-900/40"
+                : "bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40"
+            }`}
+          >
+            {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : page.status === "PUBLISHED" ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+            {page.status === "PUBLISHED" ? "Unpublish" : "Publish"}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

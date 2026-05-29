@@ -18,8 +18,8 @@ export declare class DashboardsService {
             id: string;
             createdAt: Date;
             order: number;
-            type: import(".prisma/client").$Enums.WidgetType;
             moduleId: string | null;
+            type: import(".prisma/client").$Enums.WidgetType;
             config: import("@prisma/client/runtime/library").JsonValue;
             title: string;
             dashboardId: string;
@@ -42,8 +42,8 @@ export declare class DashboardsService {
             id: string;
             createdAt: Date;
             order: number;
-            type: import(".prisma/client").$Enums.WidgetType;
             moduleId: string | null;
+            type: import(".prisma/client").$Enums.WidgetType;
             config: import("@prisma/client/runtime/library").JsonValue;
             title: string;
             dashboardId: string;
@@ -65,8 +65,8 @@ export declare class DashboardsService {
         id: string;
         createdAt: Date;
         order: number;
-        type: import(".prisma/client").$Enums.WidgetType;
         moduleId: string | null;
+        type: import(".prisma/client").$Enums.WidgetType;
         config: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         dashboardId: string;
@@ -77,8 +77,8 @@ export declare class DashboardsService {
         id: string;
         createdAt: Date;
         order: number;
-        type: import(".prisma/client").$Enums.WidgetType;
         moduleId: string | null;
+        type: import(".prisma/client").$Enums.WidgetType;
         config: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         dashboardId: string;

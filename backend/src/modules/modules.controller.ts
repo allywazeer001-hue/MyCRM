@@ -20,6 +20,7 @@ export class ModulesController {
 
   @Get()
   findAll(@CurrentUser() user: any) {
+    if (user.role === 'SUPER_ADMIN') return this.modulesService.findAllPlatform();
     return this.modulesService.findAll(user.organizationId);
   }
 

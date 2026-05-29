@@ -10,11 +10,13 @@ exports.FormsModule = void 0;
 const common_1 = require("@nestjs/common");
 const forms_service_1 = require("./forms.service");
 const forms_controller_1 = require("./forms.controller");
+const workflows_module_1 = require("../workflows/workflows.module");
 let FormsModule = class FormsModule {
 };
 exports.FormsModule = FormsModule;
 exports.FormsModule = FormsModule = __decorate([
     (0, common_1.Module)({
+        imports: [workflows_module_1.WorkflowsModule],
         controllers: [forms_controller_1.FormsController, forms_controller_1.PublicFormsController],
         providers: [forms_service_1.FormsService],
         exports: [forms_service_1.FormsService],

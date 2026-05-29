@@ -28,6 +28,8 @@ let ModulesController = class ModulesController {
         return this.modulesService.create(user.organizationId, dto);
     }
     findAll(user) {
+        if (user.role === 'SUPER_ADMIN')
+            return this.modulesService.findAllPlatform();
         return this.modulesService.findAll(user.organizationId);
     }
     findOne(id, user) {

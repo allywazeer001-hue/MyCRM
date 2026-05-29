@@ -20,10 +20,10 @@ export declare class RecordsService {
     findAll(moduleId: string, orgId: string, query: any): Promise<{
         data: ({
             createdBy: {
-                id: string;
                 email: string;
                 firstName: string;
                 lastName: string;
+                id: string;
             };
         } & {
             id: string;
@@ -49,9 +49,9 @@ export declare class RecordsService {
     findOne(id: string, orgId: string): Promise<{
         comments: ({
             user: {
-                id: string;
                 firstName: string;
                 lastName: string;
+                id: string;
             };
         } & {
             id: string;
@@ -93,6 +93,7 @@ export declare class RecordsService {
                 name: string;
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
+                moduleId: string;
                 label: string;
                 type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
@@ -104,7 +105,6 @@ export declare class RecordsService {
                 defaultValue: string | null;
                 validation: import("@prisma/client/runtime/library").JsonValue | null;
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-                moduleId: string;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
             })[];
@@ -123,10 +123,10 @@ export declare class RecordsService {
             order: number;
         };
         createdBy: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;
@@ -166,9 +166,9 @@ export declare class RecordsService {
     }>;
     addComment(recordId: string, orgId: string, userId: string, content: string): Promise<{
         user: {
-            id: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;

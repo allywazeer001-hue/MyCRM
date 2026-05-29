@@ -56,10 +56,15 @@ let AuthService = class AuthService {
         if (!user || !await bcrypt.compare(dto.password, user.password)) {
             throw new common_1.UnauthorizedException('Invalid credentials');
         }
-        if (!user.isActive)
+        if (!user.isActive || user.status === 'DISABLED')
             throw new common_1.UnauthorizedException('Account is deactivated');
+        if (user.status === 'SUSPENDED')
+            throw new common_1.UnauthorizedException('Account is suspended. Contact your administrator.');
+        if (user.status === 'LOCKED')
+            throw new common_1.UnauthorizedException('Account is locked. Contact your administrator.');
         const tokens = await this.generateTokens(user);
         await this.updateRefreshToken(user.id, tokens.refreshToken);
+        await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
         await this.prisma.auditLog.create({
             data: {
                 userId: user.id,
@@ -71,6 +76,30 @@ let AuthService = class AuthService {
             },
         });
         return { user: this.sanitizeUser(user), ...tokens };
+    }
+    async changePassword(userId, currentPassword, newPassword) {
+        const user = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (!user)
+            throw new common_1.UnauthorizedException('User not found');
+        if (currentPassword && !await bcrypt.compare(currentPassword, user.password)) {
+            throw new common_1.UnauthorizedException('Current password is incorrect');
+        }
+        const hashed = await bcrypt.hash(newPassword, 12);
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: { password: hashed, mustChangePassword: false, status: user.status === 'PASSWORD_RESET_REQUIRED' ? 'ACTIVE' : user.status },
+        });
+        await this.prisma.auditLog.create({
+            data: {
+                userId,
+                organizationId: user.organizationId,
+                action: 'PASSWORD_CHANGED',
+                entityType: 'User',
+                entityId: userId,
+                metadata: {},
+            },
+        });
+        return { success: true };
     }
     async refreshToken(userId, refreshToken) {
         const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -120,6 +149,15 @@ let AuthService = class AuthService {
     sanitizeUser(user) {
         const { password, refreshToken, ...rest } = user;
         return rest;
+    }
+    async getProfile(userId) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            include: { organization: true },
+        });
+        if (!user)
+            throw new common_1.UnauthorizedException();
+        return this.sanitizeUser(user);
     }
 };
 exports.AuthService = AuthService;

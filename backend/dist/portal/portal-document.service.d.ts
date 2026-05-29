@@ -13,11 +13,11 @@ export declare class PortalDocumentService {
         fieldKey?: string;
     }): Promise<{
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
         moduleId: string | null;
-        status: string;
         recordId: string | null;
         originalName: string;
         mimeType: string;
@@ -42,18 +42,18 @@ export declare class PortalDocumentService {
     }>;
     listOrgDocuments(orgId: string, portalUserId?: string): Promise<({
         portalUser: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
         moduleId: string | null;
-        status: string;
         recordId: string | null;
         originalName: string;
         mimeType: string;

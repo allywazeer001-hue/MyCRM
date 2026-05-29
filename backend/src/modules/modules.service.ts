@@ -16,6 +16,26 @@ export class ModulesService {
     });
   }
 
+  async findAllPlatform() {
+    try {
+      return await this.prisma.dynamicModule.findMany({
+        where: { isActive: true },
+        include: {
+          fields: {
+            where: { isActive: true },
+            orderBy: { order: 'asc' },
+            include: { options: { orderBy: { order: 'asc' } } },
+          },
+          _count: { select: { fields: true, forms: true, records: true } },
+        },
+        orderBy: { order: 'asc' },
+      });
+    } catch (err) {
+      this.logger.error('findAllPlatform modules error:', err);
+      return [];
+    }
+  }
+
   async findAll(orgId: string) {
     try {
       return await this.prisma.dynamicModule.findMany({

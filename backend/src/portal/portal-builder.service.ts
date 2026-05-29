@@ -25,11 +25,11 @@ export class PortalBuilderService {
       where: { id: pageId, organizationId: orgId },
       include: {
         sections: {
-          where: { status: 'PUBLISHED' },
+          // No status filter — builder shows ALL sections (draft + published)
           orderBy: [{ columnIndex: 'asc' }, { order: 'asc' }],
           include: {
             fields: {
-              where: { status: 'ACTIVE' },
+              where: { status: { not: 'ARCHIVED' } },
               orderBy: { order: 'asc' },
             },
           },
@@ -38,6 +38,34 @@ export class PortalBuilderService {
     });
     if (!page) throw new NotFoundException('Page not found');
     return page;
+  }
+
+  async republishPage(orgId: string, pageId: string) {
+    const page = await this.prisma.portalPage.findFirst({ where: { id: pageId, organizationId: orgId } });
+    if (!page) throw new NotFoundException('Page not found');
+
+    const sections = await this.prisma.portalSection.findMany({
+      where: { portalPageId: pageId, organizationId: orgId },
+      select: { id: true },
+    });
+    const sectionIds = sections.map(s => s.id);
+
+    await this.prisma.portalSection.updateMany({
+      where: { portalPageId: pageId, organizationId: orgId },
+      data: { status: 'PUBLISHED' },
+    });
+
+    if (sectionIds.length > 0) {
+      await this.prisma.portalField.updateMany({
+        where: { sectionId: { in: sectionIds }, organizationId: orgId },
+        data: { status: 'ACTIVE' },
+      });
+    }
+
+    return this.prisma.portalPage.update({
+      where: { id: pageId },
+      data: { status: 'PUBLISHED', publishedAt: new Date() },
+    });
   }
 
   async getPublishedPageFull(orgId: string, slug: string) {

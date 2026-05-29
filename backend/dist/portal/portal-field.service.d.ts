@@ -10,6 +10,7 @@ export declare class PortalFieldService {
         };
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -20,7 +21,6 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
-        status: string;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -61,6 +61,7 @@ export declare class PortalFieldService {
         };
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -71,7 +72,6 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
-        status: string;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -108,6 +108,7 @@ export declare class PortalFieldService {
         };
     } & {
         id: string;
+        status: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -118,7 +119,6 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
-        status: string;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -147,6 +147,7 @@ export declare class PortalFieldService {
         sections: {
             fields: any[];
             id: string;
+            status: string;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
@@ -154,7 +155,6 @@ export declare class PortalFieldService {
             order: number;
             label: string;
             type: string;
-            status: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;

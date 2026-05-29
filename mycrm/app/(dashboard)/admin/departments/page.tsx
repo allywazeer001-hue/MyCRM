@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import {
-  Building2, Plus, Trash2, Pencil, Users, Shield, ChevronRight,
-  Loader2, Check, X, Settings, AlertCircle, MoreHorizontal
+  Building2, Plus, Trash2, Pencil, Users, Shield,
+  Loader2, Check, Settings, MoreHorizontal, UserPlus, UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,38 +146,6 @@ function DeptFormDialog({
   );
 }
 
-// ── Permission Row ─────────────────────────────────────────────────────────
-
-function PermissionRow({
-  label, permission, isSystem = false, onChange,
-}: {
-  label: string;
-  permission: Permission;
-  isSystem?: boolean;
-  onChange: (key: keyof Permission, val: boolean) => void;
-}) {
-  const keys = isSystem ? SYSTEM_PERM_KEYS : MODULE_PERM_KEYS;
-
-  return (
-    <div className="flex items-center py-3 border-b border-gray-50 last:border-0">
-      <div className="w-36 shrink-0">
-        <p className="text-sm font-medium text-gray-800">{label}</p>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {keys.map(({ key, label: kLabel }) => (
-          <label key={key} className="flex items-center gap-1.5 cursor-pointer group">
-            <Checkbox
-              checked={!!(permission as any)[key]}
-              onCheckedChange={v => onChange(key, !!v)}
-              className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-            />
-            <span className="text-xs text-gray-600 group-hover:text-gray-900">{kLabel}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ── Permissions Editor ─────────────────────────────────────────────────────
 
@@ -232,7 +200,7 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
         { ...data.systemPermission, moduleId: null },
         ...data.modulePermissions.map(mp => ({ ...mp.permission, moduleId: mp.module.id })),
       ];
-      await api.post(`/departments/${deptId}/permissions`, { permissions });
+      await api.patch(`/departments/${deptId}/permissions`, { permissions });
       toast.success("Permissions saved");
       setDirty(false);
     } catch {
@@ -284,35 +252,38 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
 
       {/* Module Permissions */}
       <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <Settings className="w-4 h-4 text-blue-500" /> Module Access
-            </CardTitle>
-            <div className="flex gap-3 text-xs text-gray-400">
-              {MODULE_PERM_KEYS.map(k => (
-                <span key={k.key} className="w-12 text-center">{k.label}</span>
-              ))}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {data.modulePermissions.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">No modules found. Create modules in Studio first.</p>
+            <p className="text-sm text-gray-400 py-8 text-center">No modules found. Create modules in Studio first.</p>
           ) : (
             <div>
+              {/* Header row — matches row layout exactly */}
+              <div className="flex items-center px-6 py-2 bg-gray-50 border-b border-gray-100 rounded-t-xl">
+                <div className="flex items-center gap-2 w-48 shrink-0">
+                  <Settings className="w-4 h-4 text-blue-500" />
+                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Module</span>
+                </div>
+                <div className="flex gap-0 flex-1">
+                  {MODULE_PERM_KEYS.map(k => (
+                    <div key={String(k.key)} className="w-16 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      {k.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
               {data.modulePermissions.map(({ module, permission }) => (
-                <div key={module.id} className="flex items-center py-3 border-b border-gray-50 last:border-0">
+                <div key={module.id} className="flex items-center px-6 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                   <div className="flex items-center gap-2 w-48 shrink-0">
                     <span className="text-base">{module.icon || "📦"}</span>
                     <span className="text-sm font-medium text-gray-800 truncate">{module.name}</span>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-0 flex-1">
                     {MODULE_PERM_KEYS.map(({ key }) => (
-                      <div key={key} className="w-12 flex justify-center">
+                      <div key={String(key)} className="w-16 flex justify-center">
                         <Checkbox
                           checked={!!(permission as any)[key]}
                           onCheckedChange={v => updateModPerm(module.id, key, !!v)}
+                          className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
                         />
                       </div>
                     ))}
@@ -336,34 +307,185 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
   );
 }
 
+// ── Add Member Dialog ──────────────────────────────────────────────────────
+
+function AddMemberDialog({
+  deptId, currentMemberIds, open, onClose, onAdded,
+}: {
+  deptId: string;
+  currentMemberIds: string[];
+  open: boolean;
+  onClose: () => void;
+  onAdded: (user: any) => void;
+}) {
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    api.get("/users")
+      .then(r => setAllUsers(r.data ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  const available = allUsers.filter(u =>
+    u.isActive &&
+    !currentMemberIds.includes(u.id) &&
+    (`${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const handleAdd = async (user: any) => {
+    setAdding(user.id);
+    try {
+      await api.post(`/departments/${deptId}/members/${user.id}`);
+      onAdded(user);
+      toast.success(`${user.firstName} ${user.lastName} added`);
+    } catch {
+      toast.error("Failed to add member");
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-blue-600" /> Add Members
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input
+            placeholder="Search users…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="max-h-72 overflow-y-auto divide-y divide-gray-50 rounded-lg border border-gray-100">
+            {loading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+            ) : available.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">
+                {search ? "No users match your search." : "All active users are already in this department."}
+              </p>
+            ) : (
+              available.map(u => (
+                <div key={u.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
+                    {u.firstName?.[0]}{u.lastName?.[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{u.firstName} {u.lastName}</p>
+                    <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs shrink-0">{u.role?.replace(/_/g, " ")}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={adding === u.id}
+                    onClick={() => handleAdd(u)}
+                  >
+                    {adding === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Members Panel ──────────────────────────────────────────────────────────
 
-function MembersPanel({ dept }: { dept: Department }) {
-  const members = dept.users || [];
+function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersChange: (members: any[]) => void }) {
+  const [members, setMembers] = useState<any[]>(dept.users || []);
+  const [addOpen, setAddOpen] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const toast = useToast();
+
+  useEffect(() => { setMembers(dept.users || []); }, [dept]);
+
+  const handleRemove = async (user: any) => {
+    if (!confirm(`Remove ${user.firstName} ${user.lastName} from this department?`)) return;
+    setRemoving(user.id);
+    try {
+      await api.delete(`/departments/${dept.id}/members/${user.id}`);
+      const updated = members.filter(m => m.id !== user.id);
+      setMembers(updated);
+      onMembersChange(updated);
+      toast.success(`${user.firstName} ${user.lastName} removed`);
+    } catch {
+      toast.error("Failed to remove member");
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  const handleAdded = (user: any) => {
+    const updated = [...members, user];
+    setMembers(updated);
+    onMembersChange(updated);
+  };
+
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">{members.length} member{members.length !== 1 ? "s" : ""}</p>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
+          <UserPlus className="w-4 h-4" /> Add Member
+        </Button>
+      </div>
+
       {members.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
+        <div className="text-center py-10 text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">
           <Users className="w-10 h-10 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No members in this department yet.</p>
-          <p className="text-xs mt-1">Assign users to this department from the Users page.</p>
+          <p className="text-sm font-medium">No members yet</p>
+          <p className="text-xs mt-1">Click "Add Member" to assign users to this department.</p>
         </div>
       ) : (
         <div className="divide-y divide-gray-50">
           {members.map((u: any) => (
-            <div key={u.id} className="flex items-center gap-3 py-3">
+            <div key={u.id} className="flex items-center gap-3 py-2.5">
               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold shrink-0">
                 {u.firstName?.[0]}{u.lastName?.[0]}
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800">{u.firstName} {u.lastName}</p>
                 <p className="text-xs text-gray-500">{u.email}</p>
               </div>
-              <Badge variant="secondary" className="ml-auto text-xs">{u.role?.replace(/_/g, " ")}</Badge>
+              <Badge variant="secondary" className="text-xs shrink-0">{u.role?.replace(/_/g, " ")}</Badge>
+              <button
+                onClick={() => handleRemove(u)}
+                disabled={removing === u.id}
+                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40 shrink-0"
+                title="Remove from department"
+              >
+                {removing === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />}
+              </button>
             </div>
           ))}
         </div>
       )}
+
+      <AddMemberDialog
+        deptId={dept.id}
+        currentMemberIds={members.map(m => m.id)}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={handleAdded}
+      />
     </div>
   );
 }
@@ -544,7 +666,10 @@ export default function DepartmentsPage() {
                 <TabsContent value="members" className="mt-4">
                   <Card>
                     <CardContent className="pt-4">
-                      <MembersPanel dept={selected} />
+                      <MembersPanel
+                        dept={selected}
+                        onMembersChange={members => setSelected(s => s ? { ...s, users: members } : s)}
+                      />
                     </CardContent>
                   </Card>
                 </TabsContent>

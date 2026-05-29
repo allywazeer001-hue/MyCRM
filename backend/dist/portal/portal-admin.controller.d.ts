@@ -33,18 +33,18 @@ export declare class PortalAdminController {
     }>;
     listUsers(user: any, page: number, limit: number): Promise<{
         users: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
-            type: string;
-            accountStatus: string;
-            moduleId: string;
-            recordId: string;
-            isFirstLogin: boolean;
-            isEmailVerified: boolean;
+            id: string;
             lastLoginAt: Date;
             createdAt: Date;
+            moduleId: string;
+            type: string;
+            recordId: string;
+            accountStatus: string;
+            isFirstLogin: boolean;
+            isEmailVerified: boolean;
             isPortalAdmin: boolean;
             portalRole: string;
         }[];
@@ -53,29 +53,29 @@ export declare class PortalAdminController {
         limit: number;
     }>;
     getUserDetail(user: any, id: string): Promise<{
-        id: string;
         email: string;
         firstName: string;
         lastName: string;
+        id: string;
         phone: string;
-        type: string;
-        accountStatus: string;
-        moduleId: string;
-        recordId: string;
-        isFirstLogin: boolean;
-        isEmailVerified: boolean;
         lastLoginAt: Date;
         createdAt: Date;
         notifications: {
             id: string;
-            type: string;
             createdAt: Date;
             link: string | null;
-            portalUserId: string;
+            type: string;
             title: string;
-            body: string;
             isRead: boolean;
+            body: string;
+            portalUserId: string;
         }[];
+        moduleId: string;
+        type: string;
+        recordId: string;
+        accountStatus: string;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
     }>;
     createUser(user: any, body: {
         email: string;
@@ -105,8 +105,8 @@ export declare class PortalAdminController {
     updateStatus(user: any, id: string, body: {
         status: string;
     }): Promise<{
-        id: string;
         email: string;
+        id: string;
         accountStatus: string;
     }>;
     resetUser(user: any, id: string): Promise<{
@@ -115,16 +115,16 @@ export declare class PortalAdminController {
     setPortalRole(user: any, id: string, body: {
         portalRole: string;
     }): Promise<{
-        id: string;
         email: string;
+        id: string;
         isPortalAdmin: boolean;
         portalRole: string;
     }>;
     setPortalAdmin(user: any, id: string, body: {
         isPortalAdmin: boolean;
     }): Promise<{
-        id: string;
         email: string;
+        id: string;
         isPortalAdmin: boolean;
     }>;
     listModuleConfigs(user: any): Promise<{
@@ -151,9 +151,9 @@ export declare class PortalAdminController {
         } & {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
+            moduleId: string;
             isEnabled: boolean;
             portalLabel: string;
             portalType: string;
@@ -181,9 +181,9 @@ export declare class PortalAdminController {
         } & {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
+            moduleId: string;
             isEnabled: boolean;
             portalLabel: string;
             portalType: string;
@@ -204,15 +204,15 @@ export declare class PortalAdminController {
                 }[];
             } & {
                 id: string;
-                type: import(".prisma/client").$Enums.FieldType;
-                moduleId: string;
                 isActive: boolean;
                 createdAt: Date;
                 updatedAt: Date;
                 name: string;
-                order: number;
                 settings: import("@prisma/client/runtime/library").JsonValue;
+                order: number;
+                moduleId: string;
                 label: string;
+                type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -227,17 +227,17 @@ export declare class PortalAdminController {
             })[];
         } & {
             id: string;
-            organizationId: string;
             isActive: boolean;
+            organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             name: string;
             slug: string;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
             icon: string | null;
             color: string | null;
             order: number;
-            settings: import("@prisma/client/runtime/library").JsonValue;
         };
     }>;
     upsertModuleConfig(user: any, moduleId: string, body: any): Promise<{
@@ -256,9 +256,9 @@ export declare class PortalAdminController {
     } & {
         id: string;
         organizationId: string;
-        moduleId: string;
         createdAt: Date;
         updatedAt: Date;
+        moduleId: string;
         isEnabled: boolean;
         portalLabel: string;
         portalType: string;
@@ -283,9 +283,9 @@ export declare class PortalAdminController {
         } & {
             id: string;
             organizationId: string;
-            moduleId: string;
             createdAt: Date;
             updatedAt: Date;
+            moduleId: string;
             isEnabled: boolean;
             portalLabel: string;
             portalType: string;
@@ -306,15 +306,15 @@ export declare class PortalAdminController {
                 }[];
             } & {
                 id: string;
-                type: import(".prisma/client").$Enums.FieldType;
-                moduleId: string;
                 isActive: boolean;
                 createdAt: Date;
                 updatedAt: Date;
                 name: string;
-                order: number;
                 settings: import("@prisma/client/runtime/library").JsonValue;
+                order: number;
+                moduleId: string;
                 label: string;
+                type: import(".prisma/client").$Enums.FieldType;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -329,17 +329,17 @@ export declare class PortalAdminController {
             })[];
         } & {
             id: string;
-            organizationId: string;
             isActive: boolean;
+            organizationId: string;
             createdAt: Date;
             updatedAt: Date;
             name: string;
             slug: string;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
             icon: string | null;
             color: string | null;
             order: number;
-            settings: import("@prisma/client/runtime/library").JsonValue;
         };
     }>;
     saveFieldMappings(user: any, moduleId: string, body: {
@@ -360,9 +360,9 @@ export declare class PortalAdminController {
     } & {
         id: string;
         organizationId: string;
-        moduleId: string;
         createdAt: Date;
         updatedAt: Date;
+        moduleId: string;
         isEnabled: boolean;
         portalLabel: string;
         portalType: string;
@@ -374,12 +374,12 @@ export declare class PortalAdminController {
         portalEnabled: boolean;
         portalLabel: string;
         portalUser: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
-            accountStatus: string;
+            id: string;
             lastLoginAt: Date;
+            accountStatus: string;
         };
     }>;
     createPortalUserFromRecord(user: any, recordId: string): Promise<{

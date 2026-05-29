@@ -95,6 +95,24 @@ enum WidgetType {
   FUNNEL
 }
 
+model Department {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String
+  description    String?
+  color          String   @default("#3b82f6")
+  permissions    Json     @default("{}")
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  users          User[]
+
+  @@unique([slug, organizationId])
+  @@map("departments")
+}
+
 model Organization {
   id          String   @id @default(cuid())
   name        String
@@ -109,6 +127,7 @@ model Organization {
   updatedAt   DateTime @updatedAt
 
   users            User[]
+  departments      Department[]
   modules          DynamicModule[]
   relationships    Relationship[]
   workflows        Workflow[]
@@ -134,7 +153,8 @@ model Organization {
   portalFields         PortalField[]
   portalSections       PortalSection[]
   portalDocuments      PortalDocument[]
-  portalTemplates      PortalTemplate[]
+  portalTemplates         PortalTemplate[]
+  userPermissionOverrides UserPermissionOverride[]
 
   @@map("organizations")
 }
@@ -149,26 +169,34 @@ model User {
   phone          String?
   jobTitle       String?
   role           UserRole @default(USER)
-  isActive       Boolean  @default(true)
-  refreshToken   String?
-  lastLoginAt    DateTime?
-  organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive           Boolean   @default(true)
+  status             String    @default("ACTIVE")
+  mustChangePassword Boolean   @default(false)
+  suspendedAt        DateTime?
+  lockedAt           DateTime?
+  refreshToken       String?
+  lastLoginAt        DateTime?
+  organizationId     String
+  departmentId       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id])
-  createdRecords   Record[]      @relation("RecordCreator")
-  updatedRecords   Record[]      @relation("RecordUpdater")
-  comments         Comment[]
-  notifications    Notification[]
-  auditLogs        AuditLog[]
-  dashboards       Dashboard[]
-  views            View[]
-  uploadedFiles    File[]
-  createdForms     Form[]
-  analyticsViews   AnalyticsView[]
-  savedFilters     SavedFilter[]
-  userPreferences  UserPreference[]
+  organization        Organization              @relation(fields: [organizationId], references: [id])
+  department          Department?               @relation(fields: [departmentId], references: [id])
+  createdRecords      Record[]                  @relation("RecordCreator")
+  updatedRecords      Record[]                  @relation("RecordUpdater")
+  comments            Comment[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  dashboards          Dashboard[]
+  views               View[]
+  uploadedFiles       File[]
+  createdForms        Form[]
+  analyticsViews      AnalyticsView[]
+  savedFilters        SavedFilter[]
+  userPreferences     UserPreference[]
+  permissionOverrides UserPermissionOverride[]  @relation("UserOverrides")
+  grantedOverrides    UserPermissionOverride[]  @relation("PermissionGranter")
 
   @@index([email])
   @@index([organizationId])
@@ -201,6 +229,7 @@ model DynamicModule {
   analyticsTargets      AnalyticsTarget[]
   blueprints            Blueprint[]
   portalConfig          PortalModuleConfig?
+  permissionOverrides   UserPermissionOverride[]
 
   @@unique([slug, organizationId])
   @@index([organizationId])
@@ -1045,4 +1074,39 @@ model PortalTemplate {
 
   @@index([organizationId])
   @@map("portal_templates")
+}
+
+model UserPermissionOverride {
+  id             String    @id @default(cuid())
+  userId         String
+  organizationId String
+  moduleId       String?
+  moduleSlug     String?
+  canView        Boolean?
+  canCreate      Boolean?
+  canEdit        Boolean?
+  canDelete      Boolean?
+  canExport      Boolean?
+  canImport      Boolean?
+  canPrint       Boolean?
+  canDashboard   Boolean?
+  canAnalytics   Boolean?
+  canWorkflow    Boolean?
+  canForms       Boolean?
+  canStudio      Boolean?
+  isActive       Boolean   @default(true)
+  expiresAt      DateTime?
+  reason         String?
+  grantedById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user         User           @relation("UserOverrides", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  grantedBy    User?          @relation("PermissionGranter", fields: [grantedById], references: [id])
+  module       DynamicModule? @relation(fields: [moduleId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("user_permission_overrides")
 }

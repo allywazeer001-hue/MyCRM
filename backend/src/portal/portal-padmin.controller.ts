@@ -192,6 +192,11 @@ export class PortalPadminController {
     return this.builderService.updatePage(user.organizationId, id, { status: dto.status ?? 'PUBLISHED' });
   }
 
+  @Post('pages/:id/republish')
+  republishPage(@CurrentPortalUser() user: any, @Param('id') id: string) {
+    return this.builderService.republishPage(user.organizationId, id);
+  }
+
   // ── Templates ─────────────────────────────────────────────────────────────
 
   @Get('templates')

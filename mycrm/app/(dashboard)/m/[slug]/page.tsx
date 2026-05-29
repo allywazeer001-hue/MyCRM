@@ -29,6 +29,7 @@ import { useModulesStore, Field } from "@/store/modules.store";
 import { useViewStore } from "@/store/view.store";
 import { api } from "@/lib/api";
 import { formatDate, cn } from "@/lib/utils";
+import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1161,6 +1162,7 @@ function MassUpdateModal({
 export default function ModuleRecordsPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
+  const perm = useModulePermission(slug ?? "");
 
   const [mod, setMod] = useState<any>(null);
   const [result, setResult] = useState<PaginatedResult | null>(null);
@@ -1492,7 +1494,11 @@ export default function ModuleRecordsPage() {
             </div>
           )}
           <Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="w-4 h-4" /></Button>
-          {mod && <Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />New Record</Button></Link>}
+          {mod && (
+            <PermissionGate slug={slug ?? ""} action="canCreate">
+              <Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />New Record</Button></Link>
+            </PermissionGate>
+          )}
         </div>
       </div>
 
@@ -1610,12 +1616,16 @@ export default function ModuleRecordsPage() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => setImportOpen(true)}>
-            <Upload className="w-4 h-4" /> Import
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
-            <Download className="w-4 h-4" /> Export CSV
-          </Button>
+          <PermissionGate slug={slug ?? ""} action="canImport">
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setImportOpen(true)}>
+              <Upload className="w-4 h-4" /> Import
+            </Button>
+          </PermissionGate>
+          <PermissionGate slug={slug ?? ""} action="canExport">
+            <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
+              <Download className="w-4 h-4" /> Export CSV
+            </Button>
+          </PermissionGate>
 
           {view === "table" && mod?.fields && (
             <ColumnPicker fields={mod.fields} visibleIds={visibleFieldIds} onChange={handleColumnChange} />
@@ -1710,7 +1720,7 @@ export default function ModuleRecordsPage() {
                   </p>
                   {activeFilterCount > 0
                     ? <Button size="sm" variant="outline" onClick={clearFilters}>Clear Filters</Button>
-                    : <Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />Add First Record</Button></Link>
+                    : <PermissionGate slug={slug ?? ""} action="canCreate"><Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />Add First Record</Button></Link></PermissionGate>
                   }
                 </div>
               ) : (
@@ -1763,10 +1773,12 @@ export default function ModuleRecordsPage() {
                                   <DropdownMenuItem className="cursor-pointer"><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                                 </Link>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50"
-                                  onClick={() => handleDelete(record.id)}>
-                                  <Trash2 className="mr-2 h-4 w-4" />Delete
-                                </DropdownMenuItem>
+                                {perm.canDelete && (
+                                  <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50"
+                                    onClick={() => handleDelete(record.id)}>
+                                    <Trash2 className="mr-2 h-4 w-4" />Delete
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </td>
@@ -1849,13 +1861,15 @@ export default function ModuleRecordsPage() {
                 >
                   <Pencil className="w-3.5 h-3.5" /> Mass Update
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={handleExportSelected}
-                  className="gap-1.5 bg-gray-700 hover:bg-gray-600 text-white border-0 h-8 text-xs"
-                >
-                  <Download className="w-3.5 h-3.5" /> Export Selected
-                </Button>
+                {perm.canExport && (
+                  <Button
+                    size="sm"
+                    onClick={handleExportSelected}
+                    className="gap-1.5 bg-gray-700 hover:bg-gray-600 text-white border-0 h-8 text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Export Selected
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   disabled
@@ -1865,17 +1879,19 @@ export default function ModuleRecordsPage() {
                   <Mail className="w-3.5 h-3.5" /> Send Email
                 </Button>
                 <div className="w-px h-5 bg-gray-600 mx-1" />
-                <Button
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  disabled={deleting}
-                  className="gap-1.5 bg-red-600 hover:bg-red-500 text-white border-0 h-8 text-xs"
-                >
-                  {deleting
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Trash2 className="w-3.5 h-3.5" />}
-                  Delete {selected.length}
-                </Button>
+                {perm.canDelete && (
+                  <Button
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    disabled={deleting}
+                    className="gap-1.5 bg-red-600 hover:bg-red-500 text-white border-0 h-8 text-xs"
+                  >
+                    {deleting
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2 className="w-3.5 h-3.5" />}
+                    Delete {selected.length}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

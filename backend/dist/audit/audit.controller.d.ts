@@ -4,10 +4,10 @@ export declare class AuditController {
     constructor(svc: AuditService);
     findAll(query: any, user: any): Promise<({
         user: {
-            id: string;
             email: string;
             firstName: string;
             lastName: string;
+            id: string;
         };
     } & {
         id: string;

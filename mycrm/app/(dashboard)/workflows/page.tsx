@@ -89,6 +89,18 @@ const ACTION_TYPES = [
 
 const needsValue = (op: string) => !["empty", "not_empty"].includes(op);
 
+const OPTION_FIELD_TYPES = ["DROPDOWN", "STATUS", "RADIO", "SELECT", "MULTI_SELECT", "CHECKBOX"];
+
+function isOptionField(fields: any[], fieldName: string) {
+  const f = fields.find(f => f.name === fieldName);
+  return f && OPTION_FIELD_TYPES.includes(f.type?.toUpperCase());
+}
+
+function fieldOptions(fields: any[], fieldName: string): { label: string; value: string }[] {
+  const f = fields.find(f => f.name === fieldName);
+  return (f?.options ?? []).map((o: any) => ({ label: o.label, value: o.value ?? o.label }));
+}
+
 function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
 
 // ── Action Config Editor ──────────────────────────────────────────────────────
@@ -109,7 +121,7 @@ function ActionConfigEditor({
         <div className="grid grid-cols-2 gap-2 mt-2">
           <div>
             <Label className="text-xs">Field</Label>
-            <Select value={cfg.field || ""} onValueChange={(v) => onChange({ ...cfg, field: v })}>
+            <Select value={cfg.field || ""} onValueChange={(v) => onChange({ ...cfg, field: v, value: "" })}>
               <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Select field" /></SelectTrigger>
               <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
             </Select>
@@ -117,12 +129,23 @@ function ActionConfigEditor({
           <div>
             <Label className="text-xs">Value</Label>
             <div className="flex gap-1 mt-1">
-              <Input
-                className="h-8 text-xs flex-1"
-                value={cfg.value || ""}
-                onChange={(e) => onChange({ ...cfg, value: e.target.value })}
-                placeholder="Value or __NOW__ for current date"
-              />
+              {isOptionField(fields, cfg.field) ? (
+                <Select value={cfg.value || ""} onValueChange={(v) => onChange({ ...cfg, value: v })}>
+                  <SelectTrigger className="h-8 text-xs flex-1"><SelectValue placeholder="Select value" /></SelectTrigger>
+                  <SelectContent>
+                    {fieldOptions(fields, cfg.field).map(o => (
+                      <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  className="h-8 text-xs flex-1"
+                  value={cfg.value || ""}
+                  onChange={(e) => onChange({ ...cfg, value: e.target.value })}
+                  placeholder="Value or __NOW__ for current date"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -135,15 +158,29 @@ function ActionConfigEditor({
           {updates.map((u, i) => (
             <div key={i} className="grid grid-cols-2 gap-2 items-center">
               <Select value={u.field} onValueChange={(v) => {
-                const next = [...updates]; next[i] = { ...u, field: v };
+                const next = [...updates]; next[i] = { field: v, value: "" };
                 onChange({ ...cfg, updates: next });
               }}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Field" /></SelectTrigger>
                 <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
               </Select>
               <div className="flex gap-1">
-                <Input className="h-8 text-xs" value={u.value} placeholder="Value"
-                  onChange={(e) => { const next = [...updates]; next[i] = { ...u, value: e.target.value }; onChange({ ...cfg, updates: next }); }} />
+                {isOptionField(fields, u.field) ? (
+                  <Select value={u.value} onValueChange={(v) => {
+                    const next = [...updates]; next[i] = { ...u, value: v };
+                    onChange({ ...cfg, updates: next });
+                  }}>
+                    <SelectTrigger className="h-8 text-xs flex-1"><SelectValue placeholder="Select value" /></SelectTrigger>
+                    <SelectContent>
+                      {fieldOptions(fields, u.field).map(o => (
+                        <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input className="h-8 text-xs flex-1" value={u.value} placeholder="Value"
+                    onChange={(e) => { const next = [...updates]; next[i] = { ...u, value: e.target.value }; onChange({ ...cfg, updates: next }); }} />
+                )}
                 {updates.length > 1 && (
                   <button onClick={() => onChange({ ...cfg, updates: updates.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500">
                     <X className="w-3.5 h-3.5" />
@@ -391,8 +428,19 @@ function WorkflowBuilderDialog({
                       <SelectContent>{CONDITION_OPERATORS.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
                     </Select>
                     {needsValue(cond.operator) && (
-                      <Input className="h-7 text-xs w-28" value={cond.value} placeholder="Value"
-                        onChange={e => updateCondition(cond.id, { value: e.target.value })} />
+                      isOptionField(fields, cond.field) ? (
+                        <Select value={cond.value} onValueChange={v => updateCondition(cond.id, { value: v })}>
+                          <SelectTrigger className="h-7 text-xs w-36"><SelectValue placeholder="Value" /></SelectTrigger>
+                          <SelectContent>
+                            {fieldOptions(fields, cond.field).map(o => (
+                              <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input className="h-7 text-xs w-28" value={cond.value} placeholder="Value"
+                          onChange={e => updateCondition(cond.id, { value: e.target.value })} />
+                      )
                     )}
                     <button onClick={() => removeCondition(cond.id)} className="text-gray-400 hover:text-red-500">
                       <X className="w-3.5 h-3.5" />
