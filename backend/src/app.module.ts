@@ -38,6 +38,8 @@ import { RequestTypesModule } from './request-types/request-types.module';
 import { RequestBlueprintsModule } from './request-blueprints/request-blueprints.module';
 import { RequestsModule } from './requests/requests.module';
 import { IndustrySetupModule } from './industry-setup/industry-setup.module';
+import { EmailTemplatesModule } from './email-templates/email-templates.module';
+import { EmailsModule } from './emails/emails.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -79,6 +81,8 @@ import { IndustrySetupModule } from './industry-setup/industry-setup.module';
     RequestBlueprintsModule,
     RequestsModule,
     IndustrySetupModule,
+    EmailTemplatesModule,
+    EmailsModule,
   ],
 })
 export class AppModule {}

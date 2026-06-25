@@ -186,6 +186,8 @@ model Organization {
   requestTypes            RequestType[]
   requests                Request[]
   requestBlueprints       RequestBlueprint[]
+  emailTemplates          EmailTemplate[]    @relation("OrgEmailTemplates")
+  emailLogs               EmailLog[]         @relation("OrgEmailLogs")
 
   @@map("organizations")
 }
@@ -252,6 +254,8 @@ model User {
   requestAttachments     RequestAttachment[]     @relation("RequestAttachmentUploader")
   requestStepActions     RequestInstanceStep[]   @relation("RequestStepActor")
   requestEvents          RequestEvent[]          @relation("RequestEventActor")
+  emailTemplatesCreated  EmailTemplate[]         @relation("EmailTemplateCreator")
+  emailLogsSent          EmailLog[]              @relation("EmailLogSender")
 
   @@index([email])
   @@index([organizationId])
@@ -2100,4 +2104,47 @@ model RequestEvent {
 
   @@index([requestId])
   @@map("request_events")
+}
+
+// ── Email ─────────────────────────────────────────────────────────────────────
+
+model EmailTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  subject        String
+  body           String   @db.LongText
+  isActive       Boolean  @default(true)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation("OrgEmailTemplates", fields: [organizationId], references: [id])
+  createdBy    User         @relation("EmailTemplateCreator", fields: [createdById], references: [id])
+  emailLogs    EmailLog[]
+
+  @@index([organizationId])
+  @@map("email_templates")
+}
+
+model EmailLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  templateId     String?
+  sentById       String
+  toEmail        String
+  toName         String?
+  subject        String
+  body           String   @db.LongText
+  status         String   @default("sent")
+  errorMsg       String?
+  sentAt         DateTime @default(now())
+
+  organization Organization   @relation("OrgEmailLogs", fields: [organizationId], references: [id])
+  sentBy       User            @relation("EmailLogSender", fields: [sentById], references: [id])
+  template     EmailTemplate?  @relation(fields: [templateId], references: [id])
+
+  @@index([organizationId])
+  @@index([sentById])
+  @@map("email_logs")
 }
