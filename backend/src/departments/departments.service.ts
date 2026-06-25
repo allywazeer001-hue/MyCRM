@@ -6,10 +6,12 @@ export class DepartmentsService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(orgId: string) {
+    const where = { organizationId: orgId };
     return this.prisma.department.findMany({
-      where: { organizationId: orgId },
+      where,
       include: {
         _count: { select: { users: true } },
+        head: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
       orderBy: { name: 'asc' },
     });
@@ -20,6 +22,7 @@ export class DepartmentsService {
       where: { id, organizationId: orgId },
       include: {
         _count: { select: { users: true } },
+        head: { select: { id: true, firstName: true, lastName: true, email: true } },
         users: {
           select: {
             id: true, firstName: true, lastName: true,
@@ -47,7 +50,10 @@ export class DepartmentsService {
         color: data.color || '#3b82f6',
         organizationId: orgId,
       },
-      include: { _count: { select: { users: true } } },
+      include: {
+        _count: { select: { users: true } },
+        head: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
     });
   }
 
@@ -65,7 +71,23 @@ export class DepartmentsService {
     return this.prisma.department.update({
       where: { id },
       data: patch,
-      include: { _count: { select: { users: true } } },
+      include: {
+        _count: { select: { users: true } },
+        head: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+  }
+
+  async setHead(id: string, _orgId: string, headUserId: string | null) {
+    const dept = await this.prisma.department.findFirst({ where: { id } });
+    if (!dept) throw new NotFoundException('Unit not found');
+    return this.prisma.department.update({
+      where: { id },
+      data: { headUserId },
+      include: {
+        head: { select: { id: true, firstName: true, lastName: true, email: true } },
+        _count: { select: { users: true } },
+      },
     });
   }
 

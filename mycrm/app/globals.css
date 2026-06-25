@@ -24,31 +24,20 @@
     --radius: 0.5rem;
     --sidebar-width: 240px;
   }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-  }
 }
 
 @layer base {
+  /* Base scale: 14px = 87.5% of the browser default 16px.
+     Rem-based Tailwind utilities (spacing, font sizes, heights) all shrink proportionally.
+     Additional zoom breakpoints below handle large/XL/4K monitors so users
+     don't need to manually zoom to 75–80% on bigger screens. */
+  html {
+    font-size: 14px;
+  }
+  /* Full-height anchors so h-screen / flex-col fill the viewport correctly. */
+  html, body {
+    height: 100%;
+  }
   * {
     border-color: hsl(var(--border));
   }
@@ -57,4 +46,206 @@
     color: hsl(var(--foreground));
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* ── Responsive density for large displays ───────────────────────────────────
+   Use font-size (NOT zoom) so viewport units (vh/dvh/vw) keep working
+   correctly.  All Tailwind rem-based utilities — spacing, font-sizes, icon
+   sizes — scale proportionally.  Fixed-pixel items stay fixed, which is fine.
+   Laptops (< 1920 px) use the 14px base; larger displays get progressively
+   denser text so the UI feels native without browser-zoom artefacts.
+   1920 px  →  13 px  (Full HD — slightly tighter)
+   2560 px  →  11.5 px (QHD / 27-inch — comfortable working density)
+   3840 px  →   9 px  (4 K UHD — prevents comically large UI)                */
+@media screen and (min-width: 1920px) { html { font-size: 13px; } }
+@media screen and (min-width: 2560px) { html { font-size: 11.5px; } }
+@media screen and (min-width: 3840px) { html { font-size: 9px; } }
+
+/* ── Sidebar nav-icon hover animation ───────────────────────────────────── */
+@keyframes cb-nav-icon-pop {
+  0%   { transform: scale(1)    rotate(0deg);  }
+  30%  { transform: scale(1.28) rotate(-10deg); }
+  65%  { transform: scale(1.12) rotate(6deg);  }
+  100% { transform: scale(1)    rotate(0deg);  }
+}
+.group:hover .cb-nav-icon {
+  animation: cb-nav-icon-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── Cloudbox entrance animations ───────────────────────────────────────── */
+
+@keyframes cb-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes cb-slide-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes cb-slide-right {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+
+@keyframes cb-scale-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+@keyframes cb-splash-out {
+  0%   { opacity: 1; transform: scale(1); }
+  70%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+
+@keyframes cb-blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(20px, -15px) scale(1.05); }
+  66%       { transform: translate(-15px, 20px) scale(0.96); }
+}
+
+.cb-fade-in    { animation: cb-fade-in   0.55s ease both; }
+.cb-slide-up   { animation: cb-slide-up  0.55s ease both; }
+.cb-slide-right{ animation: cb-slide-right 0.45s ease both; }
+.cb-scale-in   { animation: cb-scale-in  0.5s  ease both; }
+
+.cb-d100 { animation-delay: 0.10s; }
+.cb-d150 { animation-delay: 0.15s; }
+.cb-d200 { animation-delay: 0.20s; }
+.cb-d250 { animation-delay: 0.25s; }
+.cb-d300 { animation-delay: 0.30s; }
+.cb-d350 { animation-delay: 0.35s; }
+.cb-d400 { animation-delay: 0.40s; }
+
+.cb-splash-out {
+  animation: cb-splash-out 1.3s ease forwards;
+  pointer-events: none;
+}
+
+.cb-blob {
+  animation: cb-blob-float 8s ease-in-out infinite;
+}
+
+/* ── Typing cursor ───────────────────────────────────────────────────────── */
+@keyframes cb-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cb-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cb-blink 1s step-end infinite;
+}
+
+/* ── react-grid-layout ────────────────────────────────────────────────────── */
+.react-grid-layout { position: relative; }
+.react-grid-item { transition: all 200ms ease; transition-property: left, top, width, height; }
+.react-grid-item.cssTransforms { transition-property: transform, width, height; }
+.react-grid-item.resizing { opacity: 0.9; z-index: 10 !important; transition: none; }
+.react-grid-item.react-draggable-dragging { transition: none; z-index: 20 !important; opacity: 0.85; box-shadow: 0 14px 40px rgba(0,0,0,.18) !important; }
+.react-grid-item.react-grid-placeholder { background: #3b82f6; opacity: 0.12; border: 2px dashed #3b82f6; border-radius: 12px; z-index: 2; user-select: none; transition: none; }
+/* Resize handles — z-index 30 so they appear on top of card content */
+.react-grid-item > .react-resizable-handle {
+  position: absolute; z-index: 30;
+  opacity: 0; transition: opacity 120ms;
+}
+.rgl-edit-mode .react-grid-item:hover > .react-resizable-handle,
+.rgl-edit-mode .react-grid-item.resizing > .react-resizable-handle { opacity: 1; }
+/* SE corner handle (default) */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  width: 20px; height: 20px; bottom: 0; right: 0; cursor: se-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se::after {
+  content: ""; position: absolute; right: 4px; bottom: 4px;
+  width: 10px; height: 10px;
+  border-right: 3px solid #3b82f6; border-bottom: 3px solid #3b82f6; border-radius: 0 0 4px 0;
+}
+/* South (bottom-centre) handle */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s {
+  width: 50px; height: 12px; bottom: 0; left: 50%; right: auto; transform: translateX(-50%); cursor: s-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 3px; width: 32px; height: 4px;
+  background: #3b82f6; border-radius: 2px;
+}
+/* East (right-centre) handle */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e {
+  width: 12px; height: 50px; right: 0; top: 50%; bottom: auto; transform: translateY(-50%); cursor: e-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e::after {
+  content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+  right: 3px; width: 4px; height: 32px;
+  background: #3b82f6; border-radius: 2px;
+}
+/* North (top-centre) handle */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-n {
+  width: 50px; height: 12px; top: 0; left: 50%; right: auto; transform: translateX(-50%); cursor: n-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-n::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  top: 3px; width: 32px; height: 4px; background: #3b82f6; border-radius: 2px;
+}
+/* West (left-centre) handle */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w {
+  width: 12px; height: 50px; left: 0; top: 50%; bottom: auto; transform: translateY(-50%); cursor: w-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w::after {
+  content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+  left: 3px; width: 4px; height: 32px; background: #3b82f6; border-radius: 2px;
+}
+/* NE corner */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne {
+  width: 20px; height: 20px; top: 0; right: 0; cursor: ne-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne::after {
+  content: ""; position: absolute; right: 4px; top: 4px; width: 10px; height: 10px;
+  border-right: 3px solid #3b82f6; border-top: 3px solid #3b82f6; border-radius: 0 4px 0 0;
+}
+/* NW corner */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw {
+  width: 20px; height: 20px; top: 0; left: 0; cursor: nw-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw::after {
+  content: ""; position: absolute; left: 4px; top: 4px; width: 10px; height: 10px;
+  border-left: 3px solid #3b82f6; border-top: 3px solid #3b82f6; border-radius: 4px 0 0 0;
+}
+/* SW corner */
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  width: 20px; height: 20px; bottom: 0; left: 0; cursor: sw-resize;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw::after {
+  content: ""; position: absolute; left: 4px; bottom: 4px; width: 10px; height: 10px;
+  border-left: 3px solid #3b82f6; border-bottom: 3px solid #3b82f6; border-radius: 0 0 0 4px;
+}
+/* Grid background shown in edit/reorder mode — cell shapes via React overlay, see GridCellsOverlay */
+.rgl-edit-mode {
+  background-color: #e4ecf7;
+  border-radius: 8px;
+  position: relative;
+}
+/* Individual cell shadow tiles (rendered as DOM elements in GridCellsOverlay) */
+.rgl-cell {
+  background: rgba(255, 255, 255, 0.58);
+  border-radius: 6px;
+  box-shadow:
+    0 1px 4px rgba(90, 120, 180, 0.1),
+    0 0 0 1px rgba(140, 165, 210, 0.22);
+}
+
+/* Legacy dashboard CSS grid class (kept for backward compat) */
+.analytics-grid {
+  grid-template-columns: 1fr !important;
+}
+@media (min-width: 640px) {
+  .analytics-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+@media (min-width: 1024px) {
+  .analytics-grid { grid-template-columns: repeat(8, 1fr) !important; }
 }

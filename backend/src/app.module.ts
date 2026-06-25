@@ -25,6 +25,19 @@ import { UserPreferencesModule } from './user-preferences/user-preferences.modul
 import { BlueprintsModule } from './blueprints/blueprints.module';
 import { PortalModule } from './portal/portal.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { ProcessModule } from './process/process.module';
+import { TaskPanelsModule } from './task-panels/task-panels.module';
+import { ReportsModule } from './reports/reports.module';
+import { WorkspaceModule } from './workspace/workspace.module';
+import { MessagesModule } from './messages/messages.module';
+import { TrackerModule } from './tracker/tracker.module';
+import { GalleryModule } from './gallery/gallery.module';
+import { PublicationsModule } from './publications/publications.module';
+import { CalendarSyncModule } from './calendar-sync/calendar-sync.module';
+import { RequestTypesModule } from './request-types/request-types.module';
+import { RequestBlueprintsModule } from './request-blueprints/request-blueprints.module';
+import { RequestsModule } from './requests/requests.module';
+import { IndustrySetupModule } from './industry-setup/industry-setup.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -53,6 +66,19 @@ import { DepartmentsModule } from './departments/departments.module';
     BlueprintsModule,
     PortalModule,
     DepartmentsModule,
+    ProcessModule,
+    TaskPanelsModule,
+    ReportsModule,
+    WorkspaceModule,
+    MessagesModule,
+    TrackerModule,
+    GalleryModule,
+    PublicationsModule,
+    CalendarSyncModule,
+    RequestTypesModule,
+    RequestBlueprintsModule,
+    RequestsModule,
+    IndustrySetupModule,
   ],
 })
 export class AppModule {}

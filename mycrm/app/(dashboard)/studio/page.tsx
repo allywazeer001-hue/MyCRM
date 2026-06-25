@@ -2,21 +2,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Database, Edit, Trash2, MoreHorizontal, Layers } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useModulesStore } from "@/store/modules.store";
-import { formatDate } from "@/lib/utils";
-
-const ICON_BG: Record<string, string> = {
-  0: "bg-blue-50 text-blue-600",
-  1: "bg-purple-50 text-purple-600",
-  2: "bg-green-50 text-green-600",
-  3: "bg-orange-50 text-orange-600",
-  4: "bg-pink-50 text-pink-600",
-  5: "bg-teal-50 text-teal-600",
-};
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 export default function StudioPage() {
   const { modules, fetchModules, deleteModule, isLoading } = useModulesStore();
@@ -32,7 +23,7 @@ export default function StudioPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Module Studio</h1>
           <p className="text-gray-500 mt-1">Build and manage your custom data modules.</p>
@@ -77,8 +68,14 @@ export default function StudioPage() {
             <Card key={mod.id} className="group hover:shadow-md transition-shadow">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl ${ICON_BG[i % 6 + ""]}`}>
-                    {mod.icon || "📦"}
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: mod.color ? `${mod.color}18` : ["#eff6ff","#f5f3ff","#f0fdf4","#fff7ed","#fdf4ff","#ecfeff"][i % 6],
+                      color: mod.color ?? ["#3b82f6","#8b5cf6","#22c55e","#f97316","#a855f7","#06b6d4"][i % 6],
+                    }}
+                  >
+                    <ModuleIcon icon={mod.icon} slug={mod.slug} size={22} />
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -102,7 +99,8 @@ export default function StudioPage() {
                         onClick={() => handleDelete(mod.id)}
                         disabled={deleting === mod.id}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {deleting === mod.id ? "Deleting…" : "Delete"}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -114,11 +112,9 @@ export default function StudioPage() {
                 </p>
 
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Badge variant="secondary" className="text-xs">
-                      {mod.fields?.length || 0} fields
-                    </Badge>
-                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {mod.fields?.length ?? 0} fields
+                  </Badge>
                   <Link href={`/studio/${mod.id}`}>
                     <Button variant="outline" size="sm" className="text-xs gap-1.5">
                       <Edit className="w-3 h-3" /> Edit

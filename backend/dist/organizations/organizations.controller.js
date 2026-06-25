@@ -19,17 +19,83 @@ const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const swagger_1 = require("@nestjs/swagger");
 let OrganizationsController = class OrganizationsController {
-    constructor(organizationsService) {
-        this.organizationsService = organizationsService;
+    constructor(svc) {
+        this.svc = svc;
+    }
+    findAll(user) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.findAll();
+    }
+    create(user, body) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.create(body);
     }
     getMyOrg(user) {
-        return this.organizationsService.findOne(user.organizationId);
+        return this.svc.findOne(user.organizationId);
+    }
+    getMyOrgStats(user) {
+        return this.svc.getStats(user.organizationId);
     }
     updateMyOrg(user, body) {
-        return this.organizationsService.update(user.organizationId, body);
+        if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+            throw new common_1.ForbiddenException('Admin access required');
+        }
+        return this.svc.update(user.organizationId, body);
+    }
+    findOne(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.findOne(id);
+    }
+    getStats(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.getStats(id);
+    }
+    update(user, id, body) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.update(id, body);
+    }
+    suspend(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.suspend(id);
+    }
+    activate(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.activate(id);
+    }
+    deactivate(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.deactivate(id);
+    }
+    hardDelete(user, id) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Platform admin access required');
+        return this.svc.hardDelete(id, user.id);
     }
 };
 exports.OrganizationsController = OrganizationsController;
+__decorate([
+    (0, common_1.Get)(),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Post)(),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)('me'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
@@ -38,6 +104,13 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], OrganizationsController.prototype, "getMyOrg", null);
 __decorate([
+    (0, common_1.Get)('me/stats'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "getMyOrgStats", null);
+__decorate([
     (0, common_1.Patch)('me'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, common_1.Body)()),
@@ -45,6 +118,63 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], OrganizationsController.prototype, "updateMyOrg", null);
+__decorate([
+    (0, common_1.Get)(':id'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "findOne", null);
+__decorate([
+    (0, common_1.Get)(':id/stats'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "getStats", null);
+__decorate([
+    (0, common_1.Patch)(':id'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "update", null);
+__decorate([
+    (0, common_1.Patch)(':id/suspend'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "suspend", null);
+__decorate([
+    (0, common_1.Patch)(':id/activate'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "activate", null);
+__decorate([
+    (0, common_1.Delete)(':id'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "deactivate", null);
+__decorate([
+    (0, common_1.Delete)(':id/permanent'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OrganizationsController.prototype, "hardDelete", null);
 exports.OrganizationsController = OrganizationsController = __decorate([
     (0, swagger_1.ApiTags)('organizations'),
     (0, swagger_1.ApiBearerAuth)(),

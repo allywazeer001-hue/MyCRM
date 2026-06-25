@@ -1,5 +1,6 @@
 "use client";
 import { Star } from "lucide-react";
+import { DependentGlobalListInput, GlobalListInput } from "@/components/ui/dependent-global-list-input";
 
 export interface PortalFieldDef {
   id: string;
@@ -15,6 +16,7 @@ export interface PortalFieldDef {
   isReadOnly: boolean;
   isAdminOnly: boolean;
   formula?: string;
+  settings?: Record<string, any>;
 }
 
 interface Props {
@@ -22,6 +24,7 @@ interface Props {
   value: any;
   onChange?: (value: any) => void;
   readOnly?: boolean;
+  externalOptions?: Array<{ label: string; value: string }>;
 }
 
 const INPUT = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white";
@@ -30,7 +33,7 @@ function Empty() {
   return <span className="text-gray-400 italic text-sm">Not set</span>;
 }
 
-export function PortalFieldRenderer({ field, value, onChange, readOnly }: Props) {
+export function PortalFieldRenderer({ field, value, onChange, readOnly, externalOptions }: Props) {
   if (!field.isVisible) return null;
 
   // ── Structural / layout field types ──────────────────────────────────────────
@@ -264,6 +267,51 @@ export function PortalFieldRenderer({ field, value, onChange, readOnly }: Props)
     case "upload":
       return <span className="text-sm text-gray-400 italic">Use the Documents section to upload files.</span>;
 
+    case "GLOBAL_LIST":
+    case "GLOBAL_RELATION": {
+      const listId = field.settings?.globalListId ?? field.settings?.globalListSource?.listId ?? "";
+      if (!editing) {
+        if (externalOptions) {
+          const opt = externalOptions.find(o => o.value === value);
+          return opt
+            ? <span className="text-sm text-gray-800">{opt.label}</span>
+            : (value ? <span className="text-sm text-gray-800">{String(value)}</span> : <Empty />);
+        }
+        return value ? <span className="text-sm text-gray-800">{String(value)}</span> : <Empty />;
+      }
+      if (externalOptions) {
+        return (
+          <select className={INPUT} value={value ?? ""} onChange={e => onChange?.(e.target.value)}>
+            <option value="">— Select —</option>
+            {externalOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        );
+      }
+      return (
+        <GlobalListInput
+          listId={listId}
+          value={value ?? ""}
+          onChange={(v: string) => onChange?.(v)}
+          placeholder={field.placeholder}
+        />
+      );
+    }
+
+    case "DEPENDENT_GLOBAL_LIST": {
+      const listId = field.settings?.globalListId ?? field.settings?.globalListSource?.listId ?? "";
+      if (!editing) {
+        return value ? <span className="text-sm text-gray-800">{String(value)}</span> : <Empty />;
+      }
+      return (
+        <DependentGlobalListInput
+          listId={listId}
+          value={value ?? ""}
+          onChange={(v: any) => onChange?.(v)}
+          placeholder={field.placeholder}
+        />
+      );
+    }
+
     default:
       if (!editing) return value ? <span className="text-sm text-gray-800">{String(value)}</span> : <Empty />;
       return (
@@ -271,4 +319,30 @@ export function PortalFieldRenderer({ field, value, onChange, readOnly }: Props)
           onChange={e => onChange?.(e.target.value)} placeholder={field.placeholder} />
       );
   }
+}
+
+// ── Convenience component for portal pages using a dependency hook ────────────
+interface GlobalListSelectProps {
+  options: Array<{ label: string; value: string }>;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+}
+
+export function GlobalListSelect({ options, value, onChange, placeholder, disabled, className }: GlobalListSelectProps) {
+  return (
+    <select
+      className={className ?? INPUT}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      disabled={disabled}
+    >
+      <option value="">— {placeholder ?? "Select"} —</option>
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
 }

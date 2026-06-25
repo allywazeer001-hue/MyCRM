@@ -1,14 +1,17 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { generateWelcomePDF } from "@/lib/pdf-templates";
+import { DomainEmailInput } from "@/components/ui/domain-email-input";
 import {
   Users, Plus, Mail, Shield, MoreHorizontal, Search,
   Building2, Check, Eye, UserCheck, UserX, Pencil,
   RefreshCw, Key, Lock, Unlock, Ban, AlertTriangle,
-  Download, Printer, ChevronRight, X, Info, ShieldAlert,
+  Download, Printer, ChevronRight, X, Info, ShieldAlert, Globe, Trash2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,7 +26,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth.store";
 
@@ -52,6 +55,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 
 type Department = { id: string; name: string; color: string };
 
+type Organization = { id: string; name: string };
+
 type CrmUser = {
   id: string;
   email: string;
@@ -65,6 +70,8 @@ type CrmUser = {
   phone?: string;
   departmentId?: string;
   department?: Department;
+  organizationId?: string;
+  organization?: Organization;
   createdAt: string;
   lastLoginAt?: string;
   suspendedAt?: string;
@@ -209,36 +216,53 @@ function CredentialDialog({
 // ── User Form Dialog ──────────────────────────────────────────────────────────
 
 function UserFormDialog({
-  open, onClose, onSaved, departments, editUser,
+  open, onClose, onSaved, departments, editUser, emailDomain,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: (user: CrmUser, tempPassword?: string) => void;
   departments: Department[];
   editUser: CrmUser | null;
+  emailDomain?: string | null;
 }) {
   const toast = useToast();
   const isEdit = !!editUser;
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     email: "", firstName: "", lastName: "",
     role: "USER", departmentId: "__none__",
-    jobTitle: "", phone: "",
+    jobTitle: "", phone: "", avatar: "",
   });
   const [saving, setSaving] = useState(false);
+  // Portal link options: "none" | "create"
+  const [portalLink, setPortalLink] = useState<"none" | "create">("none");
 
   useEffect(() => {
     if (open) {
+      setPortalLink("none");
       setForm(editUser ? {
         email: editUser.email, firstName: editUser.firstName, lastName: editUser.lastName,
         role: editUser.role,
         departmentId: editUser.departmentId || "__none__",
         jobTitle: editUser.jobTitle || "", phone: editUser.phone || "",
-      } : { email: "", firstName: "", lastName: "", role: "USER", departmentId: "__none__", jobTitle: "", phone: "" });
+        avatar: editUser.avatar || "",
+      } : { email: "", firstName: "", lastName: "", role: "USER", departmentId: "__none__", jobTitle: "", phone: "", avatar: "" });
     }
   }, [open, editUser]);
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+
+  function handleAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => set("avatar", ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  const initials = [form.firstName, form.lastName]
+    .filter(Boolean).map((n) => n[0].toUpperCase()).join("") || "?";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -249,10 +273,21 @@ function UserFormDialog({
         role: form.role,
         departmentId: form.departmentId === "__none__" ? null : form.departmentId || null,
         jobTitle: form.jobTitle || null, phone: form.phone || null,
+        avatar: form.avatar || null,
       };
       const { data } = isEdit
         ? await api.patch(`/users/${editUser!.id}`, payload)
         : await api.post("/users", payload);
+
+      // Optionally create portal user if requested
+      if (!isEdit && portalLink === "create" && data.id) {
+        try {
+          await api.post("/portal/padmin/users", {
+            email: form.email, firstName: form.firstName, lastName: form.lastName,
+            role: "USER",
+          });
+        } catch { /* non-blocking */ }
+      }
 
       if (!isEdit && data.tempPassword) {
         onSaved(data, data.tempPassword);
@@ -270,81 +305,215 @@ function UserFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit User" : "Create New User"}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Update user details, role, and department."
-              : "Create a new workspace user. Password will default to their last name and must be changed on first login."}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>First Name <span className="text-red-500">*</span></Label>
-              <Input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} placeholder="Jane" required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Last Name <span className="text-red-500">*</span></Label>
-              <Input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} placeholder="Doe" required />
-            </div>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <DialogTitle className="text-base font-semibold text-gray-900">
+              {isEdit ? "Edit User" : "Create New User"}
+            </DialogTitle>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isEdit ? "Update user details and access settings." : "Fill in the details below to create a new CRM user."}
+            </p>
           </div>
-          <div className="space-y-1.5">
-            <Label>Email Address <span className="text-red-500">*</span></Label>
-            <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)}
-              placeholder="jane@company.com" required disabled={isEdit} />
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-gray-400" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="px-6 py-5 space-y-6 max-h-[75vh] overflow-y-auto">
+
+            {/* ── Portal link banner ── */}
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Globe className="w-4 h-4 text-blue-500" />
+                <span className="text-sm font-medium text-gray-700">Portal Access</span>
+                <span className="text-xs text-gray-400 ml-1">— link this user with the customer portal</span>
+              </div>
+              <div className="flex gap-3">
+                {([
+                  { val: "none",   label: "No portal link",        desc: "CRM access only" },
+                  { val: "create", label: "Create portal account",  desc: "Auto-create portal user" },
+                ] as const).map(({ val, label, desc }) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPortalLink(val)}
+                    className={cn(
+                      "flex-1 text-left rounded-lg border px-3 py-2.5 transition-all text-xs",
+                      portalLink === val
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className={cn(
+                        "w-3 h-3 rounded-full border-2 flex-shrink-0",
+                        portalLink === val ? "border-blue-500 bg-blue-500" : "border-gray-300"
+                      )} />
+                      <span className="font-medium">{label}</span>
+                    </div>
+                    <span className="text-gray-400 pl-4">{desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Profile picture + basic info ── */}
+            <div className="flex gap-6">
+
+              {/* Left: Avatar */}
+              <div className="flex flex-col items-center gap-3 w-36 flex-shrink-0">
+                <div className="relative group">
+                  {form.avatar ? (
+                    <img src={form.avatar} alt="avatar"
+                      className="w-24 h-24 rounded-full object-cover border-2 border-gray-200 shadow-sm" />
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-sm select-none">
+                      {initials}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                  >
+                    <span className="text-white text-[10px] font-medium text-center leading-tight px-2">Change<br />photo</span>
+                  </button>
+                </div>
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Upload a new one
+                </button>
+                {form.avatar && (
+                  <button type="button" onClick={() => set("avatar", "")}
+                    className="text-xs text-red-500 hover:text-red-600">
+                    Remove photo
+                  </button>
+                )}
+              </div>
+
+              {/* Right: Basic Info */}
+              <div className="flex-1 space-y-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Basic Information</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">First name <span className="text-red-500">*</span></Label>
+                    <Input value={form.firstName} onChange={(e) => set("firstName", e.target.value)}
+                      placeholder="Jane" required className="h-9 text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">Last name <span className="text-red-500">*</span></Label>
+                    <Input value={form.lastName} onChange={(e) => set("lastName", e.target.value)}
+                      placeholder="Doe" required className="h-9 text-sm" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">E-mail <span className="text-red-500">*</span></Label>
+                  {isEdit ? (
+                    <Input type="email" value={form.email} disabled className="h-9 text-sm" />
+                  ) : (
+                    <DomainEmailInput
+                      value={form.email}
+                      onChange={v => set("email", v)}
+                      domain={emailDomain}
+                      placeholder={emailDomain ? `jane@${emailDomain}` : "jane@company.com"}
+                      required
+                      className="h-9 text-sm"
+                    />
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Phone number</Label>
+                  <Input value={form.phone} onChange={(e) => set("phone", e.target.value)}
+                    placeholder="+1 555 0100" className="h-9 text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Department & User Type ── */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Account Setup</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">User type <span className="text-red-500">*</span></Label>
+                  <Select value={form.role} onValueChange={(v) => set("role", v)}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {ROLES.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "w-2 h-2 rounded-full",
+                              r === "SUPER_ADMIN" ? "bg-red-500" :
+                              r === "ADMIN"       ? "bg-blue-500" :
+                              r === "MANAGER"     ? "bg-amber-500" :
+                              r === "VIEWER"      ? "bg-purple-500" : "bg-gray-400"
+                            )} />
+                            {r.replace(/_/g, " ")}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Department / Unit</Label>
+                  <Select value={form.departmentId} onValueChange={(v) => set("departmentId", v)}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="No unit" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No unit</SelectItem>
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
+                            {d.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-600">Job title</Label>
+                <Input value={form.jobTitle} onChange={(e) => set("jobTitle", e.target.value)}
+                  placeholder="e.g. Sales Manager" className="h-9 text-sm" />
+              </div>
+            </div>
+
+            {/* ── Info notices ── */}
+            {form.role === "SUPER_ADMIN" && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-800 flex gap-2">
+                <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-600" />
+                Super Admin has full platform access and is not restricted to any unit.
+              </div>
+            )}
+            {!isEdit && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800 flex gap-2">
+                <Key className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                Default password will be the user&apos;s last name. They must change it on first login.
+              </div>
+            )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Role <span className="text-red-500">*</span></Label>
-              <Select value={form.role} onValueChange={(v) => set("role", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ROLES.map((r) => <SelectItem key={r} value={r}>{r.replace(/_/g, " ")}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Department</Label>
-              <Select value={form.departmentId} onValueChange={(v) => set("departmentId", v)}>
-                <SelectTrigger><SelectValue placeholder="No department" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No department</SelectItem>
-                  {departments.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-                        {d.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Job Title</Label>
-              <Input value={form.jobTitle} onChange={(e) => set("jobTitle", e.target.value)} placeholder="Sales Manager" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+1 555 0100" />
-            </div>
-          </div>
-          {!isEdit && (
-            <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-800 flex gap-2">
-              <Key className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              Default password will be set to the user&apos;s last name. They must change it on first login.
-            </div>
-          )}
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Saving…</> : isEdit ? "Save Changes" : "Create User"}
+
+          {/* ── Footer ── */}
+          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 bg-gray-50">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="h-9">
+              Cancel
             </Button>
-          </DialogFooter>
+            <Button type="submit" disabled={saving} className="h-9 px-5">
+              {saving
+                ? <><RefreshCw className="w-4 h-4 mr-1.5 animate-spin" />Saving…</>
+                : isEdit ? "Save Changes" : "Create User"}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -385,7 +554,7 @@ function PermissionSummaryDialog({
             <ShieldAlert className="w-5 h-5 text-blue-600" />
             Permission Summary — {userName}
           </DialogTitle>
-          <DialogDescription>Effective permissions after department rules and user-specific overrides.</DialogDescription>
+          <DialogDescription>Effective permissions after unit rules and user-specific overrides.</DialogDescription>
         </DialogHeader>
 
         {loading ? (
@@ -510,20 +679,182 @@ function ConfirmDialog({
   );
 }
 
+// ── Hard Delete — OTP Confirmation Dialog ────────────────────────────────────
+// Generates a secure 6-digit code shown to the admin; they must re-enter it
+// within 5 minutes to confirm permanent deletion. Replaces the old "type email"
+// approach with a more enterprise-grade verification step.
+
+function generateOTP(): string {
+  return Array.from({ length: 6 }, () => Math.floor(Math.random() * 10)).join("");
+}
+
+function HardDeleteDialog({
+  open, user, onConfirm, onClose,
+}: {
+  open: boolean;
+  user: CrmUser | null;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [otp, setOtp]         = useState("");
+  const [typed, setTyped]     = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [expiry, setExpiry]   = useState<Date | null>(null);
+  const [timeLeft, setTimeLeft] = useState(300); // 5 min in seconds
+
+  useEffect(() => {
+    if (open && user) {
+      const code = generateOTP();
+      setOtp(code);
+      setTyped("");
+      const exp = new Date(Date.now() + 5 * 60 * 1000);
+      setExpiry(exp);
+      setTimeLeft(300);
+    }
+  }, [open, user]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!open || !expiry) return;
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining === 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [open, expiry]);
+
+  const confirmed = typed.trim() === otp && timeLeft > 0;
+  const expired   = timeLeft === 0;
+  const minutes   = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+  const seconds   = String(timeLeft % 60).padStart(2, "0");
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await onConfirm();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to delete user");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function regenerate() {
+    const code = generateOTP();
+    setOtp(code);
+    setTyped("");
+    const exp = new Date(Date.now() + 5 * 60 * 1000);
+    setExpiry(exp);
+    setTimeLeft(300);
+  }
+
+  if (!user) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-700">
+            <AlertTriangle className="w-5 h-5" />
+            Permanently Delete User
+          </DialogTitle>
+          <DialogDescription>
+            This action <strong>cannot be undone</strong>. All data for this user will be permanently removed.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* User info */}
+          <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 space-y-1">
+            <p className="font-semibold">{user.firstName} {user.lastName}</p>
+            <p className="text-red-600 text-xs">{user.email} · {user.role}</p>
+          </div>
+
+          {/* OTP display */}
+          <div className="rounded-xl border-2 border-dashed border-red-200 bg-red-50/60 p-4 text-center space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Verification Code</p>
+            <div className="flex items-center justify-center gap-2">
+              {otp.split("").map((digit, i) => (
+                <span key={i} className="w-9 h-11 flex items-center justify-center rounded-lg bg-white border-2 border-red-300 text-red-700 text-xl font-mono font-bold shadow-sm">
+                  {digit}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              {expired ? (
+                <span className="text-xs text-red-600 font-semibold">Code expired</span>
+              ) : (
+                <span className="text-xs text-gray-500">Expires in <span className="font-mono font-bold text-red-600">{minutes}:{seconds}</span></span>
+              )}
+              <button
+                type="button"
+                onClick={regenerate}
+                className="text-xs text-blue-600 hover:underline ml-2 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" /> New code
+              </button>
+            </div>
+          </div>
+
+          {/* Input */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-gray-700">
+              Enter the 6-digit code above to confirm deletion
+            </label>
+            <Input
+              value={typed}
+              onChange={e => setTyped(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              className="h-10 text-center text-xl font-mono tracking-[0.4em] letter-spacing-wide"
+              autoComplete="off"
+              autoFocus
+              maxLength={6}
+              disabled={expired}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={deleting}>Cancel</Button>
+          <Button
+            variant="destructive"
+            disabled={!confirmed || deleting}
+            onClick={handleDelete}
+            className="gap-1.5"
+          >
+            {deleting
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Deleting…</>
+              : <><Trash2 className="w-3.5 h-3.5" /> Delete Permanently</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function UsersPage() {
   const toast = useToast();
+  const router = useRouter();
   const { user: me } = useAuthStore();
-  const orgName = (me as any)?.organization?.name || "Enterprise CRM";
+  const orgName = (me as any)?.organization?.name || "CORE";
+
+  const isSuperAdmin = me?.role === "SUPER_ADMIN";
 
   const [users, setUsers]               = useState<CrmUser[]>([]);
   const [departments, setDepartments]   = useState<Department[]>([]);
+  const [orgs, setOrgs]                 = useState<Organization[]>([]);
+  const [emailDomain, setEmailDomain]   = useState<string | null>(null);
   const [loading, setLoading]           = useState(true);
   const [search, setSearch]             = useState("");
   const [filterRole, setFilterRole]     = useState("__all__");
   const [filterDept, setFilterDept]     = useState("__all__");
   const [filterStatus, setFilterStatus] = useState("__all__");
+  const [orgFilter, setOrgFilter]       = useState("all");
 
   const [formOpen, setFormOpen]   = useState(false);
   const [editUser, setEditUser]   = useState<CrmUser | null>(null);
@@ -532,20 +863,32 @@ export default function UsersPage() {
   const [permDialog, setPermDialog]       = useState<CrmUser | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ user: CrmUser; action: string } | null>(null);
   const [resetResult, setResetResult]     = useState<{ user: CrmUser; tempPassword: string } | null>(null);
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<CrmUser | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, deptsRes] = await Promise.allSettled([
+      const requests: Promise<any>[] = [
         api.get("/users"),
         api.get("/departments"),
-      ]);
+        api.get("/organizations/me"),
+      ];
+      if (isSuperAdmin) requests.push(api.get("/organizations"));
+
+      const [usersRes, deptsRes, orgRes, allOrgsRes] = await Promise.allSettled(requests);
       if (usersRes.status === "fulfilled") setUsers(usersRes.value.data);
       if (deptsRes.status === "fulfilled") setDepartments(deptsRes.value.data);
+      if (orgRes.status === "fulfilled") {
+        const domain = (orgRes.value.data?.settings as any)?.emailDomain;
+        setEmailDomain(domain || null);
+      }
+      if (isSuperAdmin && allOrgsRes && allOrgsRes.status === "fulfilled") {
+        setOrgs(allOrgsRes.value.data);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -607,8 +950,28 @@ export default function UsersPage() {
       if (filterDept !== "__none__" && u.departmentId !== filterDept) return false;
     }
     if (filterStatus !== "__all__" && u.status !== filterStatus) return false;
+    if (orgFilter !== "all" && u.organizationId !== orgFilter) return false;
     return true;
   });
+
+  // Group by organization when SUPER_ADMIN and no org filter is applied
+  const groupedByOrg: { org: Organization | null; users: CrmUser[] }[] | null =
+    isSuperAdmin && orgFilter === "all"
+      ? (() => {
+          const map = new Map<string, { org: Organization | null; users: CrmUser[] }>();
+          for (const u of filtered) {
+            const key = u.organizationId ?? "__none__";
+            if (!map.has(key)) {
+              map.set(key, {
+                org: u.organization ?? (u.organizationId ? { id: u.organizationId, name: u.organizationId } : null),
+                users: [],
+              });
+            }
+            map.get(key)!.users.push(u);
+          }
+          return Array.from(map.values());
+        })()
+      : null;
 
   const activeCount = users.filter((u) => u.status === "ACTIVE").length;
 
@@ -640,10 +1003,16 @@ export default function UsersPage() {
 
   const isDestructive = (action: string) => ["deactivate", "suspend", "lock"].includes(action);
 
+  async function hardDeleteUser(user: CrmUser) {
+    await api.delete(`/users/${user.id}/permanent`);
+    setUsers(prev => prev.filter(u => u.id !== user.id));
+    toast.success(`${user.firstName} ${user.lastName} permanently deleted`);
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Team Members</h1>
           <p className="text-gray-500 mt-1">{activeCount} active · {users.length} total</p>
@@ -672,11 +1041,11 @@ export default function UsersPage() {
         <Select value={filterDept} onValueChange={setFilterDept}>
           <SelectTrigger className="w-40">
             <Building2 className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
-            <SelectValue placeholder="All departments" />
+            <SelectValue placeholder="All units" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">All departments</SelectItem>
-            <SelectItem value="__none__">No department</SelectItem>
+            <SelectItem value="__all__">All units</SelectItem>
+            <SelectItem value="__none__">No unit</SelectItem>
             {departments.map((d) => (
               <SelectItem key={d.id} value={d.id}>
                 <div className="flex items-center gap-2">
@@ -698,15 +1067,30 @@ export default function UsersPage() {
             ))}
           </SelectContent>
         </Select>
-        {(search || filterRole !== "__all__" || filterDept !== "__all__" || filterStatus !== "__all__") && (
+        {isSuperAdmin && orgs.length > 0 && (
+          <Select value={orgFilter} onValueChange={setOrgFilter}>
+            <SelectTrigger className="w-44">
+              <Globe className="w-3.5 h-3.5 mr-1.5 text-gray-400" />
+              <SelectValue placeholder="All Organizations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Organizations</SelectItem>
+              {orgs.map((o) => (
+                <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {(search || filterRole !== "__all__" || filterDept !== "__all__" || filterStatus !== "__all__" || orgFilter !== "all") && (
           <Button variant="ghost" size="sm"
-            onClick={() => { setSearch(""); setFilterRole("__all__"); setFilterDept("__all__"); setFilterStatus("__all__"); }}>
+            onClick={() => { setSearch(""); setFilterRole("__all__"); setFilterDept("__all__"); setFilterStatus("__all__"); setOrgFilter("all"); }}>
             Clear
           </Button>
         )}
       </div>
 
       {/* Users list */}
+      <div className="overflow-x-auto">
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -720,132 +1104,164 @@ export default function UsersPage() {
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {filtered.map((user) => {
-                const statusCfg = STATUS_CONFIG[user.status] ?? STATUS_CONFIG.ACTIVE;
-                const StatusIcon = statusCfg.icon;
-                const isInactive = !user.isActive || ["DISABLED", "SUSPENDED", "LOCKED"].includes(user.status);
+              {(() => {
+                function renderUserRow(user: CrmUser) {
+                  const statusCfg = STATUS_CONFIG[user.status] ?? STATUS_CONFIG.ACTIVE;
+                  const StatusIcon = statusCfg.icon;
+                  const isInactive = !user.isActive || ["DISABLED", "SUSPENDED", "LOCKED"].includes(user.status);
 
-                return (
-                  <div key={user.id} className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${isInactive ? "opacity-60" : ""}`}>
-                    {/* Avatar + info */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Avatar className="flex-shrink-0">
-                        <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold text-sm">
-                          {user.firstName[0]}{user.lastName[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium text-gray-900">{user.firstName} {user.lastName}</p>
-                          {user.mustChangePassword && (
-                            <span className="inline-flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-1.5 py-0.5">
-                              <Key className="w-2.5 h-2.5" /> Must reset
-                            </span>
-                          )}
+                  return (
+                    <div key={user.id} className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${isInactive ? "opacity-60" : ""}`}>
+                      {/* Avatar + info */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Avatar className="flex-shrink-0">
+                          {user.avatar && <AvatarImage src={user.avatar} alt={`${user.firstName[0]}${user.lastName[0]}`} className="object-cover" />}
+                          <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold text-sm">
+                            {user.firstName[0]}{user.lastName[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-gray-900">{user.firstName} {user.lastName}</p>
+                            {user.mustChangePassword && (
+                              <span className="inline-flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-1.5 py-0.5">
+                                <Key className="w-2.5 h-2.5" /> Must reset
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                            <Mail className="w-3 h-3 flex-shrink-0" />{user.email}
+                          </p>
+                          {user.jobTitle && <p className="text-xs text-gray-400">{user.jobTitle}</p>}
                         </div>
-                        <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
-                          <Mail className="w-3 h-3 flex-shrink-0" />{user.email}
+                      </div>
+
+                      {/* Badges + actions */}
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                        {/* Dept badge */}
+                        {user.department ? (
+                          <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border"
+                            style={{ backgroundColor: `${user.department.color}18`, borderColor: `${user.department.color}40`, color: user.department.color }}>
+                            <Building2 className="w-2.5 h-2.5" />{user.department.name}
+                          </span>
+                        ) : (
+                          <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-gray-200 bg-gray-50">
+                            <Building2 className="w-2.5 h-2.5" />No unit
+                          </span>
+                        )}
+
+                        {/* Role badge */}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${ROLE_COLORS[user.role] || "bg-gray-100 text-gray-700 border-gray-200"}`}>
+                          <Shield className="w-2.5 h-2.5" />{user.role.replace(/_/g, " ")}
+                        </span>
+
+                        {/* Status badge */}
+                        <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.color}`}>
+                          <StatusIcon className="w-2.5 h-2.5" />{statusCfg.label}
+                        </span>
+
+                        {/* Last login */}
+                        <p className="text-xs text-gray-400 hidden lg:block w-28 text-right">
+                          {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never logged in"}
                         </p>
-                        {user.jobTitle && <p className="text-xs text-gray-400">{user.jobTitle}</p>}
+
+                        {/* Actions menu */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            <DropdownMenuItem onClick={() => { setEditUser(user); setFormOpen(true); }}>
+                              <Pencil className="w-3.5 h-3.5 mr-2" /> Edit User
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPermDialog(user)}>
+                              <ShieldAlert className="w-3.5 h-3.5 mr-2" /> View Permissions
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setConfirmAction({ user, action: "reset-password" })}>
+                              <Key className="w-3.5 h-3.5 mr-2" /> Reset Password
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setConfirmAction({ user, action: "force-reset" })}>
+                              <RefreshCw className="w-3.5 h-3.5 mr-2" /> Force Password Reset
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {user.status === "ACTIVE" && (
+                              <DropdownMenuItem className="text-amber-600 focus:text-amber-600 focus:bg-amber-50"
+                                onClick={() => setConfirmAction({ user, action: "suspend" })}>
+                                <Ban className="w-3.5 h-3.5 mr-2" /> Suspend
+                              </DropdownMenuItem>
+                            )}
+                            {user.status === "SUSPENDED" && (
+                              <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
+                                onClick={() => setConfirmAction({ user, action: "unsuspend" })}>
+                                <UserCheck className="w-3.5 h-3.5 mr-2" /> Unsuspend
+                              </DropdownMenuItem>
+                            )}
+                            {user.status !== "LOCKED" ? (
+                              <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                onClick={() => setConfirmAction({ user, action: "lock" })}>
+                                <Lock className="w-3.5 h-3.5 mr-2" /> Lock Account
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
+                                onClick={() => setConfirmAction({ user, action: "unlock" })}>
+                                <Unlock className="w-3.5 h-3.5 mr-2" /> Unlock Account
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            {user.isActive ? (
+                              <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                onClick={() => setConfirmAction({ user, action: "deactivate" })}>
+                                <UserX className="w-3.5 h-3.5 mr-2" /> Disable Account
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
+                                onClick={() => setConfirmAction({ user, action: "reactivate" })}>
+                                <UserCheck className="w-3.5 h-3.5 mr-2" /> Enable Account
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-700 focus:text-red-700 focus:bg-red-50 font-medium"
+                              onClick={() => setHardDeleteTarget(user)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete Permanently
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
+                  );
+                }
 
-                    {/* Badges + actions */}
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                      {/* Dept badge */}
-                      {user.department ? (
-                        <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border"
-                          style={{ backgroundColor: `${user.department.color}18`, borderColor: `${user.department.color}40`, color: user.department.color }}>
-                          <Building2 className="w-2.5 h-2.5" />{user.department.name}
+                if (groupedByOrg) {
+                  return groupedByOrg.map(({ org, users: groupUsers }) => (
+                    <div key={org?.id ?? "__none__"}>
+                      <div className="flex items-center gap-2.5 px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 sticky top-0 z-10">
+                        <div className="w-5 h-5 rounded-md bg-blue-100 flex items-center justify-center shrink-0">
+                          <Building2 className="w-3 h-3 text-blue-600" />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-700">
+                          {org?.name ?? "No Organization"}
                         </span>
-                      ) : (
-                        <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-gray-200 bg-gray-50">
-                          <Building2 className="w-2.5 h-2.5" />No dept.
+                        <span className="ml-auto text-xs font-medium text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">
+                          {groupUsers.length} {groupUsers.length === 1 ? "user" : "users"}
                         </span>
-                      )}
-
-                      {/* Role badge */}
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${ROLE_COLORS[user.role] || "bg-gray-100 text-gray-700 border-gray-200"}`}>
-                        <Shield className="w-2.5 h-2.5" />{user.role.replace(/_/g, " ")}
-                      </span>
-
-                      {/* Status badge */}
-                      <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusCfg.color}`}>
-                        <StatusIcon className="w-2.5 h-2.5" />{statusCfg.label}
-                      </span>
-
-                      {/* Last login */}
-                      <p className="text-xs text-gray-400 hidden lg:block w-28 text-right">
-                        {user.lastLoginAt ? formatDate(user.lastLoginAt) : "Never logged in"}
-                      </p>
-
-                      {/* Actions menu */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem onClick={() => { setEditUser(user); setFormOpen(true); }}>
-                            <Pencil className="w-3.5 h-3.5 mr-2" /> Edit User
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setPermDialog(user)}>
-                            <ShieldAlert className="w-3.5 h-3.5 mr-2" /> View Permissions
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => setConfirmAction({ user, action: "reset-password" })}>
-                            <Key className="w-3.5 h-3.5 mr-2" /> Reset Password
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setConfirmAction({ user, action: "force-reset" })}>
-                            <RefreshCw className="w-3.5 h-3.5 mr-2" /> Force Password Reset
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {user.status === "ACTIVE" && (
-                            <DropdownMenuItem className="text-amber-600 focus:text-amber-600 focus:bg-amber-50"
-                              onClick={() => setConfirmAction({ user, action: "suspend" })}>
-                              <Ban className="w-3.5 h-3.5 mr-2" /> Suspend
-                            </DropdownMenuItem>
-                          )}
-                          {user.status === "SUSPENDED" && (
-                            <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
-                              onClick={() => setConfirmAction({ user, action: "unsuspend" })}>
-                              <UserCheck className="w-3.5 h-3.5 mr-2" /> Unsuspend
-                            </DropdownMenuItem>
-                          )}
-                          {user.status !== "LOCKED" ? (
-                            <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                              onClick={() => setConfirmAction({ user, action: "lock" })}>
-                              <Lock className="w-3.5 h-3.5 mr-2" /> Lock Account
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
-                              onClick={() => setConfirmAction({ user, action: "unlock" })}>
-                              <Unlock className="w-3.5 h-3.5 mr-2" /> Unlock Account
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          {user.isActive ? (
-                            <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                              onClick={() => setConfirmAction({ user, action: "deactivate" })}>
-                              <UserX className="w-3.5 h-3.5 mr-2" /> Disable Account
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem className="text-green-600 focus:text-green-600 focus:bg-green-50"
-                              onClick={() => setConfirmAction({ user, action: "reactivate" })}>
-                              <UserCheck className="w-3.5 h-3.5 mr-2" /> Enable Account
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      </div>
+                      {groupUsers.map(renderUserRow)}
                     </div>
-                  </div>
-                );
-              })}
+                  ));
+                }
+
+                return filtered.map(renderUserRow);
+              })()}
             </div>
           )}
         </CardContent>
       </Card>
+      </div>
 
       {!loading && users.length > 0 && (
         <p className="text-sm text-gray-500 px-1">Showing {filtered.length} of {users.length} users</p>
@@ -857,10 +1273,14 @@ export default function UsersPage() {
         onClose={() => { setFormOpen(false); setEditUser(null); }}
         onSaved={(user, tempPassword) => {
           upsertUser(user);
-          if (tempPassword) setCredDialog({ user, tempPassword });
+          if (tempPassword) {
+            setCredDialog({ user, tempPassword });
+            generateWelcomePDF(user);
+          }
         }}
         departments={departments}
         editUser={editUser}
+        emailDomain={emailDomain}
       />
 
       <CredentialDialog
@@ -902,6 +1322,13 @@ export default function UsersPage() {
           onClose={() => setConfirmAction(null)}
         />
       )}
+
+      <HardDeleteDialog
+        open={!!hardDeleteTarget}
+        user={hardDeleteTarget}
+        onConfirm={async () => { if (hardDeleteTarget) await hardDeleteUser(hardDeleteTarget); }}
+        onClose={() => { setHardDeleteTarget(null); router.push("/users"); }}
+      />
     </div>
   );
 }

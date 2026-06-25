@@ -5,10 +5,12 @@ import Link from "next/link";
 import { usePortalAuthStore } from "@/store/portal-auth.store";
 import { portalApi } from "@/lib/portal-api";
 import {
-  LayoutDashboard, User, FileText, Bell, LogOut, Menu, X,
+  LayoutDashboard, User, FileText, Bell, LogOut,
   ChevronRight, ChevronDown, ExternalLink, Shield, Plus,
+  Newspaper, Images,
 } from "lucide-react";
 import { PortalQuickAddMenu } from "./portal-quick-add-menu";
+import { cn } from "@/lib/utils";
 
 // Built-in icon map for menu items returned by API
 const ICON_MAP: Record<string, any> = {
@@ -16,14 +18,18 @@ const ICON_MAP: Record<string, any> = {
   records:       FileText,
   profile:       User,
   notifications: Bell,
+  publications:  Newspaper,
+  gallery:       Images,
 };
 
 // Default nav used only when API returns empty
 const DEFAULT_NAV = [
-  { id: "_dash", label: "Dashboard",     icon: "dashboard",     type: "dashboard",     target: "/portal/dashboard",     isVisible: true, children: [] },
-  { id: "_rec",  label: "My Record",     icon: "records",       type: "records",       target: "/portal/records",        isVisible: true, children: [] },
-  { id: "_bell", label: "Notifications", icon: "notifications", type: "notifications", target: "/portal/notifications",  isVisible: true, children: [] },
-  { id: "_prof", label: "Profile",       icon: "profile",       type: "profile",       target: "/portal/profile",        isVisible: true, children: [] },
+  { id: "_dash", label: "Dashboard",     icon: "dashboard",     type: "dashboard",     target: "/portal/dashboard",      isVisible: true, children: [] },
+  { id: "_rec",  label: "My Record",     icon: "records",       type: "records",       target: "/portal/records",         isVisible: true, children: [] },
+  { id: "_pub",  label: "Publications",  icon: "publications",  type: "publications",  target: "/portal/publications",    isVisible: true, children: [] },
+  { id: "_gal",  label: "Gallery",       icon: "gallery",       type: "gallery",       target: "/portal/gallery",         isVisible: true, children: [] },
+  { id: "_bell", label: "Notifications", icon: "notifications", type: "notifications", target: "/portal/notifications",   isVisible: true, children: [] },
+  { id: "_prof", label: "Profile",       icon: "profile",       type: "profile",       target: "/portal/profile",         isVisible: true, children: [] },
 ];
 
 interface MenuChild {
@@ -41,6 +47,8 @@ function resolveTarget(item: MenuItem | MenuChild): string {
     records:       "/portal/records",
     profile:       "/portal/profile",
     notifications: "/portal/notifications",
+    publications:  "/portal/publications",
+    gallery:       "/portal/gallery",
   };
   if (builtIn[item.type]) return builtIn[item.type];
   const t = item.target ?? "#";
@@ -123,7 +131,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { isAuthenticated, user, logout } = usePortalAuthStore();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -146,7 +153,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     portalApi.get("/portal/menu")
       .then(r => {
         const items: MenuItem[] = r.data;
-        setMenuItems(items.length > 0 ? items.filter((i: MenuItem) => i.isVisible) : DEFAULT_NAV as any);
+        if (items.length === 0) {
+          setMenuItems(DEFAULT_NAV as any);
+          return;
+        }
+        const visible = items.filter((i: MenuItem) => i.isVisible);
+        // Always inject Publications and Gallery if not already present
+        const types = new Set(visible.map((i: MenuItem) => i.type));
+        const injected = [...visible];
+        if (!types.has("publications")) {
+          injected.push({ id: "_pub", label: "Publications", icon: "publications", type: "publications", target: "/portal/publications", isVisible: true, children: [] } as any);
+        }
+        if (!types.has("gallery")) {
+          injected.push({ id: "_gal", label: "Gallery", icon: "gallery", type: "gallery", target: "/portal/gallery", isVisible: true, children: [] } as any);
+        }
+        setMenuItems(injected);
       })
       .catch(() => setMenuItems(DEFAULT_NAV as any));
   }, [isAuthenticated]);
@@ -174,10 +195,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) return null;
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+    <div className="flex h-dvh bg-slate-50 overflow-hidden">
 
-      <aside className={`fixed lg:static inset-y-0 left-0 z-30 flex flex-col w-64 bg-gradient-to-b from-indigo-900 to-indigo-800 text-white transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+      {/* Sidebar — desktop only */}
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-gradient-to-b from-indigo-900 to-indigo-800 text-white">
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-indigo-700/50">
           <div className="flex items-center gap-2.5">
@@ -186,17 +207,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
             <span className="font-semibold text-white">My Portal</span>
           </div>
-          <button className="lg:hidden text-white/70 hover:text-white" onClick={() => setSidebarOpen(false)}>
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         {/* User summary */}
         <div className="px-4 py-4 border-b border-indigo-700/50">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-semibold">
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
+            {(user as any)?.profilePicture ? (
+              <img src={(user as any).profilePicture} alt="" className="w-9 h-9 rounded-full object-cover border border-white/20" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-semibold">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </div>
+            )}
             <div className="min-w-0">
               <p className="text-sm font-medium text-white truncate">{user?.firstName} {user?.lastName}</p>
               <p className="text-xs text-indigo-300 truncate capitalize">{user?.type}</p>
@@ -212,7 +234,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               key={item.id}
               item={item}
               pathname={pathname}
-              onNavigate={() => setSidebarOpen(false)}
+              onNavigate={() => {}}
               unreadCount={unreadCount}
             />
           ))}
@@ -239,11 +261,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 shrink-0">
-          <button className="lg:hidden text-gray-500 hover:text-gray-700" onClick={() => setSidebarOpen(true)}>
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="hidden lg:block" />
+        <header className="h-14 lg:h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 shrink-0">
+          <div className="lg:hidden flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-600 to-indigo-700 flex items-center justify-center text-xs font-bold text-white shrink-0">
+              {(user?.firstName?.[0] ?? "P")}
+            </div>
+            <span className="text-sm font-semibold text-gray-900 truncate max-w-[140px]">
+              {user ? `${user.firstName} ${user.lastName}` : "My Portal"}
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             <Link href="/portal/notifications" className="relative p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors">
               <Bell className="w-4 h-4" />
@@ -254,22 +280,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               )}
             </Link>
             <Link href="/portal/profile" className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-              <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-semibold text-white">
-                {user?.firstName?.[0]}{user?.lastName?.[0]}
-              </div>
+              {(user as any)?.profilePicture ? (
+                <img src={(user as any).profilePicture} alt="" className="w-7 h-7 rounded-full object-cover" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-semibold text-white">
+                  {user?.firstName?.[0]}{user?.lastName?.[0]}
+                </div>
+              )}
               <span className="text-sm text-gray-700 hidden sm:block">{user?.firstName}</span>
             </Link>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
           {children}
         </main>
       </div>
 
       {/* Floating admin quick-add — only when admin is outside admin pages */}
       {isAdmin && !pathname.startsWith("/portal/admin") && (
-        <div className="fixed bottom-6 right-6 z-40 flex items-center gap-1 bg-gray-900/95 backdrop-blur-sm text-white rounded-2xl shadow-2xl px-2 py-1.5 border border-white/10">
+        <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-40 flex items-center gap-1 bg-gray-900/95 backdrop-blur-sm text-white rounded-2xl shadow-2xl px-2 py-1.5 border border-white/10">
           <span className="text-xs font-semibold text-indigo-300 px-1.5 flex items-center gap-1">
             <Shield className="w-3 h-3" />Admin
           </span>
@@ -300,6 +330,43 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           }}
         />
       )}
+
+      {/* Mobile Bottom Nav */}
+      <nav
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-100 shadow-sm flex items-stretch"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {(menuItems.length > 0 ? menuItems : DEFAULT_NAV as any[])
+          .filter((i: MenuItem) => i.isVisible && i.type !== 'divider' && i.type !== 'external')
+          .slice(0, 5)
+          .map((item: MenuItem) => {
+            const target = resolveTarget(item);
+            const active = pathname === target || pathname.startsWith(target + '/');
+            const isNotif = item.type === 'notifications';
+            return (
+              <Link
+                key={item.id}
+                href={target}
+                className={cn(
+                  "flex-1 flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[10px] font-medium transition-colors min-w-0",
+                  active ? "text-indigo-600" : "text-gray-400"
+                )}
+              >
+                <span className="relative">
+                  <NavIcon name={item.icon} className={cn("w-5 h-5", active ? "text-indigo-600" : "text-gray-400")} />
+                  {isNotif && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold leading-none">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </span>
+                <span className="truncate max-w-full leading-tight">
+                  {item.label.length > 10 ? item.label.slice(0, 9) + '…' : item.label}
+                </span>
+              </Link>
+            );
+          })}
+      </nav>
     </div>
   );
 }

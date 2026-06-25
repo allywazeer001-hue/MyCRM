@@ -18,6 +18,7 @@ export const ACCOUNT_STATUS = {
   ACTIVE: 'ACTIVE',
   SUSPENDED: 'SUSPENDED',
   DISABLED: 'DISABLED',
+  DELETED: 'DELETED',
 } as const;
 
 @Injectable()
@@ -57,6 +58,7 @@ export class PortalAuthService {
         organizationId: org.id,
         isFirstLogin: false,
         accountStatus: ACCOUNT_STATUS.ACTIVE,
+        customData: '{}',
       },
     });
 
@@ -100,6 +102,7 @@ export class PortalAuthService {
         recordId: dto.recordId || null,
         isFirstLogin: true,
         accountStatus: ACCOUNT_STATUS.PENDING_ACTIVATION,
+        customData: '{}',
       },
     });
 
@@ -134,15 +137,20 @@ export class PortalAuthService {
     if (user.accountStatus === ACCOUNT_STATUS.DISABLED) {
       throw new UnauthorizedException('Your account has been disabled. Please contact support.');
     }
+    if (user.accountStatus === ACCOUNT_STATUS.DELETED) {
+      throw new UnauthorizedException('This portal account no longer exists.');
+    }
 
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
     // Update last login timestamp
-    await this.prisma.portalUser.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    try {
+      await this.prisma.portalUser.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+    } catch { /* non-critical: timestamp update must not block authentication */ }
 
     // Detect first login — force password change before granting full access
     if (user.isFirstLogin) {
@@ -221,6 +229,9 @@ export class PortalAuthService {
       if (!user || !user.isActive) throw new UnauthorizedException();
       if (user.accountStatus === ACCOUNT_STATUS.SUSPENDED || user.accountStatus === ACCOUNT_STATUS.DISABLED) {
         throw new UnauthorizedException('Account is no longer active');
+      }
+      if (user.accountStatus === ACCOUNT_STATUS.DELETED) {
+        throw new UnauthorizedException('This portal account no longer exists.');
       }
       return this.buildTokenResponse(user);
     } catch {

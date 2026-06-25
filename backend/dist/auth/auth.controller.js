@@ -27,6 +27,9 @@ let AuthController = class AuthController {
     register(dto) {
         return this.authService.register(dto);
     }
+    checkEmail(email) {
+        return this.authService.checkEmail(email);
+    }
     login(dto) {
         return this.authService.login(dto);
     }
@@ -51,6 +54,14 @@ __decorate([
     __metadata("design:paramtypes", [register_dto_1.RegisterDto]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "register", null);
+__decorate([
+    (0, common_1.Post)('check-email'),
+    (0, common_1.HttpCode)(200),
+    __param(0, (0, common_1.Body)('email')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "checkEmail", null);
 __decorate([
     (0, common_1.Post)('login'),
     (0, common_1.HttpCode)(200),

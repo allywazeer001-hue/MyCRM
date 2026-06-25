@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
@@ -145,6 +145,7 @@ export default function UserProfilePage() {
         <CardContent className="p-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
             <Avatar className="w-16 h-16 flex-shrink-0">
+              {profile.avatar && <AvatarImage src={profile.avatar} alt={`${profile.firstName[0]}${profile.lastName[0]}`} className="object-cover" />}
               <AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-xl">
                 {profile.firstName[0]}{profile.lastName[0]}
               </AvatarFallback>
@@ -210,7 +211,7 @@ export default function UserProfilePage() {
         {/* Left column: stats + activity */}
         <div className="lg:col-span-2 space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Card>
               <CardContent className="p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">

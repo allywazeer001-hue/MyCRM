@@ -7,6 +7,7 @@ export declare const ACCOUNT_STATUS: {
     readonly ACTIVE: "ACTIVE";
     readonly SUSPENDED: "SUSPENDED";
     readonly DISABLED: "DISABLED";
+    readonly DELETED: "DELETED";
 };
 export declare class PortalAuthService {
     private prisma;

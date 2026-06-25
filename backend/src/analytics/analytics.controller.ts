@@ -40,7 +40,12 @@ export class AnalyticsController {
   // Saved Views
   @Get('views/list')
   getViews(@CurrentUser() user: any) {
-    return this.svc.getViews(user.organizationId);
+    return this.svc.getViews(user.id, user.organizationId);
+  }
+
+  @Get('views/:id')
+  getView(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.svc.getView(id, user.id, user.organizationId);
   }
 
   @Post('views')
@@ -50,18 +55,18 @@ export class AnalyticsController {
 
   @Patch('views/:id')
   updateView(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
-    return this.svc.updateView(id, user.organizationId, body);
+    return this.svc.updateView(id, user.id, user.organizationId, body);
   }
 
   @Delete('views/:id')
   deleteView(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.svc.deleteView(id, user.organizationId);
+    return this.svc.deleteView(id, user.id, user.organizationId);
   }
 
   @Patch('views/:id/toggle-pin')
   @HttpCode(200)
   togglePinView(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.svc.togglePinView(id, user.organizationId);
+    return this.svc.togglePinView(id, user.id, user.organizationId);
   }
 
   // Saved Filters

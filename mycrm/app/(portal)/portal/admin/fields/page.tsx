@@ -10,24 +10,16 @@ export default function FieldBuilderModulePicker() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Reuse existing portal admin endpoint to get module configs
-    portalApi.get("/portal/padmin/fields?moduleConfigId=").then(r => {
-      // Just get available module configs via announcements endpoint fallback
-      // Actually we need to call the existing CRM endpoint — use padmin stats
+    portalApi.get("/portal/padmin/fields?moduleConfigId=").then(() => {
       setConfigs([]);
     }).catch(() => {}).finally(() => setLoading(false));
 
-    // Fetch enabled portal module configs via portal API
-    portalApi.get("/portal/announcements").then(() => {}).catch(() => {});
-    // We use the portal-admin controller which has access to org data
     fetch("/api/v1/portal/padmin/fields", {
       headers: { Authorization: `Bearer ${localStorage.getItem("portal-access-token")}` },
     })
       .then(r => r.json())
       .then(data => {
-        // Group by portalModuleConfigId to get unique module configs
         const configIds = [...new Set((Array.isArray(data) ? data : []).map((f: any) => f.portalModuleConfigId).filter(Boolean))];
-        // For now show a generic "All Modules" option plus any configured ones
         setConfigs([{ id: null, label: "All Portal Fields (No Module)" }]);
       })
       .catch(() => setConfigs([{ id: null, label: "All Portal Fields" }]))
@@ -35,35 +27,35 @@ export default function FieldBuilderModulePicker() {
   }, []);
 
   return (
-    <div className="space-y-5 max-w-2xl">
+    <div className="space-y-5 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-xl font-bold text-white">Field Builder</h1>
-        <p className="text-sm text-gray-400 mt-1">Create and manage custom portal fields, map to CRM data, and control visibility.</p>
+        <h1 className="text-xl font-bold text-gray-900">Field Builder</h1>
+        <p className="text-sm text-gray-500 mt-1">Create and manage custom portal fields, map to CRM data, and control visibility.</p>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-violet-400" /></div>
+        <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-violet-500" /></div>
       ) : (
         <div className="space-y-3">
           <button
             onClick={() => router.push("/portal/admin/fields/global")}
-            className="w-full border border-gray-800 bg-gray-900 hover:bg-gray-800 rounded-xl p-5 flex items-center gap-4 text-left transition-all group"
+            className="w-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 rounded-xl p-5 flex items-center gap-4 text-left transition-all group shadow-sm"
           >
-            <div className="w-10 h-10 rounded-lg bg-violet-900/40 flex items-center justify-center shrink-0">
-              <FormInput className="w-5 h-5 text-violet-400" />
+            <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+              <FormInput className="w-5 h-5 text-violet-600" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-white">Global Portal Fields</p>
-              <p className="text-xs text-gray-400">Fields not tied to a specific module</p>
+              <p className="text-sm font-semibold text-gray-900">Global Portal Fields</p>
+              <p className="text-xs text-gray-500 mt-0.5">Fields not tied to a specific module</p>
             </div>
-            <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-gray-400" />
+            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
           </button>
         </div>
       )}
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4 text-xs text-gray-500">
-        <strong className="text-gray-400">Tip:</strong> To create fields for a specific CRM module, first enable it in{" "}
-        <span className="text-violet-400">CRM → Settings → Portal Settings</span>, then return here to add fields.
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-xs text-blue-700">
+        <strong className="text-blue-800">Tip:</strong> To create fields for a specific CRM module, first enable it in{" "}
+        <span className="font-semibold">CRM → Settings → Portal Settings</span>, then return here to add fields.
       </div>
     </div>
   );

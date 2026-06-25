@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { IconPicker } from "@/components/ui/icon-picker";
 import { useModulesStore } from "@/store/modules.store";
 import { slugify, cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -879,13 +880,7 @@ export default function NewModulePage() {
               <div className="shrink-0">
                 <Label>Icon</Label>
                 <div className="mt-1.5">
-                  <input
-                    type="text"
-                    value={icon}
-                    onChange={e => setValue("icon", e.target.value)}
-                    className="w-16 h-16 text-3xl text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    maxLength={2}
-                  />
+                  <IconPicker value={icon} onChange={v => setValue("icon", v)} />
                 </div>
               </div>
 

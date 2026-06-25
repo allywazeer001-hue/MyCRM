@@ -23,6 +23,7 @@ exports.ACCOUNT_STATUS = {
     ACTIVE: 'ACTIVE',
     SUSPENDED: 'SUSPENDED',
     DISABLED: 'DISABLED',
+    DELETED: 'DELETED',
 };
 let PortalAuthService = class PortalAuthService {
     constructor(prisma, jwt) {
@@ -54,6 +55,7 @@ let PortalAuthService = class PortalAuthService {
                 organizationId: org.id,
                 isFirstLogin: false,
                 accountStatus: exports.ACCOUNT_STATUS.ACTIVE,
+                customData: '{}',
             },
         });
         await this.prisma.portalNotification.create({
@@ -87,6 +89,7 @@ let PortalAuthService = class PortalAuthService {
                 recordId: dto.recordId || null,
                 isFirstLogin: true,
                 accountStatus: exports.ACCOUNT_STATUS.PENDING_ACTIVATION,
+                customData: '{}',
             },
         });
         await this.prisma.portalNotification.create({
@@ -116,13 +119,19 @@ let PortalAuthService = class PortalAuthService {
         if (user.accountStatus === exports.ACCOUNT_STATUS.DISABLED) {
             throw new common_1.UnauthorizedException('Your account has been disabled. Please contact support.');
         }
+        if (user.accountStatus === exports.ACCOUNT_STATUS.DELETED) {
+            throw new common_1.UnauthorizedException('This portal account no longer exists.');
+        }
         const valid = await bcrypt.compare(dto.password, user.password);
         if (!valid)
             throw new common_1.UnauthorizedException('Invalid credentials');
-        await this.prisma.portalUser.update({
-            where: { id: user.id },
-            data: { lastLoginAt: new Date() },
-        });
+        try {
+            await this.prisma.portalUser.update({
+                where: { id: user.id },
+                data: { lastLoginAt: new Date() },
+            });
+        }
+        catch { }
         if (user.isFirstLogin) {
             const changeToken = this.jwt.sign({ sub: user.id, organizationId: user.organizationId, purpose: 'activate' }, { secret: exports.PORTAL_SECRET, expiresIn: '15m' });
             return {
@@ -187,6 +196,9 @@ let PortalAuthService = class PortalAuthService {
                 throw new common_1.UnauthorizedException();
             if (user.accountStatus === exports.ACCOUNT_STATUS.SUSPENDED || user.accountStatus === exports.ACCOUNT_STATUS.DISABLED) {
                 throw new common_1.UnauthorizedException('Account is no longer active');
+            }
+            if (user.accountStatus === exports.ACCOUNT_STATUS.DELETED) {
+                throw new common_1.UnauthorizedException('This portal account no longer exists.');
             }
             return this.buildTokenResponse(user);
         }

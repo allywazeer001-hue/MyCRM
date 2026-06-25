@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { PermissionCheckService } from '../permissions/permission-check.service';
 
 const USER_SELECT = {
   id: true, email: true, firstName: true, lastName: true,
-  role: true, isActive: true, status: true, mustChangePassword: true,
-  jobTitle: true, phone: true, departmentId: true, createdAt: true,
+  role: true, usertype: true, isActive: true, status: true, mustChangePassword: true,
+  jobTitle: true, phone: true, departmentId: true, organizationId: true, createdAt: true,
   avatar: true, lastLoginAt: true, suspendedAt: true, lockedAt: true,
   department: { select: { id: true, name: true, color: true } },
 };
@@ -19,13 +19,27 @@ export class UsersService {
   ) {}
 
   async create(orgId: string, data: any) {
-    // Default password = lastName (enterprise credential policy)
+    if (!data.email || !data.firstName || !data.lastName) {
+      throw new BadRequestException('Email, first name, and last name are required');
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+      throw new BadRequestException('Invalid email address');
+    }
+
+    // Duplicate email guard (org-scoped)
+    const existing = await this.prisma.user.findFirst({
+      where: { email: data.email.toLowerCase().trim(), organizationId: orgId },
+    });
+    if (existing) {
+      throw new ConflictException(`A user with email "${data.email}" already exists in this organisation`);
+    }
+
     const defaultPassword = data.lastName;
     const hashed = await bcrypt.hash(defaultPassword, 12);
 
     const user = await this.prisma.user.create({
       data: {
-        email: data.email,
+        email: data.email.toLowerCase().trim(),
         firstName: data.firstName,
         lastName: data.lastName,
         password: hashed,
@@ -56,30 +70,79 @@ export class UsersService {
   }
 
   async findAll(orgId: string) {
+    const where = { organizationId: orgId };
     return this.prisma.user.findMany({
-      where: { organizationId: orgId },
+      where,
       select: USER_SELECT,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(id: string, orgId: string) {
+  async findOne(id: string, orgId: string | null) {
     const user = await this.prisma.user.findFirst({
-      where: { id, organizationId: orgId },
+      where: orgId ? { id, organizationId: orgId } : { id },
       select: USER_SELECT,
     });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
 
-  async update(id: string, orgId: string, data: any) {
-    await this.findOne(id, orgId);
-    const { tempPassword: _, ...patch } = data;
-    if (patch.password) patch.password = await bcrypt.hash(patch.password, 12);
-    return this.prisma.user.update({ where: { id }, data: patch, select: USER_SELECT });
+  async getMyProfile(userId: string, orgId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId: orgId },
+      select: {
+        id: true, email: true, firstName: true, lastName: true,
+        role: true, usertype: true, isActive: true, status: true,
+        jobTitle: true, phone: true, avatar: true,
+        createdAt: true, updatedAt: true, lastLoginAt: true,
+        departmentId: true,
+        department: { select: { id: true, name: true, color: true } },
+        organization: { select: { id: true, name: true, slug: true, logo: true, website: true, description: true } },
+        _count: { select: { createdRecords: true, comments: true } },
+        auditLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+          select: { id: true, action: true, entityType: true, createdAt: true },
+        },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const departmentPermissions = await this.getMyPermissions(userId, orgId);
+
+    return {
+      ...user,
+      recentActivity: user.auditLogs,
+      departmentPermissions,
+    };
   }
 
-  async remove(id: string, orgId: string) {
+  async update(id: string, orgId: string | null, data: any) {
+    const existing = await this.findOne(id, orgId);
+    const { tempPassword: _, ...patch } = data;
+    if (patch.password) patch.password = await bcrypt.hash(patch.password, 12);
+    const updated = await this.prisma.user.update({ where: { id }, data: patch, select: USER_SELECT });
+    // Sync name/email changes to matching portal user (non-blocking)
+    this.syncToPortalUser(existing.email, {
+      firstName: patch.firstName,
+      lastName:  patch.lastName,
+      phone:     patch.phone,
+    }).catch(() => {});
+    return updated;
+  }
+
+  private async syncToPortalUser(email: string, fields: Partial<{ firstName: string; lastName: string; phone: string }>) {
+    const portal = await this.prisma.portalUser.findFirst({ where: { email } });
+    if (!portal) return;
+    const patch: any = {};
+    if (fields.firstName !== undefined) patch.firstName = fields.firstName;
+    if (fields.lastName  !== undefined) patch.lastName  = fields.lastName;
+    if (fields.phone     !== undefined) patch.phone     = fields.phone;
+    if (Object.keys(patch).length === 0) return;
+    await this.prisma.portalUser.update({ where: { id: portal.id }, data: patch });
+  }
+
+  async remove(id: string, orgId: string | null) {
     await this.findOne(id, orgId);
     return this.prisma.user.update({
       where: { id },
@@ -87,7 +150,38 @@ export class UsersService {
     });
   }
 
-  async reactivate(id: string, orgId: string) {
+  /** Hard delete — permanently removes the user record from the database. */
+  async hardDelete(id: string, orgId: string | null) {
+    await this.findOne(id, orgId);
+
+    // Block deletion if the user owns business records that cannot be orphaned
+    const [recordCount, formCount] = await Promise.all([
+      this.prisma.record.count({ where: { createdById: id } }),
+      this.prisma.form.count({ where: { createdById: id } }),
+    ]);
+    if (recordCount > 0 || formCount > 0) {
+      throw new BadRequestException(
+        `Cannot permanently delete this user — they have created ${recordCount} record(s) and ${formCount} form(s). ` +
+        `Deactivate the account instead.`,
+      );
+    }
+
+    // Delete all user-owned data that lacks cascade delete in the schema
+    await this.prisma.$transaction([
+      this.prisma.auditLog.deleteMany({ where: { userId: id } }),
+      this.prisma.notification.deleteMany({ where: { userId: id } }),
+      this.prisma.comment.deleteMany({ where: { userId: id } }),
+      this.prisma.view.deleteMany({ where: { createdById: id } }),
+      this.prisma.dashboard.deleteMany({ where: { createdById: id } }),
+      this.prisma.analyticsView.deleteMany({ where: { createdById: id } }),
+      this.prisma.savedFilter.deleteMany({ where: { createdById: id } }),
+      this.prisma.file.deleteMany({ where: { uploadedById: id } }),
+    ]);
+
+    return this.prisma.user.delete({ where: { id } });
+  }
+
+  async reactivate(id: string, orgId: string | null) {
     await this.findOne(id, orgId);
     return this.prisma.user.update({
       where: { id },
@@ -95,10 +189,11 @@ export class UsersService {
     });
   }
 
-  async suspend(id: string, orgId: string, adminId: string) {
-    await this.findOne(id, orgId);
+  async suspend(id: string, orgId: string | null, adminId: string) {
+    const target = await this.findOne(id, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'USER_SUSPENDED', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'USER_SUSPENDED', entityType: 'User', entityId: id, metadata: {} },
     });
     return this.prisma.user.update({
       where: { id },
@@ -107,10 +202,11 @@ export class UsersService {
     });
   }
 
-  async unsuspend(id: string, orgId: string, adminId: string) {
-    await this.findOne(id, orgId);
+  async unsuspend(id: string, orgId: string | null, adminId: string) {
+    const target = await this.findOne(id, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'USER_UNSUSPENDED', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'USER_UNSUSPENDED', entityType: 'User', entityId: id, metadata: {} },
     });
     return this.prisma.user.update({
       where: { id },
@@ -119,10 +215,11 @@ export class UsersService {
     });
   }
 
-  async lock(id: string, orgId: string, adminId: string) {
-    await this.findOne(id, orgId);
+  async lock(id: string, orgId: string | null, adminId: string) {
+    const target = await this.findOne(id, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'USER_LOCKED', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'USER_LOCKED', entityType: 'User', entityId: id, metadata: {} },
     });
     return this.prisma.user.update({
       where: { id },
@@ -131,10 +228,11 @@ export class UsersService {
     });
   }
 
-  async unlock(id: string, orgId: string, adminId: string) {
-    await this.findOne(id, orgId);
+  async unlock(id: string, orgId: string | null, adminId: string) {
+    const target = await this.findOne(id, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'USER_UNLOCKED', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'USER_UNLOCKED', entityType: 'User', entityId: id, metadata: {} },
     });
     return this.prisma.user.update({
       where: { id },
@@ -143,13 +241,13 @@ export class UsersService {
     });
   }
 
-  async resetPassword(id: string, orgId: string, adminId: string) {
+  async resetPassword(id: string, orgId: string | null, adminId: string) {
     const user = await this.findOne(id, orgId);
-    // Reset to lastName
+    const auditOrgId = orgId ?? (user as any).organizationId;
     const newPassword = (user as any).lastName;
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'PASSWORD_RESET', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'PASSWORD_RESET', entityType: 'User', entityId: id, metadata: {} },
     });
     await this.prisma.user.update({
       where: { id },
@@ -158,10 +256,11 @@ export class UsersService {
     return { tempPassword: newPassword };
   }
 
-  async forcePasswordReset(id: string, orgId: string, adminId: string) {
-    await this.findOne(id, orgId);
+  async forcePasswordReset(id: string, orgId: string | null, adminId: string) {
+    const target = await this.findOne(id, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
     await this.prisma.auditLog.create({
-      data: { userId: adminId, organizationId: orgId, action: 'FORCE_PASSWORD_RESET', entityType: 'User', entityId: id, metadata: {} },
+      data: { userId: adminId, organizationId: auditOrgId, action: 'FORCE_PASSWORD_RESET', entityType: 'User', entityId: id, metadata: {} },
     });
     return this.prisma.user.update({
       where: { id },
@@ -172,20 +271,23 @@ export class UsersService {
 
   // ── Permission Overrides ─────────────────────────────────────────────
 
-  async getPermissionOverrides(userId: string, orgId: string) {
+  async getPermissionOverrides(userId: string, orgId: string | null) {
+    const where: any = { userId, isActive: true };
+    if (orgId) where.organizationId = orgId;
     return this.prisma.userPermissionOverride.findMany({
-      where: { userId, organizationId: orgId, isActive: true },
+      where,
       include: { module: { select: { id: true, name: true, slug: true } } },
     });
   }
 
-  async setPermissionOverride(userId: string, orgId: string, grantedById: string, body: any) {
-    await this.findOne(userId, orgId);
+  async setPermissionOverride(userId: string, orgId: string | null, grantedById: string, body: any) {
+    const target = await this.findOne(userId, orgId);
+    const auditOrgId = orgId ?? (target as any).organizationId;
 
     const existing = await this.prisma.userPermissionOverride.findFirst({
       where: {
         userId,
-        organizationId: orgId,
+        organizationId: auditOrgId,
         moduleSlug: body.moduleSlug || null,
         isActive: true,
       },
@@ -193,7 +295,7 @@ export class UsersService {
 
     const payload = {
       userId,
-      organizationId: orgId,
+      organizationId: auditOrgId,
       moduleId: body.moduleId || null,
       moduleSlug: body.moduleSlug || null,
       canView: body.canView ?? null,
@@ -220,7 +322,7 @@ export class UsersService {
 
     await this.prisma.auditLog.create({
       data: {
-        userId: grantedById, organizationId: orgId,
+        userId: grantedById, organizationId: auditOrgId,
         action: 'PERMISSION_OVERRIDE_SET', entityType: 'User', entityId: userId,
         metadata: { moduleSlug: body.moduleSlug, overrideId: override.id },
       },
@@ -249,13 +351,20 @@ export class UsersService {
 
   // ── Effective Permissions (with overrides) ───────────────────────────
 
+  async clearMyActivity(userId: string, orgId: string) {
+    await this.prisma.auditLog.deleteMany({
+      where: { userId, organizationId: orgId },
+    });
+    return { cleared: true };
+  }
+
   async getMyPermissions(userId: string, orgId: string) {
     return this.permCheck.resolveUserPermissions(userId, orgId);
   }
 
-  async getPermissionSummary(userId: string, orgId: string) {
+  async getPermissionSummary(userId: string, orgId: string | null) {
     const [effective, overrides] = await Promise.all([
-      this.permCheck.resolveUserPermissions(userId, orgId),
+      this.permCheck.resolveUserPermissions(userId, orgId as string),
       this.getPermissionOverrides(userId, orgId),
     ]);
     return { effective, overrides };

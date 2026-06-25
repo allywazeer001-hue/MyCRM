@@ -1,8 +1,10 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Body,
-  UseGuards, Query, createParamDecorator, ExecutionContext,
+  UseGuards, Query, ForbiddenException, createParamDecorator, ExecutionContext,
 } from '@nestjs/common';
 import { PortalCrmAdminGuard } from './portal-crm-admin.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PortalFieldService } from './portal-field.service';
 import { PortalSectionService } from './portal-section.service';
 import { PortalDocumentService } from './portal-document.service';
@@ -229,8 +231,41 @@ export class PortalPadminController {
   // ── Users ─────────────────────────────────────────────────────────────────
 
   @Get('users')
-  listUsers(@CurrentPortalUser() user: any) {
-    return this.portalService.listUsers(user.organizationId, 1, 200);
+  listUsers(
+    @CurrentPortalUser() user: any,
+    @Query('page') page = 1,
+    @Query('limit') limit = 200,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.portalService.listUsers(user.organizationId, +page, +limit, search, status);
+  }
+
+  @Get('users/counts')
+  @UseGuards(JwtAuthGuard)
+  async getUserCounts(@CurrentUser() user: any) {
+    return this.portalService.getUserStatusCounts(user.organizationId);
+  }
+
+  @Delete('users/:id')
+  @UseGuards(JwtAuthGuard)
+  async softDeleteUser(@Param('id') id: string, @CurrentUser() user: any) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException('Only Super Admin can delete portal users');
+    return this.portalService.softDelete(id, user.organizationId);
+  }
+
+  @Post('users/:id/restore')
+  @UseGuards(JwtAuthGuard)
+  async restoreUser(@Param('id') id: string, @CurrentUser() user: any) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException('Only Super Admin can restore portal users');
+    return this.portalService.restore(id, user.organizationId);
+  }
+
+  @Delete('users/:id/permanent')
+  @UseGuards(JwtAuthGuard)
+  async permanentDeleteUser(@Param('id') id: string, @CurrentUser() user: any) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException('Only Super Admin can permanently delete portal users');
+    return this.portalService.permanentDelete(id, user.organizationId);
   }
 
   @Patch('users/:id/admin')

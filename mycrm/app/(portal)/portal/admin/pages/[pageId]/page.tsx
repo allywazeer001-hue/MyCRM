@@ -217,20 +217,20 @@ export default function PageEditorPage() {
   ];
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div className="space-y-4 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => router.push("/portal/admin/pages")}
-          className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
+          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-white truncate">{page.title}</h1>
+          <h1 className="text-lg font-bold text-gray-900 truncate">{page.title}</h1>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              page.status === "PUBLISHED" ? "bg-emerald-900/30 text-emerald-400" : "bg-amber-900/30 text-amber-400"
+              page.status === "PUBLISHED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
             }`}>
               {page.status}
             </span>
@@ -249,7 +249,7 @@ export default function PageEditorPage() {
             <button
               onClick={handleRepublish}
               disabled={republishing}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-900/20 text-blue-400 hover:bg-blue-900/40"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100"
             >
               {republishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
               Republish
@@ -260,8 +260,8 @@ export default function PageEditorPage() {
             disabled={publishing}
             className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               page.status === "PUBLISHED"
-                ? "bg-amber-900/20 text-amber-400 hover:bg-amber-900/40"
-                : "bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40"
+                ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
             }`}
           >
             {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : page.status === "PUBLISHED" ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
@@ -271,13 +271,13 @@ export default function PageEditorPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-gray-800">
+      <div className="flex gap-0 border-b border-gray-200">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              tab === key ? "border-blue-500 text-white" : "border-transparent text-gray-500 hover:text-gray-300"
+              tab === key ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"
             }`}
           >
             <Icon className="w-3.5 h-3.5" />
@@ -297,17 +297,17 @@ export default function PageEditorPage() {
                 onClick={() => handleTemplateChange(t.id)}
                 className={`text-left border rounded-xl p-4 transition-all ${
                   (page.layoutTemplate ?? "single") === t.id
-                    ? "border-blue-500 bg-blue-900/20"
-                    : "border-gray-800 bg-gray-900 hover:border-gray-600"
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-gray-200 bg-white hover:border-gray-300"
                 }`}
               >
                 <pre className="text-[9px] font-mono text-gray-500 leading-tight mb-3 whitespace-pre">{t.preview}</pre>
-                <p className={`text-xs font-semibold ${(page.layoutTemplate ?? "single") === t.id ? "text-blue-400" : "text-white"}`}>
+                <p className={`text-xs font-semibold ${(page.layoutTemplate ?? "single") === t.id ? "text-blue-600" : "text-gray-900"}`}>
                   {t.name}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">{t.description}</p>
                 {(page.layoutTemplate ?? "single") === t.id && (
-                  <div className="mt-2 flex items-center gap-1 text-xs text-blue-400">
+                  <div className="mt-2 flex items-center gap-1 text-xs text-blue-600">
                     <Check className="w-3 h-3" />Active
                   </div>
                 )}
@@ -359,41 +359,41 @@ export default function PageEditorPage() {
 
       {/* ── Settings tab ── */}
       {tab === "settings" && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5 max-w-lg">
-          <h2 className="text-sm font-semibold text-white">Page Settings</h2>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-5 max-w-lg shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-900">Page Settings</h2>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Page Title</label>
+            <label className="block text-xs text-gray-600 mb-1.5">Page Title</label>
             <input
               value={settingsForm.title}
               onChange={e => setSettingsForm(f => ({ ...f, title: e.target.value }))}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Description</label>
+            <label className="block text-xs text-gray-600 mb-1.5">Description</label>
             <textarea
               value={settingsForm.description}
               onChange={e => setSettingsForm(f => ({ ...f, description: e.target.value }))}
               rows={3}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Slug (read-only)</label>
+            <label className="block text-xs text-gray-600 mb-1.5">Slug (read-only)</label>
             <input
               value={page.slug}
               readOnly
-              className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-500 font-mono"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-500 font-mono"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Layout Template</label>
+            <label className="block text-xs text-gray-600 mb-1.5">Layout Template</label>
             <input
               value={currentTemplate.name}
               readOnly
-              className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-500"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-500"
             />
-            <p className="text-xs text-gray-600 mt-1">Change the template in the Layout tab.</p>
+            <p className="text-xs text-gray-400 mt-1">Change the template in the Layout tab.</p>
           </div>
           <div className="pt-1 flex items-center gap-3">
             <button

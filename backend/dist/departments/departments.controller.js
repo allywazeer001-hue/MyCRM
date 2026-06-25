@@ -52,6 +52,9 @@ let DepartmentsController = class DepartmentsController {
     updatePermissions(id, user, body) {
         return this.depts.updatePermissions(id, user.organizationId, body);
     }
+    setHead(id, user, body) {
+        return this.depts.setHead(id, user.organizationId, body.headUserId);
+    }
 };
 exports.DepartmentsController = DepartmentsController;
 __decorate([
@@ -137,6 +140,15 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", void 0)
 ], DepartmentsController.prototype, "updatePermissions", null);
+__decorate([
+    (0, common_1.Patch)(':id/head'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], DepartmentsController.prototype, "setHead", null);
 exports.DepartmentsController = DepartmentsController = __decorate([
     (0, swagger_1.ApiTags)('departments'),
     (0, swagger_1.ApiBearerAuth)(),

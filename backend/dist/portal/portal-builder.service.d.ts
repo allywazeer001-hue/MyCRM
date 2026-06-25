@@ -51,6 +51,7 @@ export declare class PortalBuilderService {
                 helpText: string | null;
                 defaultValue: string | null;
                 options: import("@prisma/client/runtime/library").JsonValue;
+                content: string | null;
                 sectionId: string | null;
                 portalModuleConfigId: string | null;
                 isEditable: boolean;
@@ -62,6 +63,7 @@ export declare class PortalBuilderService {
                 mappedCrmFieldName: string | null;
                 mappedCrmModuleSlug: string | null;
                 formula: string | null;
+                colSpan: number;
                 portalPageId: string | null;
             }[];
         } & {
@@ -72,14 +74,15 @@ export declare class PortalBuilderService {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -133,6 +136,7 @@ export declare class PortalBuilderService {
                 helpText: string | null;
                 defaultValue: string | null;
                 options: import("@prisma/client/runtime/library").JsonValue;
+                content: string | null;
                 sectionId: string | null;
                 portalModuleConfigId: string | null;
                 isEditable: boolean;
@@ -144,6 +148,7 @@ export declare class PortalBuilderService {
                 mappedCrmFieldName: string | null;
                 mappedCrmModuleSlug: string | null;
                 formula: string | null;
+                colSpan: number;
                 portalPageId: string | null;
             }[];
         } & {
@@ -154,14 +159,15 @@ export declare class PortalBuilderService {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -264,8 +270,8 @@ export declare class PortalBuilderService {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }[]>;
@@ -286,8 +292,8 @@ export declare class PortalBuilderService {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }>;
@@ -308,8 +314,8 @@ export declare class PortalBuilderService {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }>;
@@ -339,8 +345,8 @@ export declare class PortalBuilderService {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         parentId: string | null;
         isVisible: boolean;
         accessTypes: import("@prisma/client/runtime/library").JsonValue;
@@ -362,8 +368,8 @@ export declare class PortalBuilderService {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         parentId: string | null;
         isVisible: boolean;
         accessTypes: import("@prisma/client/runtime/library").JsonValue;
@@ -426,6 +432,7 @@ export declare class PortalBuilderService {
             helpText: string | null;
             defaultValue: string | null;
             options: import("@prisma/client/runtime/library").JsonValue;
+            content: string | null;
             sectionId: string | null;
             portalModuleConfigId: string | null;
             isEditable: boolean;
@@ -437,6 +444,7 @@ export declare class PortalBuilderService {
             mappedCrmFieldName: string | null;
             mappedCrmModuleSlug: string | null;
             formula: string | null;
+            colSpan: number;
             portalPageId: string | null;
         }[];
     } & {
@@ -447,14 +455,15 @@ export declare class PortalBuilderService {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
         isAdminOnly: boolean;
         portalPageId: string | null;
         isCollapsible: boolean;
+        fieldColumns: number;
         crmModuleSlug: string | null;
         crmRelationField: string | null;
         crmSectionType: string | null;
@@ -495,6 +504,7 @@ export declare class PortalBuilderService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -506,6 +516,7 @@ export declare class PortalBuilderService {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     unmapPortalField(orgId: string, portalFieldId: string): Promise<{
@@ -521,6 +532,7 @@ export declare class PortalBuilderService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -532,6 +544,7 @@ export declare class PortalBuilderService {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     createCrmFieldAndMap(orgId: string, portalFieldId: string, dto: {
@@ -552,6 +565,7 @@ export declare class PortalBuilderService {
             helpText: string | null;
             defaultValue: string | null;
             options: import("@prisma/client/runtime/library").JsonValue;
+            content: string | null;
             sectionId: string | null;
             portalModuleConfigId: string | null;
             isEditable: boolean;
@@ -563,6 +577,7 @@ export declare class PortalBuilderService {
             mappedCrmFieldName: string | null;
             mappedCrmModuleSlug: string | null;
             formula: string | null;
+            colSpan: number;
             portalPageId: string | null;
         };
         crmField: {
@@ -574,8 +589,8 @@ export declare class PortalBuilderService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -587,6 +602,7 @@ export declare class PortalBuilderService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         };
     }>;
     duplicatePage(orgId: string, pageId: string): Promise<{
@@ -679,8 +695,8 @@ export declare class PortalBuilderService {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }[]>;

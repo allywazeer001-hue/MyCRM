@@ -172,8 +172,8 @@ const BUILTIN_TEMPLATES = [
   {
     id: "preset-patient",
     icon: "🏥",
-    name: "Patient Portal",
-    description: "Health records, appointments, and prescriptions",
+    name: "Member Portal (Generic)",
+    description: "Member profile, appointments, and document uploads — configure field keys to match your module",
     category: "Healthcare",
     color: "rose",
     snapshot: {
@@ -182,12 +182,12 @@ const BUILTIN_TEMPLATES = [
           title: "My Health Profile", slug: "health-profile", layoutTemplate: "two-column",
           sections: [
             {
-              label: "Patient Information", columnIndex: 0, order: 0, isCollapsible: false,
+              label: "Member Information", columnIndex: 0, order: 0, isCollapsible: false,
               fields: [
                 { label: "Full Name", fieldKey: "full_name", fieldType: "text", isRequired: true, isEditable: false, isReadOnly: true, options: [], order: 0 },
-                { label: "Patient ID", fieldKey: "patient_id", fieldType: "text", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
+                { label: "Member ID", fieldKey: "", fieldType: "text", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
                 { label: "Date of Birth", fieldKey: "dob", fieldType: "date", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 2 },
-                { label: "Blood Type", fieldKey: "blood_type", fieldType: "dropdown", isRequired: false, isEditable: true, options: [{ label: "A+", value: "A+" }, { label: "A-", value: "A-" }, { label: "B+", value: "B+" }, { label: "B-", value: "B-" }, { label: "O+", value: "O+" }, { label: "O-", value: "O-" }, { label: "AB+", value: "AB+" }, { label: "AB-", value: "AB-" }], order: 3 },
+                { label: "Category / Type", fieldKey: "", fieldType: "dropdown", isRequired: false, isEditable: true, options: [], order: 3 },
               ],
             },
             {
@@ -208,7 +208,7 @@ const BUILTIN_TEMPLATES = [
               label: "Upcoming Appointments", columnIndex: 0, order: 0, isCollapsible: false,
               fields: [
                 { label: "Next Appointment", fieldKey: "next_appointment", fieldType: "datetime", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 0 },
-                { label: "Doctor / Specialist", fieldKey: "doctor", fieldType: "text", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
+                { label: "Assigned Contact", fieldKey: "", fieldType: "text", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
                 { label: "Appointment Type", fieldKey: "apt_type", fieldType: "dropdown", isRequired: false, isEditable: false, isReadOnly: true, options: [{ label: "Consultation", value: "consultation" }, { label: "Follow-up", value: "followup" }], order: 2 },
               ],
             },
@@ -245,9 +245,9 @@ const BUILTIN_TEMPLATES = [
             {
               label: "Account Summary", columnIndex: 1, order: 1, isCollapsible: false,
               fields: [
-                { label: "Account Type", fieldKey: "account_type", fieldType: "dropdown", isRequired: false, isEditable: false, isReadOnly: true, options: [{ label: "Standard", value: "standard" }, { label: "Premium", value: "premium" }], order: 0 },
-                { label: "Member Since", fieldKey: "member_since", fieldType: "date", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
-                { label: "Outstanding Balance", fieldKey: "balance", fieldType: "currency", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 2 },
+                { label: "Account Type", fieldKey: "", fieldType: "dropdown", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 0 },
+                { label: "Member Since", fieldKey: "", fieldType: "date", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 1 },
+                { label: "Outstanding Balance", fieldKey: "", fieldType: "currency", isRequired: false, isEditable: false, isReadOnly: true, options: [], order: 2 },
               ],
             },
           ],

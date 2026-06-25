@@ -23,6 +23,12 @@ let FieldsService = class FieldsService {
         const maxOrder = await this.prisma.field.aggregate({ where: { moduleId }, _max: { order: true } });
         const order = (maxOrder._max.order ?? -1) + 1;
         const { options, ...fieldData } = data;
+        const JSON_FIELDS = ['settings', 'validation', 'conditionalLogic'];
+        for (const key of JSON_FIELDS) {
+            if (key in fieldData && typeof fieldData[key] === 'object' && fieldData[key] !== null) {
+                fieldData[key] = JSON.stringify(fieldData[key]);
+            }
+        }
         const field = await this.prisma.field.create({
             data: { ...fieldData, moduleId, order },
         });
@@ -51,6 +57,12 @@ let FieldsService = class FieldsService {
         if (!field || field.module.organizationId !== orgId)
             throw new common_1.NotFoundException('Field not found');
         const { options, replaceExisting, ...fieldData } = data;
+        const JSON_FIELDS = ['settings', 'validation', 'conditionalLogic'];
+        for (const key of JSON_FIELDS) {
+            if (key in fieldData && typeof fieldData[key] === 'object' && fieldData[key] !== null) {
+                fieldData[key] = JSON.stringify(fieldData[key]);
+            }
+        }
         if (options !== undefined) {
             if (replaceExisting !== false) {
                 await this.prisma.fieldOption.deleteMany({ where: { fieldId: id } });

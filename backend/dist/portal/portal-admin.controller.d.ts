@@ -41,8 +41,8 @@ export declare class PortalAdminController {
             createdAt: Date;
             moduleId: string;
             type: string;
-            recordId: string;
             accountStatus: string;
+            recordId: string;
             isFirstLogin: boolean;
             isEmailVerified: boolean;
             isPortalAdmin: boolean;
@@ -72,8 +72,8 @@ export declare class PortalAdminController {
         }[];
         moduleId: string;
         type: string;
-        recordId: string;
         accountStatus: string;
+        recordId: string;
         isFirstLogin: boolean;
         isEmailVerified: boolean;
     }>;
@@ -211,8 +211,8 @@ export declare class PortalAdminController {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -224,6 +224,7 @@ export declare class PortalAdminController {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             })[];
         } & {
             id: string;
@@ -233,8 +234,8 @@ export declare class PortalAdminController {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;
@@ -313,8 +314,8 @@ export declare class PortalAdminController {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -326,6 +327,7 @@ export declare class PortalAdminController {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             })[];
         } & {
             id: string;
@@ -335,8 +337,8 @@ export declare class PortalAdminController {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;

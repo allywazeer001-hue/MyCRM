@@ -87,48 +87,48 @@ export default function SectionBuilderPage() {
   };
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Section Builder</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Organise portal fields into sections, tabs, groups, and cards.</p>
+          <h1 className="text-xl font-bold text-gray-900">Section Builder</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Organise portal fields into sections, tabs, groups, and cards.</p>
         </div>
         <button onClick={openNew} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
           <Plus className="w-4 h-4" />New Section
         </button>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
         {loading ? (
-          <div className="flex items-center justify-center h-40"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>
+          <div className="flex items-center justify-center h-40"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
         ) : sections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-600">
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
             <p className="text-sm">No sections yet. Create your first section to group portal fields.</p>
           </div>
         ) : (
           sections.map((section, idx) => (
-            <div key={section.id} className={`px-4 py-3 border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${!section.isVisible ? "opacity-50" : ""}`}>
+            <div key={section.id} className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${!section.isVisible ? "opacity-50" : ""}`}>
               <div className="flex items-center gap-3">
                 {section.icon && <span className="text-lg">{section.icon}</span>}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-white">{section.label}</p>
-                    <span className="text-xs bg-blue-900/30 text-blue-400 px-1.5 py-0.5 rounded">{section.type}</span>
-                    {section.isCollapsible && <span className="text-xs text-gray-500">collapsible</span>}
-                    {section.isAdminOnly && <span className="text-xs text-amber-500">admin-only</span>}
+                    <p className="text-sm font-medium text-gray-900">{section.label}</p>
+                    <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">{section.type}</span>
+                    {section.isCollapsible && <span className="text-xs text-gray-400">collapsible</span>}
+                    {section.isAdminOnly && <span className="text-xs text-amber-600">admin-only</span>}
                   </div>
                   {section.fields.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-0.5">{section.fields.length} field{section.fields.length !== 1 ? "s" : ""}: {section.fields.map(f => f.label).join(", ")}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{section.fields.length} field{section.fields.length !== 1 ? "s" : ""}: {section.fields.map(f => f.label).join(", ")}</p>
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => move(idx, 1)} disabled={idx === sections.length - 1} className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => toggleVisible(section)} className={`p-1.5 rounded ${section.isVisible ? "text-green-500" : "text-gray-600"}`}>
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronUp className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === sections.length - 1} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronDown className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => toggleVisible(section)} className={`p-1.5 rounded ${section.isVisible ? "text-green-500" : "text-gray-400"}`}>
                     {section.isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   </button>
-                  <button onClick={() => openEdit(section)} className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-900/20 rounded"><Edit2 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => handleDelete(section.id)} className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => openEdit(section)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => handleDelete(section.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
             </div>
@@ -137,26 +137,26 @@ export default function SectionBuilderPage() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-              <p className="font-semibold text-white">{editSection ? "Edit Section" : "New Section"}</p>
-              <button onClick={() => setShowForm(false)} className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-800"><X className="w-4 h-4" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <p className="font-semibold text-gray-900">{editSection ? "Edit Section" : "New Section"}</p>
+              <button onClick={() => setShowForm(false)} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-6 py-4 space-y-4">
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Label *</label>
-                  <input className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Section name" />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Label *</label>
+                  <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="Section name" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Icon (emoji)</label>
-                  <input className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.icon} onChange={e => setForm(f => ({ ...f, icon: e.target.value }))} placeholder="📋" />
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Icon (emoji)</label>
+                  <input className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.icon} onChange={e => setForm(f => ({ ...f, icon: e.target.value }))} placeholder="📋" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Type</label>
-                <select className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
                   {SECTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
@@ -166,15 +166,15 @@ export default function SectionBuilderPage() {
                   { key: "isVisible", label: "Visible to users" },
                   { key: "isAdminOnly", label: "Admin-only" },
                 ].map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <label key={key} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                     <input type="checkbox" checked={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} className="rounded accent-blue-500" />
                     {label}
                   </label>
                 ))}
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-800 flex justify-end gap-2">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg">Cancel</button>
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg">Cancel</button>
               <button onClick={handleSave} disabled={saving || !form.label.trim()} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 {editSection ? "Update" : "Create"}

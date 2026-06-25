@@ -100,7 +100,7 @@ export default function PortalNotificationsPage() {
 
   return (
     <PortalShell>
-      <div className="max-w-2xl mx-auto space-y-5">
+      <div className="max-w-2xl mx-auto space-y-5 p-4 sm:p-6">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
@@ -118,7 +118,7 @@ export default function PortalNotificationsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="overflow-x-auto"><div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t.key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
               {t.key === "announcements" ? <Megaphone className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}
@@ -128,7 +128,7 @@ export default function PortalNotificationsPage() {
               )}
             </button>
           ))}
-        </div>
+        </div></div>
 
         {/* Content */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

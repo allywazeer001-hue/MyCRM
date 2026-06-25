@@ -59,7 +59,7 @@ function SectionBlock({ section, onSave }: { section: PortalSection; onSave: (fi
       <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
         <button onClick={() => section.isCollapsible && setOpen(o => !o)} className="flex items-center gap-2 flex-1">
           {section.icon && <span className="text-base">{section.icon}</span>}
-          <h2 className="text-sm font-semibold text-gray-800">{section.label}</h2>
+          <h2 className="text-sm font-semibold text-gray-800 truncate">{section.label}</h2>
           {section.isCollapsible && (open ? <ChevronDown className="w-3.5 h-3.5 text-gray-400" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-400" />)}
         </button>
         {hasEditable && !editing && (
@@ -79,12 +79,12 @@ function SectionBlock({ section, onSave }: { section: PortalSection; onSave: (fi
       {open && (
         <div className="divide-y divide-gray-50">
           {section.fields.map(field => (
-            <div key={field.id} className="px-5 py-3.5 flex items-start gap-4">
-              <div className="w-44 shrink-0">
+            <div key={field.id} className="px-5 py-3.5 flex flex-col sm:flex-row items-start gap-2 sm:gap-4">
+              <div className="w-full sm:w-44 shrink-0">
                 <p className="text-sm font-medium text-gray-600">{field.label}</p>
                 {field.isReadOnly && <span className="text-xs text-amber-500">read-only</span>}
               </div>
-              <div className="flex-1">
+              <div className="flex-1 w-full min-w-0">
                 {field.helpText && <p className="text-xs text-gray-400 mb-1">{field.helpText}</p>}
                 <PortalFieldRenderer
                   field={field}
@@ -158,7 +158,7 @@ export default function PortalRecordsPage() {
 
   return (
     <PortalShell>
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">My Record</h1>
           <p className="text-sm text-gray-500 mt-0.5">Your personal data record managed by the organization</p>
@@ -201,12 +201,12 @@ export default function PortalRecordsPage() {
                   </div>
                   <div className="divide-y divide-gray-50">
                     {crmData.fields.map(field => (
-                      <div key={field.id} className="px-5 py-3.5 flex items-start gap-4">
-                        <div className="w-44 shrink-0">
-                          <p className="text-sm font-medium text-gray-600">{field.label || field.name}</p>
+                      <div key={field.id} className="px-5 py-3.5 flex flex-col sm:flex-row items-start gap-2 sm:gap-4">
+                        <div className="w-full sm:w-44 shrink-0">
+                          <p className="text-sm font-medium text-gray-600 truncate">{field.label || field.name}</p>
                           <p className="text-xs text-gray-400 capitalize">{field.type.toLowerCase().replace(/_/g, " ")}</p>
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 w-full min-w-0">
                           <CrmFieldValue field={field} value={crmData.record!.data[field.name]} />
                         </div>
                       </div>

@@ -99,6 +99,19 @@ let RecordsController = class RecordsController {
     addComment(id, content, user) {
         return this.recordsService.addComment(id, user.organizationId, user.id, content);
     }
+    getActivity(id, user) {
+        return this.recordsService.getActivity(id, user.organizationId);
+    }
+    async duplicate(moduleId, id, user) {
+        await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canCreate');
+        return this.recordsService.duplicate(id, user.organizationId, user.id);
+    }
+    archive(id, archived, user) {
+        return this.recordsService.setArchived(id, user.organizationId, user.id, archived);
+    }
+    lock(id, locked, user) {
+        return this.recordsService.setLocked(id, user.organizationId, user.id, locked);
+    }
 };
 exports.RecordsController = RecordsController;
 __decorate([
@@ -209,6 +222,41 @@ __decorate([
     __metadata("design:paramtypes", [String, String, Object]),
     __metadata("design:returntype", void 0)
 ], RecordsController.prototype, "addComment", null);
+__decorate([
+    (0, common_1.Get)(':id/activity'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], RecordsController.prototype, "getActivity", null);
+__decorate([
+    (0, common_1.Post)(':id/duplicate'),
+    __param(0, (0, common_1.Param)('moduleId')),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, Object]),
+    __metadata("design:returntype", Promise)
+], RecordsController.prototype, "duplicate", null);
+__decorate([
+    (0, common_1.Patch)(':id/archive'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)('archived')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Boolean, Object]),
+    __metadata("design:returntype", void 0)
+], RecordsController.prototype, "archive", null);
+__decorate([
+    (0, common_1.Patch)(':id/lock'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)('locked')),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Boolean, Object]),
+    __metadata("design:returntype", void 0)
+], RecordsController.prototype, "lock", null);
 exports.RecordsController = RecordsController = __decorate([
     (0, swagger_1.ApiTags)('records'),
     (0, swagger_1.ApiBearerAuth)(),

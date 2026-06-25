@@ -23,7 +23,28 @@ let FormsController = class FormsController {
         this.svc = svc;
     }
     findAll(user) {
-        return this.svc.findAll(user.organizationId);
+        return this.svc.findAll(user.organizationId, user.id, user.role);
+    }
+    getFolders(user) {
+        return this.svc.getFolders(user.organizationId, user.id, user.role, user.departmentId ?? null);
+    }
+    createFolder(body, user) {
+        return this.svc.createFolder(user.organizationId, user.id, body);
+    }
+    updateFolder(folderId, body, user) {
+        return this.svc.updateFolder(folderId, user.organizationId, user.id, user.role, body);
+    }
+    deleteFolder(folderId, user) {
+        return this.svc.deleteFolder(folderId, user.organizationId, user.id, user.role);
+    }
+    getFolderForms(folderId, user) {
+        return this.svc.getFolderForms(folderId, user.organizationId);
+    }
+    getSharedForms(user) {
+        return this.svc.getSharedForms(user.organizationId, user.id, user.role, user.departmentId ?? null);
+    }
+    getSharedFolders(user) {
+        return this.svc.getSharedFolders(user.organizationId, user.id, user.role, user.departmentId ?? null);
     }
     findOne(id, user) {
         return this.svc.findOne(id, user.organizationId);
@@ -76,6 +97,12 @@ let FormsController = class FormsController {
     getSubmissions(id, user) {
         return this.svc.getSubmissions(id, user.organizationId);
     }
+    getFormSharing(id, user) {
+        return this.svc.getFormSharing(id, user.organizationId);
+    }
+    updateFormSharing(id, body, user) {
+        return this.svc.updateFormSharing(id, user.organizationId, user.id, user.role, body);
+    }
 };
 exports.FormsController = FormsController;
 __decorate([
@@ -85,6 +112,60 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], FormsController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Get)('folders'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "getFolders", null);
+__decorate([
+    (0, common_1.Post)('folders'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "createFolder", null);
+__decorate([
+    (0, common_1.Patch)('folders/:folderId'),
+    __param(0, (0, common_1.Param)('folderId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "updateFolder", null);
+__decorate([
+    (0, common_1.Delete)('folders/:folderId'),
+    __param(0, (0, common_1.Param)('folderId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "deleteFolder", null);
+__decorate([
+    (0, common_1.Get)('folders/:folderId/forms'),
+    __param(0, (0, common_1.Param)('folderId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "getFolderForms", null);
+__decorate([
+    (0, common_1.Get)('shared'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "getSharedForms", null);
+__decorate([
+    (0, common_1.Get)('shared-folders'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "getSharedFolders", null);
 __decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, common_1.Param)('id')),
@@ -232,6 +313,23 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], FormsController.prototype, "getSubmissions", null);
+__decorate([
+    (0, common_1.Get)(':id/sharing'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "getFormSharing", null);
+__decorate([
+    (0, common_1.Patch)(':id/sharing'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], FormsController.prototype, "updateFormSharing", null);
 exports.FormsController = FormsController = __decorate([
     (0, swagger_1.ApiTags)('forms'),
     (0, swagger_1.ApiBearerAuth)(),

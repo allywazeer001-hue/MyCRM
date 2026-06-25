@@ -21,6 +21,7 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -32,6 +33,7 @@ export declare class PortalFieldService {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     })[]>;
     createField(orgId: string, dto: {
@@ -72,6 +74,7 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -83,6 +86,7 @@ export declare class PortalFieldService {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     updateField(orgId: string, fieldId: string, dto: Partial<{
@@ -119,6 +123,7 @@ export declare class PortalFieldService {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -130,6 +135,7 @@ export declare class PortalFieldService {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     deleteField(orgId: string, fieldId: string): Promise<{
@@ -153,14 +159,15 @@ export declare class PortalFieldService {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -168,6 +175,7 @@ export declare class PortalFieldService {
         orphanFields: any[];
         record: {
             id: string;
+            lockedAt: Date | null;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
@@ -175,6 +183,9 @@ export declare class PortalFieldService {
             moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
+            isArchived: boolean;
+            archivedAt: Date | null;
+            isLocked: boolean;
             createdById: string;
             updatedById: string | null;
         };

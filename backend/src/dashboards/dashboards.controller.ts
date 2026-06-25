@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
 import { DashboardsService } from './dashboards.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -11,23 +11,28 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 export class DashboardsController {
   constructor(private svc: DashboardsService) {}
 
-  @Post()
-  create(@Body() body: any, @CurrentUser() user: any) { return this.svc.create(user.organizationId, user.id, body); }
-
   @Get()
-  findAll(@CurrentUser() user: any) { return this.svc.findAll(user.organizationId); }
+  findAll(@CurrentUser() user: any) {
+    return this.svc.findAll(user.id, user.organizationId);
+  }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() user: any) { return this.svc.findOne(id, user.organizationId); }
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.svc.findOne(id, user.id, user.organizationId);
+  }
 
-  @Post(':id/widgets')
-  addWidget(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) { return this.svc.addWidget(id, user.organizationId, body); }
+  @Post()
+  create(@Body() body: any, @CurrentUser() user: any) {
+    return this.svc.create(user.id, user.organizationId, body);
+  }
 
-  @Delete('widgets/:widgetId')
-  removeWidget(@Param('widgetId') widgetId: string) { return this.svc.removeWidget(widgetId); }
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    return this.svc.update(id, user.id, user.organizationId, body);
+  }
 
-  @Get('analytics/:moduleId')
-  getAnalytics(@Param('moduleId') moduleId: string, @Query() query: any, @CurrentUser() user: any) {
-    return this.svc.getAnalytics(moduleId, user.organizationId, query);
+  @Delete(':id')
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.svc.remove(id, user.id, user.organizationId);
   }
 }

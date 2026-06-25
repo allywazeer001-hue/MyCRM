@@ -1,9 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import {
-  FileBarChart2, Plus, Trash2, Play, Pencil, Clock, Search,
-} from "lucide-react";
+import { FileBarChart2, Plus, Trash2, Play, Pencil, Clock, Search, Loader2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface SavedReport {
   id: string;
@@ -16,28 +15,54 @@ interface SavedReport {
   updatedAt: string;
 }
 
-function loadReports(): SavedReport[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("crm_reports") ?? "[]"); } catch { return []; }
-}
-
 export default function ReportBuilderPage() {
   const router = useRouter();
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setReports(loadReports()); }, []);
+  const fetchReports = useCallback(async () => {
+    try {
+      const { data } = await api.get("/reports");
+      setReports(Array.isArray(data) ? data : []);
+    } catch {
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleDelete = (id: string, name: string) => {
+  // Initial fetch
+  useEffect(() => { fetchReports(); }, [fetchReports]);
+
+  // Refetch whenever the tab becomes visible (cross-device sync)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") fetchReports(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [fetchReports]);
+
+  const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete report "${name}"? This cannot be undone.`)) return;
-    const updated = loadReports().filter(r => r.id !== id);
-    localStorage.setItem("crm_reports", JSON.stringify(updated));
-    setReports(updated);
+    try {
+      await api.delete(`/reports/${id}`);
+      setReports(prev => prev.filter(r => r.id !== id));
+    } catch {
+      alert("Failed to delete report. Please try again.");
+    }
   };
 
   const filtered = reports.filter(r =>
     !query.trim() || r.name.toLowerCase().includes(query.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -96,9 +121,7 @@ export default function ReportBuilderPage() {
         <div className="text-center py-12">
           <Search className="w-8 h-8 text-gray-300 mx-auto mb-2" />
           <p className="text-sm text-gray-400">No reports match your search</p>
-          <button onClick={() => setQuery("")} className="text-xs text-blue-500 hover:text-blue-700 mt-1">
-            Clear
-          </button>
+          <button onClick={() => setQuery("")} className="text-xs text-blue-500 hover:text-blue-700 mt-1">Clear</button>
         </div>
       )}
 
@@ -127,8 +150,10 @@ export default function ReportBuilderPage() {
                   <p className="text-xs text-gray-500 line-clamp-2">{r.description}</p>
                 )}
                 <p className="text-[10px] text-gray-400">
-                  {r.columns.length} column{r.columns.length !== 1 ? "s" : ""}
-                  {r.filters.length > 0 ? ` · ${r.filters.length} filter${r.filters.length !== 1 ? "s" : ""}` : ""}
+                  {(r.columns as any[]).length} column{(r.columns as any[]).length !== 1 ? "s" : ""}
+                  {(r.filters as any[]).length > 0
+                    ? ` · ${(r.filters as any[]).length} filter${(r.filters as any[]).length !== 1 ? "s" : ""}`
+                    : ""}
                 </p>
                 <p className="text-[10px] text-gray-400 flex items-center gap-1">
                   <Clock className="w-2.5 h-2.5" />

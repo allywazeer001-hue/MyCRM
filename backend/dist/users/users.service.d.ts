@@ -24,7 +24,9 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -47,11 +49,13 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }[]>;
-    findOne(id: string, orgId: string): Promise<{
+    findOne(id: string, orgId: string | null): Promise<{
         department: {
             id: string;
             name: string;
@@ -70,11 +74,76 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    update(id: string, orgId: string, data: any): Promise<{
+    getMyProfile(userId: string, orgId: string): Promise<{
+        recentActivity: {
+            id: string;
+            createdAt: Date;
+            action: string;
+            entityType: string;
+        }[];
+        departmentPermissions: {
+            isAdmin: boolean;
+            isSuperAdmin: boolean;
+            system: {
+                canDashboard: boolean;
+                canAnalytics: boolean;
+                canWorkflow: boolean;
+                canForms: boolean;
+                canStudio: boolean;
+            };
+            modules: Record<string, any>;
+        } | {
+            isAdmin: boolean;
+            system: Record<string, boolean>;
+            modules: Record<string, Record<string, boolean>>;
+            isSuperAdmin?: undefined;
+        };
+        department: {
+            id: string;
+            name: string;
+            color: string;
+        };
+        organization: {
+            id: string;
+            name: string;
+            slug: string;
+            description: string;
+            logo: string;
+            website: string;
+        };
+        email: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        avatar: string;
+        phone: string;
+        jobTitle: string;
+        role: import(".prisma/client").$Enums.UserRole;
+        isActive: boolean;
+        status: string;
+        usertype: string;
+        lastLoginAt: Date;
+        departmentId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        auditLogs: {
+            id: string;
+            createdAt: Date;
+            action: string;
+            entityType: string;
+        }[];
+        _count: {
+            createdRecords: number;
+            comments: number;
+        };
+    }>;
+    update(id: string, orgId: string | null, data: any): Promise<{
         department: {
             id: string;
             name: string;
@@ -93,11 +162,14 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    remove(id: string, orgId: string): Promise<{
+    private syncToPortalUser;
+    remove(id: string, orgId: string | null): Promise<{
         email: string;
         password: string;
         firstName: string;
@@ -112,6 +184,7 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;
@@ -119,7 +192,7 @@ export declare class UsersService {
         createdAt: Date;
         updatedAt: Date;
     }>;
-    reactivate(id: string, orgId: string): Promise<{
+    hardDelete(id: string, orgId: string | null): Promise<{
         email: string;
         password: string;
         firstName: string;
@@ -134,6 +207,7 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;
@@ -141,7 +215,30 @@ export declare class UsersService {
         createdAt: Date;
         updatedAt: Date;
     }>;
-    suspend(id: string, orgId: string, adminId: string): Promise<{
+    reactivate(id: string, orgId: string | null): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        avatar: string | null;
+        phone: string | null;
+        jobTitle: string | null;
+        role: import(".prisma/client").$Enums.UserRole;
+        isActive: boolean;
+        status: string;
+        mustChangePassword: boolean;
+        suspendedAt: Date | null;
+        lockedAt: Date | null;
+        usertype: string;
+        refreshToken: string | null;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        departmentId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    suspend(id: string, orgId: string | null, adminId: string): Promise<{
         department: {
             id: string;
             name: string;
@@ -160,11 +257,13 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    unsuspend(id: string, orgId: string, adminId: string): Promise<{
+    unsuspend(id: string, orgId: string | null, adminId: string): Promise<{
         department: {
             id: string;
             name: string;
@@ -183,11 +282,13 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    lock(id: string, orgId: string, adminId: string): Promise<{
+    lock(id: string, orgId: string | null, adminId: string): Promise<{
         department: {
             id: string;
             name: string;
@@ -206,11 +307,13 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    unlock(id: string, orgId: string, adminId: string): Promise<{
+    unlock(id: string, orgId: string | null, adminId: string): Promise<{
         department: {
             id: string;
             name: string;
@@ -229,14 +332,16 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    resetPassword(id: string, orgId: string, adminId: string): Promise<{
+    resetPassword(id: string, orgId: string | null, adminId: string): Promise<{
         tempPassword: any;
     }>;
-    forcePasswordReset(id: string, orgId: string, adminId: string): Promise<{
+    forcePasswordReset(id: string, orgId: string | null, adminId: string): Promise<{
         department: {
             id: string;
             name: string;
@@ -255,11 +360,13 @@ export declare class UsersService {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
-    getPermissionOverrides(userId: string, orgId: string): Promise<({
+    getPermissionOverrides(userId: string, orgId: string | null): Promise<({
         module: {
             id: string;
             name: string;
@@ -290,7 +397,7 @@ export declare class UsersService {
         reason: string | null;
         grantedById: string | null;
     })[]>;
-    setPermissionOverride(userId: string, orgId: string, grantedById: string, body: any): Promise<{
+    setPermissionOverride(userId: string, orgId: string | null, grantedById: string, body: any): Promise<{
         id: string;
         isActive: boolean;
         organizationId: string;
@@ -340,6 +447,9 @@ export declare class UsersService {
         reason: string | null;
         grantedById: string | null;
     }>;
+    clearMyActivity(userId: string, orgId: string): Promise<{
+        cleared: boolean;
+    }>;
     getMyPermissions(userId: string, orgId: string): Promise<{
         isAdmin: boolean;
         isSuperAdmin: boolean;
@@ -357,7 +467,7 @@ export declare class UsersService {
         modules: Record<string, Record<string, boolean>>;
         isSuperAdmin?: undefined;
     }>;
-    getPermissionSummary(userId: string, orgId: string): Promise<{
+    getPermissionSummary(userId: string, orgId: string | null): Promise<{
         effective: {
             isAdmin: boolean;
             isSuperAdmin: boolean;

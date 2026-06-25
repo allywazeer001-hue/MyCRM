@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-type ViewType = "table" | "kanban";
+type ViewType = "table" | "kanban" | "gallery" | "list" | "calendar";
 
 interface ViewState {
   moduleViews: Record<string, ViewType>;

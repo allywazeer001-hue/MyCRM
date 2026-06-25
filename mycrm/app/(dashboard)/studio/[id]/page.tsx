@@ -25,9 +25,18 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useModulesStore, Field } from "@/store/modules.store";
+import { IconPicker } from "@/components/ui/icon-picker";
 import { api } from "@/lib/api";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { cn, parseFieldSettings, generateId } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
+import { type SummaryStatConfig, type SummaryCondition } from "@/components/modules/module-summary-bar";
+import {
+  DEFAULT_MODULE_LAYOUT, LayoutConfig,
+  ModuleLayoutRule, ModuleRuleCondition, ModuleRuleAction,
+  ModuleRuleOperator, ModuleRuleActionType, ModuleRuleTarget, ModuleRuleLogic,
+} from "@/lib/layout-templates";
+import { ModuleLayoutCanvas } from "@/components/studio/layout-canvas";
 
 const FIELD_TYPES = [
   { type: "TEXT",          label: "Single Line Text",  icon: "T",   group: "Text",     description: "Short text input" },
@@ -51,6 +60,7 @@ const FIELD_TYPES = [
   { type: "SIGNATURE",     label: "Signature",         icon: "✍",   group: "Media",    description: "Digital signature" },
   { type: "USER_SELECT",   label: "User Select",       icon: "👤",  group: "Relation", description: "Select a user" },
   { type: "LOOKUP",        label: "Lookup",            icon: "🔍",  group: "Relation", description: "Link to another module" },
+  { type: "MIRROR",        label: "Mirror Field",      icon: "↔",   group: "Relation", description: "Pull a field from a linked record" },
   { type: "GLOBAL_RELATION",label:"Global List",       icon: "🌐",  group: "Relation", description: "Hierarchical global dataset" },
   { type: "TAGS",          label: "Tags",              icon: "🏷",  group: "Advanced", description: "Tag list" },
   { type: "RATING",        label: "Rating",            icon: "⭐",  group: "Advanced", description: "Star rating 1-5" },
@@ -63,6 +73,23 @@ const FIELD_TYPES = [
 
 const GROUPS = ["Text", "Number", "Contact", "DateTime", "Choice", "Media", "Relation", "Advanced", "Structure"];
 const TYPES_WITH_OPTIONS = ["DROPDOWN", "MULTI_SELECT", "STATUS", "RADIO"];
+
+// Smart width: given the existing fields in a section, compute the ideal width for the next dropped field.
+// Respects row occupancy so fields pair up naturally (first = full, second beside it = both 1/2, etc.).
+function smartWidth(widths: Record<string, string>, fieldIds: string[], columns: number): string {
+  if (columns <= 1) return "full";
+  // Walk field list to compute how many grid spans remain in the current row
+  let spansUsed = 0;
+  for (const fid of fieldIds) {
+    const w = widths[fid] ?? "full";
+    const span = w === "full" ? columns : 1;
+    spansUsed = (spansUsed + span) % columns;
+  }
+  const remaining = (columns - spansUsed) % columns;
+  // If the current row is empty, start with full-width so the layout looks intentional.
+  // If there's already a partial row (≥1 span used), fill the gap with a matching narrow width.
+  return remaining === 0 ? "full" : (columns === 4 ? "1/4" : columns === 3 ? "1/3" : "1/2");
+}
 
 // Draggable palette item (drag from palette onto canvas)
 function PaletteItem({ ft, onAdd, dragActiveRef }: {
@@ -82,16 +109,17 @@ function PaletteItem({ ft, onAdd, dragActiveRef }: {
       {...listeners}
       onClick={() => { if (!dragActiveRef.current) onAdd(); }}
       className={cn(
-        "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-blue-50 hover:text-blue-700",
+        "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg",
+        "hover:bg-blue-50 hover:text-blue-700",
         "text-left transition-colors group cursor-pointer select-none",
         isDragging ? "opacity-40" : ""
       )}
     >
-      <span className="w-6 h-6 bg-gray-100 group-hover:bg-blue-100 rounded text-xs flex items-center justify-center font-mono text-gray-600 group-hover:text-blue-700 shrink-0">
+      <span className="w-6 h-6 bg-gray-100 group-hover:bg-blue-100 rounded text-xs flex items-center justify-center font-mono text-gray-500 group-hover:text-blue-600 shrink-0 transition-colors">
         {ft.icon}
       </span>
       <div className="min-w-0">
-        <p className="text-xs font-medium text-gray-700 group-hover:text-blue-700 truncate">{ft.label}</p>
+        <p className="text-xs font-medium text-gray-600 group-hover:text-blue-700 truncate transition-colors">{ft.label}</p>
       </div>
     </div>
   );
@@ -169,10 +197,535 @@ function CanvasDropZone({ isOver }: { isOver: boolean }) {
   );
 }
 
+// ── Module Properties Panel ────────────────────────────────────────────────
+// Shown in the right panel when no field is selected.
+// Allows editing module name, icon, description, and portal enable toggle.
+
+
+function ModulePropertiesPanel({
+  activeModule, moduleId, saving, onSave, onUpdate,
+}: {
+  activeModule: any;
+  moduleId: string;
+  saving: boolean;
+  onSave: () => void;
+  onUpdate: (patch: any) => void;
+}) {
+  const [portalEnabled, setPortalEnabled] = useState<boolean | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Load current portal status for this module
+  useEffect(() => {
+    if (!moduleId) return;
+    api.get(`/portal/admin/module-configs/${moduleId}`)
+      .then(r => setPortalEnabled(r.data?.config?.isEnabled ?? false))
+      .catch(() => setPortalEnabled(false));
+  }, [moduleId]);
+
+  const handlePortalToggle = async (val: boolean) => {
+    setPortalLoading(true);
+    try {
+      await api.patch(`/portal/admin/module-configs/${moduleId}`, { isEnabled: val });
+      setPortalEnabled(val);
+    } catch {}
+    setPortalLoading(false);
+  };
+
+  const handleSave = async () => {
+    await onSave();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  if (!activeModule) return null;
+
+  return (
+    <ScrollArea className="flex-1">
+      <div className="p-4 space-y-5">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Module Settings</p>
+          {saved && <span className="text-xs text-green-600 font-medium">Saved ✓</span>}
+        </div>
+
+        {/* Icon */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Module Icon</Label>
+          <div className="flex items-center gap-3">
+            <IconPicker
+              value={activeModule.icon}
+              onChange={ic => onUpdate({ icon: ic })}
+              color={activeModule.color}
+            />
+            <p className="text-xs text-gray-400">Click to change</p>
+          </div>
+        </div>
+
+        {/* Name */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Module Name *</Label>
+          <Input
+            value={activeModule.name}
+            onChange={e => onUpdate({ name: e.target.value })}
+            placeholder="e.g. Students, Contacts, Inventory"
+            className="h-9"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Description</Label>
+          <Input
+            value={activeModule.description || ""}
+            onChange={e => onUpdate({ description: e.target.value })}
+            placeholder="Brief description of this module"
+            className="h-9"
+          />
+        </div>
+
+        <Separator />
+
+        {/* Portal toggle */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Portal Access</p>
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Enable Portal</p>
+              <p className="text-xs text-gray-400 mt-0.5">Allow creating portal accounts for records in this module</p>
+            </div>
+            <Switch
+              checked={!!portalEnabled}
+              onCheckedChange={handlePortalToggle}
+              disabled={portalLoading || portalEnabled === null}
+            />
+          </div>
+          {portalEnabled && (
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
+              Portal is active for this module. Configure field mappings in{" "}
+              <a href="/settings/portal" className="underline font-medium">Settings → Portal Settings</a>.
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Save button */}
+        <Button
+          size="sm"
+          className="w-full gap-2"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving
+            ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
+            : <><Save className="w-4 h-4" />Save Module Settings</>}
+        </Button>
+
+        <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-500 space-y-1">
+          <p className="font-medium text-gray-600">Module ID</p>
+          <p className="font-mono text-[10px] break-all text-gray-400">{moduleId}</p>
+        </div>
+      </div>
+    </ScrollArea>
+  );
+}
+
+// ── Module Layout Rules Panel ─────────────────────────────────────────────────
+// Single centralized rule builder for the whole module.
+// Rules: "When [field] [operator] [value]" → one or more actions on fields / sections.
+
+const OP_OPTS: { value: ModuleRuleOperator; label: string }[] = [
+  { value: "equals",     label: "equals" },
+  { value: "not_equals", label: "does not equal" },
+  { value: "is_empty",   label: "is empty" },
+  { value: "not_empty",  label: "is not empty" },
+];
+
+const ACTION_TYPE_OPTS: { value: ModuleRuleActionType; label: string }[] = [
+  { value: "show",      label: "Show" },
+  { value: "hide",      label: "Hide" },
+  { value: "require",   label: "Make required" },
+  { value: "unrequire", label: "Make optional" },
+  { value: "readonly",  label: "Make read-only" },
+];
+
+function newCondition(fields: Field[]): ModuleRuleCondition {
+  return {
+    id:        `cond-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    whenField: fields[0]?.name ?? "",
+    operator:  "equals",
+    whenValue: "",
+  };
+}
+
+function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
+  cond: ModuleRuleCondition;
+  fields: Field[];
+  onChange: (patch: Partial<ModuleRuleCondition>) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const triggerField = fields.find(f => f.name === cond.whenField);
+  const hasValue = cond.operator === "equals" || cond.operator === "not_equals";
+  const optionValues: any[] =
+    triggerField && ["DROPDOWN","STATUS","RADIO","MULTI_SELECT"].includes(triggerField.type)
+      ? (triggerField as any).options ?? []
+      : [];
+
+  return (
+    <div className="grid gap-1 p-2 bg-gray-50 rounded-lg border border-gray-200">
+      {/* Field selector */}
+      <Select value={cond.whenField} onValueChange={v => onChange({ whenField: v, whenValue: "" })}>
+        <SelectTrigger className="h-7 text-xs">
+          <SelectValue placeholder="Select field…" />
+        </SelectTrigger>
+        <SelectContent>
+          {fields.map(f => (
+            <SelectItem key={f.id} value={f.name} className="text-xs">{f.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Operator + value row */}
+      <div className="flex gap-1 items-center">
+        <Select value={cond.operator} onValueChange={v => onChange({ operator: v as ModuleRuleOperator, whenValue: "" })}>
+          <SelectTrigger className="h-7 text-xs flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {OP_OPTS.map(o => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {hasValue && (
+          optionValues.length > 0 ? (
+            <Select value={cond.whenValue} onValueChange={v => onChange({ whenValue: v })}>
+              <SelectTrigger className="h-7 text-xs flex-1">
+                <SelectValue placeholder="Value…" />
+              </SelectTrigger>
+              <SelectContent>
+                {optionValues.map((opt: any) => (
+                  <SelectItem key={opt.id || opt.value} value={opt.value || opt.label} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={cond.whenValue}
+              onChange={e => onChange({ whenValue: e.target.value })}
+              placeholder="Value…"
+              className="h-7 text-xs flex-1"
+            />
+          )
+        )}
+
+        {canRemove && (
+          <button onClick={onRemove} className="text-gray-300 hover:text-red-500 shrink-0 transition-colors" title="Remove condition">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
+  fields: Field[];
+  layoutConfig: LayoutConfig;
+  onLayoutChange: (cfg: LayoutConfig) => void;
+}) {
+  // Migrate old single-condition rules (whenField/operator/whenValue) to the
+  // new conditions[] shape so existing saved rules don't crash on .length.
+  const rules: ModuleLayoutRule[] = ((layoutConfig as any).rules ?? []).map((r: any): ModuleLayoutRule => {
+    if (Array.isArray(r.conditions)) return r as ModuleLayoutRule;
+    return {
+      id:             r.id,
+      conditionLogic: r.conditionLogic ?? "AND",
+      conditions: r.whenField
+        ? [{ id: `cond-migrated-${r.id}`, whenField: r.whenField, operator: r.operator ?? "equals", whenValue: r.whenValue ?? "" }]
+        : [newCondition(fields)],
+      actions: Array.isArray(r.actions) ? r.actions : [],
+    };
+  });
+  const sections = layoutConfig.sections ?? [];
+
+  const save = (newRules: ModuleLayoutRule[]) =>
+    onLayoutChange({ ...layoutConfig, rules: newRules } as any);
+
+  const addRule = () => {
+    save([...rules, {
+      id:             `rule-${generateId().slice(0, 8)}`,
+      conditionLogic: "AND",
+      conditions:     [newCondition(fields)],
+      actions:        [],
+    }]);
+  };
+
+  const updateRule = (ruleId: string, patch: Partial<ModuleLayoutRule>) =>
+    save(rules.map(r => r.id === ruleId ? { ...r, ...patch } : r));
+
+  const removeRule = (ruleId: string) =>
+    save(rules.filter(r => r.id !== ruleId));
+
+  // ── Condition helpers ──────────────────────────────────────────────────────
+
+  const addCondition = (ruleId: string) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      conditions: [...r.conditions, newCondition(fields)],
+    }));
+
+  const updateCondition = (ruleId: string, condId: string, patch: Partial<ModuleRuleCondition>) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      conditions: r.conditions.map(c => c.id === condId ? { ...c, ...patch } : c),
+    }));
+
+  const removeCondition = (ruleId: string, condId: string) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      conditions: r.conditions.filter(c => c.id !== condId),
+    }));
+
+  // ── Action helpers ─────────────────────────────────────────────────────────
+
+  const addAction = (ruleId: string) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      actions: [...(r.actions ?? []), {
+        id:       `act-${Date.now()}`,
+        type:     "show" as ModuleRuleActionType,
+        target:   "field" as ModuleRuleTarget,
+        targetId: fields[0]?.name ?? "",
+      }],
+    }));
+
+  const updateAction = (ruleId: string, actId: string, patch: Partial<ModuleRuleAction>) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      actions: r.actions.map(a => a.id === actId ? { ...a, ...patch } : a),
+    }));
+
+  const removeAction = (ruleId: string, actId: string) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      actions: r.actions.filter(a => a.id !== actId),
+    }));
+
+  if (fields.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 p-6 text-center text-gray-400">
+        <Workflow className="w-8 h-8 mb-2 opacity-30" />
+        <p className="text-xs font-medium text-gray-500 mb-1">No fields yet</p>
+        <p className="text-[11px] text-gray-400">Add fields to the module before creating rules.</p>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="flex-1 min-h-0">
+      <div className="p-3 space-y-3">
+
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-gray-700">Layout Rules</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Control field and section visibility based on field values.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={addRule} className="gap-1.5 text-xs h-7 px-2.5">
+            <Plus className="w-3 h-3" /> Add Rule
+          </Button>
+        </div>
+
+        {rules.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 gap-2">
+            <Workflow className="w-6 h-6 opacity-30" />
+            <p className="text-xs">No rules yet — click Add Rule to start.</p>
+          </div>
+        )}
+
+        {rules.map((rule, rIdx) => (
+          <div key={rule.id} className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+
+            {/* Rule header bar */}
+            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                Rule {rIdx + 1}
+              </p>
+              <button
+                onClick={() => removeRule(rule.id)}
+                className="text-gray-300 hover:text-red-500 transition-colors"
+                title="Delete rule"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="p-3 space-y-3">
+
+              {/* ── WHEN (conditions) ── */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">When</p>
+
+                  {/* AND / OR toggle — only visible when 2+ conditions */}
+                  {rule.conditions.length > 1 && (
+                    <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+                      {(["AND","OR"] as ModuleRuleLogic[]).map(logic => (
+                        <button
+                          key={logic}
+                          onClick={() => updateRule(rule.id, { conditionLogic: logic })}
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-bold transition-colors",
+                            rule.conditionLogic === logic
+                              ? "bg-white text-blue-700 shadow-sm"
+                              : "text-gray-400 hover:text-gray-600"
+                          )}
+                        >
+                          {logic}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Condition rows with logic label between them */}
+                <div className="space-y-1.5">
+                  {rule.conditions.map((cond, cIdx) => (
+                    <div key={cond.id}>
+                      {cIdx > 0 && (
+                        <div className="flex items-center gap-2 my-1">
+                          <div className="flex-1 h-px bg-gray-100" />
+                          <span className="text-[10px] font-bold text-gray-400 uppercase">{rule.conditionLogic}</span>
+                          <div className="flex-1 h-px bg-gray-100" />
+                        </div>
+                      )}
+                      <ConditionRow
+                        cond={cond}
+                        fields={fields}
+                        onChange={patch => updateCondition(rule.id, cond.id, patch)}
+                        onRemove={() => removeCondition(rule.id, cond.id)}
+                        canRemove={rule.conditions.length > 1}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => addCondition(rule.id)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> Add condition
+                </button>
+              </div>
+
+              {/* ── THEN (actions) ── */}
+              <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Then</p>
+
+                {rule.actions.length === 0 && (
+                  <p className="text-[11px] text-gray-400 italic">No actions yet — add one below.</p>
+                )}
+
+                {rule.actions.map((act) => (
+                  <div key={act.id} className="rounded-lg border border-gray-100 bg-gray-50/60 p-2 space-y-1.5">
+                    {/* Row 1: action type + target type + remove */}
+                    <div className="flex items-center gap-1.5">
+                      <Select
+                        value={act.type}
+                        onValueChange={v => updateAction(rule.id, act.id, { type: v as ModuleRuleActionType })}
+                      >
+                        <SelectTrigger className="h-7 text-xs flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ACTION_TYPE_OPTS.map(o => (
+                            <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={act.target}
+                        onValueChange={v => {
+                          const isField = v === "field";
+                          updateAction(rule.id, act.id, {
+                            target:   v as ModuleRuleTarget,
+                            targetId: isField ? (fields[0]?.name ?? "") : (sections[0]?.id ?? ""),
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-[72px] shrink-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="field" className="text-xs">Field</SelectItem>
+                          {sections.length > 0 && (
+                            <SelectItem value="section" className="text-xs">Section</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+
+                      <button
+                        onClick={() => removeAction(rule.id, act.id)}
+                        className="text-gray-300 hover:text-red-500 shrink-0 transition-colors"
+                        title="Remove action"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Row 2: target selector (full width) */}
+                    <Select
+                      value={act.targetId}
+                      onValueChange={v => updateAction(rule.id, act.id, { targetId: v })}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-full">
+                        <SelectValue placeholder="Select target…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {act.target === "field"
+                          ? fields.map(f => (
+                              <SelectItem key={f.id} value={f.name} className="text-xs">{f.label}</SelectItem>
+                            ))
+                          : sections.map(s => (
+                              <SelectItem key={s.id} value={s.id} className="text-xs">
+                                {s.title || "Untitled Section"}
+                              </SelectItem>
+                            ))
+                        }
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+
+                <button
+                  onClick={() => addAction(rule.id)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> Add action
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  );
+}
+
 export default function StudioEditorPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { fetchModule, activeModule, updateModule } = useModulesStore();
+  const toast = useToast();
   const [fields, setFields] = useState<Field[]>([]);
   const [selectedField, setSelectedField] = useState<Field | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,8 +736,20 @@ export default function StudioEditorPage() {
   const [filterText, setFilterText] = useState("");
   const [modules, setModules] = useState<any[]>([]);
   const [globalLists, setGlobalLists] = useState<any[]>([]);
-  const [rightTab, setRightTab] = useState<"properties" | "blueprint">("properties");
+  const [rightTab, setRightTab] = useState<"properties" | "summary" | "rules">("properties");
+  const [layoutConfig, setLayoutConfig] = useState<LayoutConfig>(DEFAULT_MODULE_LAYOUT);
+  const [summaryStats, setSummaryStats] = useState<SummaryStatConfig[]>([]);
+  const [summaryEnabled, setSummaryEnabled] = useState(true);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [editingStatId, setEditingStatId] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
   const dragActiveRef = useRef(false);
+  // Tracks which section the palette item is hovering over during a drag
+  const paletteHoverSectionRef = useRef<string | null>(null);
+  // Prevents auto-assign effect from running when we manually placed the field
+  const skipAutoAssignRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -215,7 +780,22 @@ export default function StudioEditorPage() {
     if (activeModule?.fields) {
       setFields([...activeModule.fields]);
     }
+    if ((activeModule as any)?.settings?.layout) {
+      setLayoutConfig((activeModule as any).settings.layout as LayoutConfig);
+    }
+    const s = (activeModule as any)?.settings ?? {};
+    setSummaryStats(Array.isArray(s.summaryStats) ? s.summaryStats : []);
+    setSummaryEnabled(s.summaryEnabled !== false);
   }, [activeModule]);
+
+  // Mark layout as dirty whenever it changes (except on initial load from server)
+  const layoutInitialized = useRef(false);
+  // Reset flag each time a fresh module loads, so the server-loaded layout doesn't trigger dirty
+  useEffect(() => { layoutInitialized.current = false; }, [activeModule?.id]);
+  useEffect(() => {
+    if (!layoutInitialized.current) { layoutInitialized.current = true; return; }
+    setIsDirty(true);
+  }, [layoutConfig]);
 
   const addField = async (type: string) => {
     const fieldDef = FIELD_TYPES.find(f => f.type === type)!;
@@ -236,11 +816,39 @@ export default function StudioEditorPage() {
         isReadonly: false,
         isHidden: false,
       });
+
+      // If palette was hovering over a specific section, place there directly
+      const targetSect = paletteHoverSectionRef.current;
+      if (targetSect) {
+        skipAutoAssignRef.current = true;
+        setFields(prev => [...prev, data]);
+        setSelectedField(data);
+        setLayoutConfig(prev => {
+          const sections = prev.sections ?? [];
+          const target = sections.find(s => s.id === targetSect);
+          const cols = target?.columns ?? 2;
+          const autoWidth = cols >= 2 ? smartWidth(target?.fieldWidths ?? {}, target?.fieldIds ?? [], cols) : "full";
+          return {
+            ...prev,
+            sections: sections.map(s =>
+              s.id === targetSect
+                ? { ...s, fieldIds: [...s.fieldIds, data.id], fieldWidths: { ...(s.fieldWidths ?? {}), [data.id]: autoWidth } }
+                : s
+            ),
+          };
+        });
+        // Allow auto-assign to run again on next field add
+        requestAnimationFrame(() => { skipAutoAssignRef.current = false; });
+        paletteHoverSectionRef.current = null;
+        return;
+      }
+
       setFields(prev => [...prev, data]);
       setSelectedField(data);
     } catch {}
   };
 
+  const [fieldSaved, setFieldSaved] = useState("");
   const updateSelectedField = async (changes: Partial<Field>) => {
     if (!selectedField) return;
     const updated = { ...selectedField, ...changes };
@@ -248,7 +856,12 @@ export default function StudioEditorPage() {
     setFields(prev => prev.map(f => f.id === selectedField.id ? updated : f));
     try {
       await api.patch(`/modules/${id}/fields/${selectedField.id}`, changes);
-    } catch {}
+      setFieldSaved("Saved");
+      setTimeout(() => setFieldSaved(""), 2000);
+    } catch {
+      setFieldSaved("Save failed");
+      setTimeout(() => setFieldSaved(""), 2000);
+    }
   };
 
   const deleteField = async (fieldId: string) => {
@@ -288,6 +901,7 @@ export default function StudioEditorPage() {
       if (over) {
         await addField(active.data.current.fieldType);
       }
+      paletteHoverSectionRef.current = null;
       requestAnimationFrame(() => { dragActiveRef.current = false; });
       return;
     }
@@ -304,17 +918,48 @@ export default function StudioEditorPage() {
     } catch {}
   };
 
-  const saveModule = async () => {
+  // Unified save: module metadata + layout config in one action
+  const handleSave = async () => {
     if (!activeModule) return;
     setSaving(true);
     try {
-      await updateModule(id, {
-        name: activeModule.name,
-        description: activeModule.description,
-        icon: activeModule.icon,
-      });
+      const currentSettings = (activeModule as any)?.settings || {};
+      // Save both metadata and layout in parallel
+      await Promise.all([
+        updateModule(id, {
+          name: activeModule.name,
+          description: activeModule.description,
+          icon: activeModule.icon,
+        }),
+        api.patch(`/modules/${id}`, {
+          settings: { ...currentSettings, layout: layoutConfig },
+        }),
+      ]);
+      await fetchModule(id);
+      const now = new Date();
+      setLastSaved(now);
+      setIsDirty(false);
+      toast.success(`Changes saved · ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    } catch {
+      toast.error("Failed to save — please try again");
     } finally {
       setSaving(false);
+    }
+  };
+
+
+  const saveSummaryStats = async () => {
+    setSavingSummary(true);
+    try {
+      const currentSettings = (activeModule as any)?.settings || {};
+      await api.patch(`/modules/${id}`, {
+        settings: { ...currentSettings, summaryStats, summaryEnabled },
+      });
+      toast.success("Summary saved");
+    } catch {
+      toast.error("Failed to save summary");
+    } finally {
+      setSavingSummary(false);
     }
   };
 
@@ -358,39 +1003,72 @@ export default function StudioEditorPage() {
     );
   }
 
-  // Combine palette IDs and canvas IDs for DnD context
+  // Palette IDs for DnD context
   const paletteIds = FIELD_TYPES.map(ft => `palette-${ft.type}`);
-  const canvasIds = fields.map(f => f.id);
 
   return (
     <div className="flex flex-col h-full -m-6">
       {/* Studio Header */}
-      <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shrink-0">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-3">
           <Link href="/studio">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <button className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
               <ArrowLeft className="w-4 h-4" />
-            </Button>
+            </button>
           </Link>
-          <div className="flex items-center gap-2">
-            <span className="text-xl">{activeModule?.icon || "📦"}</span>
+          <div className="h-5 w-px bg-gray-200" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-sm">
+              {activeModule?.icon || "📦"}
+            </div>
             <div>
-              <h1 className="font-semibold text-gray-900">{activeModule?.name}</h1>
-              <p className="text-xs text-gray-400">{fields.length} fields</p>
+              <h1 className="font-semibold text-gray-800 text-sm leading-tight">{activeModule?.name}</h1>
+              <p className="text-[11px] text-gray-400">{fields.length} field{fields.length !== 1 ? "s" : ""}</p>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Unsaved / last-saved indicator */}
+          {isDirty ? (
+            <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+              Unsaved changes
+            </span>
+          ) : lastSaved ? (
+            <span className="text-[10px] text-gray-400">
+              Saved {lastSaved.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          ) : null}
+          <button
+            onClick={() => setPreviewMode((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border",
+              previewMode
+                ? "bg-blue-600 text-white border-blue-600"
+                : "text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+            )}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            {previewMode ? "Edit" : "Preview"}
+          </button>
           <Link href={`/m/${activeModule?.slug}`}>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Eye className="w-4 h-4" />
-              View Records
-            </Button>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+              <ChevronRight className="w-3.5 h-3.5" />
+              Records
+            </button>
           </Link>
-          <Button size="sm" onClick={saveModule} disabled={saving} className="gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save
-          </Button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50",
+              isDirty
+                ? "bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300 ring-offset-1"
+                : "bg-blue-600 hover:bg-blue-500 text-white"
+            )}
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save Changes
+          </button>
         </div>
       </div>
 
@@ -405,15 +1083,15 @@ export default function StudioEditorPage() {
         <div className="flex flex-1 overflow-hidden">
           {/* Left: Field Types Panel */}
           <div className="w-52 bg-white border-r border-gray-200 flex flex-col shrink-0">
-            <div className="px-3 py-2 border-b border-gray-100 space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Field Types</p>
+            <div className="px-3 py-3 border-b border-gray-100 space-y-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Components</p>
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
                 <input
                   value={filterText}
                   onChange={e => setFilterText(e.target.value)}
-                  placeholder="Search fields..."
-                  className="w-full pl-6 pr-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  placeholder="Search…"
+                  className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition"
                 />
               </div>
             </div>
@@ -422,7 +1100,7 @@ export default function StudioEditorPage() {
                 <div className="p-2 space-y-3">
                   {groupedTypes.map(({ group, items }) => (
                     <div key={group}>
-                      <p className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{group}</p>
+                      <p className="px-2 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{group}</p>
                       <div className="space-y-0.5">
                         {items.map((ft) => (
                           <PaletteItem
@@ -441,56 +1119,54 @@ export default function StudioEditorPage() {
           </div>
 
           {/* Center: Canvas */}
-          <div className="flex-1 bg-gray-50 overflow-y-auto p-6" id="canvas-area">
-            <div className="max-w-lg mx-auto">
-              <div className="mb-4 text-center">
-                <h2 className="text-sm font-medium text-gray-500">
-                  {fields.length === 0
-                    ? "← Click or drag a field type to add it"
-                    : "Drag fields to reorder • Click to edit"}
-                </h2>
+          <div className="flex-1 bg-[#f1f5f9] overflow-y-auto" id="canvas-area">
+            <div className="max-w-3xl mx-auto p-5 space-y-4">
+
+              {/* Module card header — mimics real record form */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-3.5 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600/10 border border-blue-200 flex items-center justify-center text-lg">
+                  {activeModule?.icon || "📦"}
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{activeModule?.name || "Module"}</p>
+                  <p className="text-[11px] text-gray-400">
+                    {previewMode ? "Preview — exactly how users will see this form" : "Drag fields to arrange · Click to configure"}
+                  </p>
+                </div>
+                {previewMode && (
+                  <span className="ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-600 text-white uppercase tracking-wider">
+                    Preview
+                  </span>
+                )}
               </div>
 
-              {fields.length === 0 ? (
-                <SortableContext items={["canvas-drop-zone"]} strategy={verticalListSortingStrategy}>
-                  <div
-                    id="canvas-drop-zone"
-                    className={cn(
-                      "border-2 border-dashed rounded-xl p-12 text-center transition-all",
-                      canvasIsOver ? "border-blue-400 bg-blue-50" : "border-gray-300"
-                    )}
-                  >
-                    <div className="text-4xl mb-3">📋</div>
-                    <p className="text-sm text-gray-500">
-                      {canvasIsOver ? "Drop to add field" : "No fields yet. Click or drag from the left panel."}
-                    </p>
-                  </div>
-                </SortableContext>
-              ) : (
-                <SortableContext items={canvasIds} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2">
-                    {fields.map((field) => (
-                      <SortableFieldItem
-                        key={field.id}
-                        field={field}
-                        isSelected={selectedField?.id === field.id}
-                        onSelect={() => setSelectedField(field)}
-                        onDelete={() => deleteField(field.id)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              )}
+              {/* Canvas card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                <ModuleLayoutCanvas
+                  fields={fields}
+                  layoutConfig={layoutConfig}
+                  onLayoutChange={(cfg) => { setLayoutConfig(cfg); }}
+                  selectedFieldId={selectedField?.id ?? null}
+                  onFieldSelect={(field) => {
+                    setSelectedField(field);
+                    setRightTab("properties");
+                  }}
+                  onDeleteField={deleteField}
+                  previewMode={previewMode}
+                  draggingFromPalette={!!draggingPalette}
+                  skipAutoAssignRef={skipAutoAssignRef}
+                  onPaletteHoverSection={(sectionId) => { paletteHoverSectionRef.current = sectionId; }}
+                />
 
-              <CanvasDropZone isOver={canvasIsOver && fields.length > 0} />
+                {fields.length === 0 && !previewMode && (
+                  <div className="border-2 border-dashed rounded-xl p-12 text-center border-gray-200 bg-gray-50/50 mt-2">
+                    <div className="text-4xl mb-3">🧩</div>
+                    <p className="text-sm font-semibold text-gray-500 mb-1">No fields yet</p>
+                    <p className="text-xs text-gray-400">Click or drag a component from the left panel to begin.</p>
+                  </div>
+                )}
+              </div>
 
-              <button
-                onClick={() => addField("TEXT")}
-                className="w-full mt-3 p-3 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/50 transition-all flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Add Text Field
-              </button>
             </div>
           </div>
 
@@ -498,28 +1174,282 @@ export default function StudioEditorPage() {
           <div className="w-80 bg-white border-l border-gray-200 flex flex-col shrink-0">
             {/* Tab header */}
             <div className="flex border-b border-gray-100 shrink-0">
-              {(["properties", "blueprint"] as const).map(tab => (
+              {(["properties", "summary", "rules"] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setRightTab(tab)}
                   className={cn(
-                    "flex-1 py-2.5 text-xs font-medium transition-colors capitalize",
+                    "flex-1 py-2.5 text-xs font-medium transition-colors relative",
                     rightTab === tab
                       ? "text-blue-700 border-b-2 border-blue-600 bg-blue-50/50"
                       : "text-gray-500 hover:text-gray-700"
                   )}
                 >
-                  {tab === "blueprint" ? "Blueprint" : "Properties"}
+                  {tab === "summary" ? "Summary" : tab === "rules" ? (
+                    <span className="flex items-center justify-center gap-1">
+                      <Workflow className="w-3 h-3" />
+                      Rules
+                      {((layoutConfig as any).rules?.length ?? 0) > 0 && (
+                        <span className="ml-0.5 bg-indigo-500 text-white rounded-full px-1 text-[9px] font-bold leading-none py-0.5">
+                          {(layoutConfig as any).rules.length}
+                        </span>
+                      )}
+                    </span>
+                  ) : "Properties"}
                 </button>
               ))}
             </div>
 
-            {rightTab === "blueprint" ? (
-              <BlueprintEditor moduleId={id} activeModule={activeModule} fields={fields} />
+            {rightTab === "rules" ? (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <ModuleLayoutRulesPanel
+                  fields={fields}
+                  layoutConfig={layoutConfig}
+                  onLayoutChange={cfg => setLayoutConfig(cfg)}
+                />
+              </div>
+            ) : rightTab === "summary" ? (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <ScrollArea className="flex-1">
+                  <div className="p-4 space-y-2.5">
+
+                    {/* Enable toggle */}
+                    <div className="flex items-center justify-between py-2.5 px-3 bg-gray-50 rounded-xl">
+                      <div>
+                        <p className="text-xs font-medium text-gray-700">Show summary bar</p>
+                        <p className="text-[11px] text-gray-400">Display stats above the record list</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSummaryEnabled(v => !v)}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none cursor-pointer",
+                          summaryEnabled ? "bg-blue-600" : "bg-gray-200"
+                        )}
+                      >
+                        <span className={cn(
+                          "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200",
+                          summaryEnabled ? "translate-x-4" : "translate-x-0"
+                        )} />
+                      </button>
+                    </div>
+
+                    {summaryStats.length === 0 && summaryEnabled && (
+                      <div className="text-center py-8 text-gray-400">
+                        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mx-auto mb-2.5">
+                          <Plus className="w-5 h-5 text-gray-400" />
+                        </div>
+                        <p className="text-xs font-medium text-gray-500 mb-0.5">No stats yet</p>
+                        <p className="text-[11px] text-gray-400">Add a stat to show in the summary bar</p>
+                      </div>
+                    )}
+
+                    {summaryEnabled && summaryStats.map((stat, idx) => {
+                      const isEditing = editingStatId === stat.id;
+                      const needsField = ["SUM","AVG","MIN","MAX"].includes(stat.aggregation);
+                      const AGG_COLORS: Record<string, string> = {
+                        COUNT: "bg-blue-50 text-blue-600 ring-blue-100",
+                        SUM: "bg-emerald-50 text-emerald-600 ring-emerald-100",
+                        AVG: "bg-violet-50 text-violet-600 ring-violet-100",
+                        PERCENTAGE: "bg-amber-50 text-amber-600 ring-amber-100",
+                        MIN: "bg-sky-50 text-sky-600 ring-sky-100",
+                        MAX: "bg-rose-50 text-rose-600 ring-rose-100",
+                      };
+                      return (
+                        <div key={stat.id} className={cn(
+                          "rounded-xl border transition-all duration-150",
+                          isEditing ? "border-blue-200 shadow-sm" : "border-gray-150 hover:border-gray-300"
+                        )}>
+                          {/* Collapsed row */}
+                          <div
+                            className={cn("flex items-center gap-2.5 px-3 py-2.5 cursor-pointer rounded-xl", isEditing && "rounded-b-none")}
+                            onClick={() => setEditingStatId(isEditing ? null : stat.id)}
+                          >
+                            <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-md ring-1 ring-inset shrink-0", AGG_COLORS[stat.aggregation] ?? "bg-gray-100 text-gray-500 ring-gray-200")}>
+                              {stat.aggregation}
+                            </span>
+                            <span className="flex-1 text-xs font-medium text-gray-700 truncate min-w-0">
+                              {stat.label || <span className="text-gray-400 italic font-normal">Untitled</span>}
+                            </span>
+                            {stat.conditions?.length ? (
+                              <span className="text-[10px] text-gray-400 shrink-0">{stat.conditions.length} filter{stat.conditions.length !== 1 ? "s" : ""}</span>
+                            ) : null}
+                            <button
+                              onClick={e => { e.stopPropagation(); setSummaryStats(prev => prev.filter((_, i) => i !== idx)); if (isEditing) setEditingStatId(null); }}
+                              className="p-1 rounded-md text-gray-300 hover:text-red-400 hover:bg-red-50 transition shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Expanded editor */}
+                          {isEditing && (
+                            <div className="px-3 pb-3 space-y-3 border-t border-gray-100 pt-3">
+
+                              {/* Label */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Label</label>
+                                <input
+                                  className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-800 placeholder:text-gray-300 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition bg-white"
+                                  value={stat.label}
+                                  placeholder="e.g. Total Scholars"
+                                  autoFocus
+                                  onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? { ...s, label: e.target.value } : s))}
+                                />
+                              </div>
+
+                              {/* Aggregation */}
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Aggregation</label>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(["COUNT","SUM","AVG","PERCENTAGE","MIN","MAX"] as const).map(agg => (
+                                    <button key={agg}
+                                      onClick={() => setSummaryStats(prev => prev.map((s, i) => i === idx ? { ...s, aggregation: agg } : s))}
+                                      className={cn(
+                                        "py-1.5 rounded-lg text-[11px] font-semibold border transition-all",
+                                        stat.aggregation === agg
+                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                                          : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                                      )}
+                                    >{agg}</button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Field */}
+                              {needsField && (
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Field to aggregate</label>
+                                  <select
+                                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-gray-700 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 bg-white transition"
+                                    value={stat.field ?? ""}
+                                    onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? { ...s, field: e.target.value } : s))}
+                                  >
+                                    <option value="">Choose field…</option>
+                                    {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* Conditions */}
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Filter conditions</label>
+                                  <button
+                                    onClick={() => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                      ...s,
+                                      conditions: [...(s.conditions ?? []), { id: generateId(), field: fields[0]?.name ?? "", op: "is" as const, value: "" }]
+                                    } : s))}
+                                    className="flex items-center gap-0.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 transition"
+                                  >
+                                    <Plus className="w-3 h-3" /> Add filter
+                                  </button>
+                                </div>
+                                {!(stat.conditions?.length) && (
+                                  <p className="text-[11px] text-gray-400 bg-gray-50 rounded-lg px-2.5 py-2">All records included</p>
+                                )}
+                                <div className="space-y-1.5">
+                                  {(stat.conditions ?? []).map((cond, ci) => {
+                                    const condField = fields.find(f => f.name === cond.field);
+                                    const hasOptions = condField && ["SELECT","STATUS","RADIO","DROPDOWN"].includes(condField.type) && condField.options?.length;
+                                    return (
+                                      <div key={cond.id} className="flex gap-1.5 items-center bg-gray-50 rounded-lg px-2 py-1.5">
+                                        <select
+                                          className="flex-1 min-w-0 bg-white border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:border-blue-400"
+                                          value={cond.field}
+                                          onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                            ...s, conditions: s.conditions!.map((c, j) => j === ci ? { ...c, field: e.target.value, value: "" } : c)
+                                          } : s))}
+                                        >
+                                          {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+                                        </select>
+                                        <select
+                                          className="bg-white border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:border-blue-400"
+                                          value={cond.op}
+                                          onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                            ...s, conditions: s.conditions!.map((c, j) => j === ci ? { ...c, op: e.target.value as any } : c)
+                                          } : s))}
+                                        >
+                                          <option value="is">is</option>
+                                          <option value="is_not">is not</option>
+                                          <option value="contains">contains</option>
+                                          <option value="gt">&gt;</option>
+                                          <option value="lt">&lt;</option>
+                                          <option value="gte">≥</option>
+                                          <option value="lte">≤</option>
+                                          <option value="empty">empty</option>
+                                          <option value="not_empty">not empty</option>
+                                        </select>
+                                        {!["empty","not_empty"].includes(cond.op) && (
+                                          hasOptions ? (
+                                            <select
+                                              className="flex-1 min-w-0 bg-white border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:border-blue-400"
+                                              value={cond.value ?? ""}
+                                              onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                                ...s, conditions: s.conditions!.map((c, j) => j === ci ? { ...c, value: e.target.value } : c)
+                                              } : s))}
+                                            >
+                                              <option value="">Any</option>
+                                              {condField!.options!.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                            </select>
+                                          ) : (
+                                            <input
+                                              className="flex-1 min-w-0 bg-white border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-700 placeholder:text-gray-300 focus:outline-none focus:border-blue-400"
+                                              value={cond.value ?? ""}
+                                              placeholder="value"
+                                              onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                                ...s, conditions: s.conditions!.map((c, j) => j === ci ? { ...c, value: e.target.value } : c)
+                                              } : s))}
+                                            />
+                                          )
+                                        )}
+                                        <button
+                                          onClick={() => setSummaryStats(prev => prev.map((s, i) => i === idx ? {
+                                            ...s, conditions: s.conditions!.filter((_, j) => j !== ci)
+                                          } : s))}
+                                          className="p-0.5 rounded text-gray-300 hover:text-red-400 transition shrink-0"
+                                        ><X className="w-3 h-3" /></button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {summaryEnabled && (
+                      <button
+                        onClick={() => {
+                          const newStat: SummaryStatConfig = { id: generateId(), label: "", aggregation: "COUNT", conditions: [] };
+                          setSummaryStats(prev => [...prev, newStat]);
+                          setEditingStatId(newStat.id);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-gray-200 rounded-xl text-xs font-medium text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/50 transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add stat
+                      </button>
+                    )}
+                  </div>
+                </ScrollArea>
+
+                <div className="p-3 border-t border-gray-100 shrink-0">
+                  <button
+                    onClick={saveSummaryStats}
+                    disabled={savingSummary}
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-semibold transition"
+                  >
+                    {savingSummary ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Saving…</> : <><Save className="w-3.5 h-3.5" />Save Summary</>}
+                  </button>
+                </div>
+              </div>
             ) : selectedField ? (
               <>
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Field Properties</p>
+                  {fieldSaved && <span className={`text-xs ${fieldSaved === "Saved" ? "text-green-600" : "text-red-500"}`}>{fieldSaved}</span>}
                   <button onClick={() => setSelectedField(null)} className="text-gray-400 hover:text-gray-600">
                     <X className="w-4 h-4" />
                   </button>
@@ -649,14 +1579,28 @@ export default function StudioEditorPage() {
                       </>
                     )}
 
+                    {/* MIRROR config */}
+                    {selectedField.type === "MIRROR" && (
+                      <>
+                        <Separator />
+                        <MirrorConfig
+                          field={selectedField}
+                          allFields={fields}
+                          onUpdate={updateSelectedField}
+                        />
+                      </>
+                    )}
+
                     {/* GLOBAL_RELATION config */}
                     {selectedField.type === "GLOBAL_RELATION" && (
                       <>
                         <Separator />
                         <GlobalRelationConfig
+                          key={(selectedField as any).id}
                           field={selectedField}
                           globalLists={globalLists}
                           onUpdate={updateSelectedField}
+                          allFields={fields}
                         />
                       </>
                     )}
@@ -677,7 +1621,7 @@ export default function StudioEditorPage() {
                     {TYPES_WITH_OPTIONS.includes(selectedField.type) && (
                       <>
                         <Separator />
-                        <FieldOptionsEditor field={selectedField} onUpdate={updateSelectedField} globalLists={globalLists} />
+                        <FieldOptionsEditor key={(selectedField as any).id} field={selectedField} onUpdate={updateSelectedField} globalLists={globalLists} allFields={fields} />
                       </>
                     )}
 
@@ -688,25 +1632,36 @@ export default function StudioEditorPage() {
                 </ScrollArea>
               </>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                <Settings className="w-10 h-10 text-gray-300 mb-3" />
-                <p className="text-sm font-medium text-gray-500">Select a field</p>
-                <p className="text-xs text-gray-400 mt-1">Click on a field in the canvas to edit its properties</p>
-              </div>
+              <ModulePropertiesPanel
+                activeModule={activeModule}
+                moduleId={id}
+                saving={saving}
+                onSave={handleSave}
+                onUpdate={(patch) => {
+                  if (activeModule) {
+                    // Optimistic local update so UI reflects immediately
+                    const { setActiveModule } = useModulesStore.getState();
+                    setActiveModule({ ...activeModule, ...patch } as any);
+                  }
+                }}
+              />
             )}
           </div>
         </div>
 
         {/* Drag overlay for palette dragging */}
-        <DragOverlay>
-          {draggingPalette ? (
-            <div className="px-3 py-2 bg-white rounded-lg border border-blue-400 shadow-lg text-sm font-medium text-blue-700 flex items-center gap-2">
-              <span className="font-mono text-xs">
-                {FIELD_TYPES.find(ft => ft.type === draggingPalette)?.icon}
-              </span>
-              {FIELD_TYPES.find(ft => ft.type === draggingPalette)?.label}
-            </div>
-          ) : null}
+        <DragOverlay dropAnimation={null}>
+          {draggingPalette ? (() => {
+            const ft = FIELD_TYPES.find(f => f.type === draggingPalette);
+            return (
+              <div className="flex items-center gap-2.5 px-4 py-2.5 bg-white rounded-xl border-2 border-blue-400 shadow-2xl ring-4 ring-blue-100 text-sm font-semibold text-gray-700 cursor-grabbing pointer-events-none whitespace-nowrap">
+                <span className="w-7 h-7 bg-blue-100 rounded-md text-sm flex items-center justify-center font-mono text-blue-600 shrink-0">
+                  {ft?.icon}
+                </span>
+                {ft?.label}
+              </div>
+            );
+          })() : null}
         </DragOverlay>
       </DndContext>
     </div>
@@ -1106,23 +2061,119 @@ function LookupConfig({
   );
 }
 
+// ── MIRROR Config ─────────────────────────────────────────────────────────────
+
+function MirrorConfig({
+  field,
+  allFields,
+  onUpdate,
+}: {
+  field: Field;
+  allFields: Field[];
+  onUpdate: (c: Partial<Field>) => void;
+}) {
+  const settings = (field as any).settings || {};
+  const [targetFields, setTargetFields] = useState<any[]>([]);
+
+  const lookupFields = allFields.filter(f => f.type === "LOOKUP");
+
+  const sourceLookupField = lookupFields.find(f => f.name === settings.sourceLookupFieldName);
+  const targetModuleId = sourceLookupField
+    ? ((sourceLookupField as any).settings?.lookupModuleId || (sourceLookupField as any).lookupModuleId || "")
+    : "";
+
+  useEffect(() => {
+    if (!targetModuleId) { setTargetFields([]); return; }
+    api.get(`/modules/${targetModuleId}/fields`)
+      .then(r => setTargetFields(r.data || []))
+      .catch(() => setTargetFields([]));
+  }, [targetModuleId]);
+
+  const setSource = (lookupFieldName: string) => {
+    onUpdate({ settings: { ...settings, sourceLookupFieldName: lookupFieldName, mirrorFieldName: "" }, isReadonly: true } as any);
+  };
+
+  const setMirrorField = (fieldName: string) => {
+    onUpdate({ settings: { ...settings, mirrorFieldName: fieldName }, isReadonly: true } as any);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mirror Configuration</p>
+      <p className="text-xs text-gray-400">Automatically pulls a field value from a linked record. Always read-only.</p>
+
+      {lookupFields.length === 0 ? (
+        <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+          Add a Lookup field to this module first, then you can mirror fields from linked records.
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Source Lookup Field *</Label>
+            <Select value={settings.sourceLookupFieldName || ""} onValueChange={setSource}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select a lookup field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {lookupFields.map(f => (
+                  <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">Which lookup in this module to follow</p>
+          </div>
+
+          {sourceLookupField && targetFields.length === 0 && (
+            <p className="text-xs text-amber-500">Loading fields from target module...</p>
+          )}
+
+          {targetFields.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Field to Mirror *</Label>
+              <Select value={settings.mirrorFieldName || ""} onValueChange={setMirrorField}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select field to pull..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetFields.map(f => (
+                    <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-400">The field from the linked record to display</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── GLOBAL RELATION Config ────────────────────────────────────────────────────
 
 function GlobalRelationConfig({
   field,
   globalLists,
   onUpdate,
+  allFields,
 }: {
   field: Field;
   globalLists: any[];
+  allFields: any[];
   onUpdate: (c: Partial<Field>) => void;
 }) {
-  const settings = (field as any).settings || {};
+  const settings = parseFieldSettings((field as any).settings);
   const [levels, setLevels] = useState<string[]>(settings.levels || []);
   const [newLevel, setNewLevel] = useState("");
+  const [role, setRole] = useState<"independent" | "primary" | "dependent">(settings.fieldRole ?? "independent");
 
   const set = (key: string, value: any) => {
     onUpdate({ settings: { ...settings, [key]: value } } as any);
+  };
+
+  const handleRoleChange = (newRole: "independent" | "primary" | "dependent") => {
+    setRole(newRole);
+    set("fieldRole", newRole);
   };
 
   const addLevel = () => {
@@ -1138,6 +2189,16 @@ function GlobalRelationConfig({
     setLevels(updated);
     set("levels", updated);
   };
+
+  const siblingGlobalRelationFields = allFields.filter(
+    (f: any) => f.type === "GLOBAL_RELATION" && f.id !== field.id
+  );
+
+  const roleOptions: { value: "independent" | "primary" | "dependent"; label: string; desc: string }[] = [
+    { value: "independent", label: "Independent", desc: "Standalone cascading within this field" },
+    { value: "primary", label: "Primary", desc: "Root-level source field (loads root items)" },
+    { value: "dependent", label: "Dependent", desc: "Depends on another field's selection" },
+  ];
 
   return (
     <div className="space-y-3">
@@ -1156,6 +2217,68 @@ function GlobalRelationConfig({
           </SelectContent>
         </Select>
       </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Hierarchy Level</Label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={10}
+            value={settings.hierarchyLevel ?? 0}
+            onChange={e => set("hierarchyLevel", Number(e.target.value))}
+            className="w-16 h-8 px-2 border border-gray-200 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <span className="text-xs text-gray-400">0 = root level, 1 = children, etc.</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Field Role</Label>
+        <div className="space-y-1">
+          {roleOptions.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => handleRoleChange(opt.value)}
+              className={`w-full text-left px-2.5 py-2 rounded border text-xs transition-colors ${
+                role === opt.value
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+              }`}
+            >
+              <span className="font-medium">{opt.label}</span>
+              <span className={`ml-1.5 ${role === opt.value ? "text-indigo-500" : "text-gray-400"}`}>
+                — {opt.desc}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {role === "dependent" && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">Depends On</Label>
+          <Select
+            value={settings.dependsOnFieldId || ""}
+            onValueChange={v => set("dependsOnFieldId", v)}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Select a primary field..." />
+            </SelectTrigger>
+            <SelectContent>
+              {siblingGlobalRelationFields.length === 0 ? (
+                <div className="px-2 py-1.5 text-xs text-gray-400">No other Global Relation fields found</div>
+              ) : (
+                siblingGlobalRelationFields.map((f: any) => (
+                  <SelectItem key={f.id} value={f.id}>{f.label || f.name || f.id}</SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-gray-400">This field will filter based on the selected primary field's value.</p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label className="text-xs">Hierarchy Levels to Show</Label>
@@ -1261,10 +2384,11 @@ function SortableOption({ opt, index, onUpdateLabel, onUpdateColor, onRemove }: 
   );
 }
 
-function FieldOptionsEditor({ field, onUpdate, globalLists }: {
+function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
   field: Field;
   onUpdate: (changes: Partial<Field>) => void;
   globalLists: any[];
+  allFields?: any[];
 }) {
   const [bulkInput, setBulkInput] = useState("");
   const [mode, setMode] = useState<"manual" | "bulk" | "import">("manual");
@@ -1273,11 +2397,12 @@ function FieldOptionsEditor({ field, onUpdate, globalLists }: {
   const [importListId, setImportListId] = useState("");
   const [importItems, setImportItems] = useState<any[]>([]);
   const [importLoading, setImportLoading] = useState(false);
-  const [useGlobalSource, setUseGlobalSource] = useState(!!((field as any).settings?.globalListSource));
-  const [sourceListId, setSourceListId] = useState((field as any).settings?.globalListSource?.listId || "");
+  const parsedSettings = parseFieldSettings((field as any).settings);
+  const [useGlobalSource, setUseGlobalSource] = useState(!!(parsedSettings?.globalListSource));
+  const [sourceListId, setSourceListId] = useState(parsedSettings?.globalListSource?.listId || "");
 
   const options: any[] = (field as any).options || [];
-  const settings = (field as any).settings || {};
+  const settings = parseFieldSettings((field as any).settings);
 
   const filteredOptions = searchText
     ? options.filter((o: any) => o.label.toLowerCase().includes(searchText.toLowerCase()))
@@ -1323,6 +2448,16 @@ function FieldOptionsEditor({ field, onUpdate, globalLists }: {
 
   const removeOption = (index: number) => {
     onUpdate({ options: options.filter((_: any, i: number) => i !== index) } as any);
+  };
+
+  const [copied, setCopied] = useState(false);
+
+  const copyList = () => {
+    const text = options.map((o: any) => o.label).join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
   };
 
   const applyBulk = () => {
@@ -1383,158 +2518,288 @@ function FieldOptionsEditor({ field, onUpdate, globalLists }: {
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Options</p>
-        <div className="flex items-center gap-2">
-          {mode === "manual" && (
-            <>
-              <button
-                type="button"
-                onClick={() => setMode("import")}
-                className="text-xs text-purple-600 hover:underline"
-              >Import list</button>
-              <span className="text-gray-300">|</span>
-              <button
-                type="button"
-                onClick={() => setMode("bulk")}
-                className="text-xs text-blue-600 hover:underline"
-              >Bulk add</button>
-            </>
-          )}
-          {mode !== "manual" && (
-            <button type="button" onClick={() => setMode("manual")} className="text-xs text-gray-500 hover:underline">Cancel</button>
-          )}
+      {/* Data Source selector */}
+      <div className="space-y-2 pb-3 border-b border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Data Source</p>
+        <div className="flex gap-1.5">
+          {[
+            { value: false, label: "Static Values" },
+            { value: true,  label: "Global List" },
+          ].map(({ value, label }) => (
+            <button
+              key={String(value)}
+              type="button"
+              onClick={() => toggleGlobalSource(value)}
+              className={`flex-1 py-1.5 text-xs font-medium rounded border transition-colors ${
+                useGlobalSource === value
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
-
-      {/* Dynamic source toggle */}
-      <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-md border border-gray-200">
-        <Switch
-          checked={useGlobalSource}
-          onCheckedChange={toggleGlobalSource}
-          id="global-src-toggle"
-        />
-        <Label htmlFor="global-src-toggle" className="text-xs cursor-pointer">
-          Load options from Global List at runtime
-        </Label>
       </div>
 
       {useGlobalSource && (
-        <div className="space-y-1.5">
-          <Select value={sourceListId} onValueChange={applyGlobalSource}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select global list…" />
-            </SelectTrigger>
-            <SelectContent>
-              {globalLists.map((gl: any) => (
-                <SelectItem key={gl.id} value={gl.id} className="text-xs">{gl.name}</SelectItem>
+        <div className="space-y-3 pb-3 border-b border-gray-100">
+          {/* Global List selector */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500 font-medium">Select Global List</p>
+            <Select value={sourceListId} onValueChange={v => { setSourceListId(v); applyGlobalSource(v); }}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose a list..." /></SelectTrigger>
+              <SelectContent>
+                {globalLists.map((l: any) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Field Role — Primary or Dependent */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500 font-medium">Field Role</p>
+            <div className="space-y-1">
+              {([
+                { v: "independent", label: "Independent",  desc: "Standalone — loads all root items" },
+                { v: "primary",     label: "Primary Field", desc: "Parent — others depend on this" },
+                { v: "dependent",   label: "Depends On…",   desc: "Child — filters by parent value" },
+              ] as const).map(opt => (
+                <button key={opt.v} type="button"
+                  onClick={() => onUpdate({ settings: { ...settings, globalListSource: sourceListId ? { listId: sourceListId } : null, fieldRole: opt.v } } as any)}
+                  className={`w-full text-left px-2 py-1.5 rounded border text-xs transition-colors ${
+                    (settings.fieldRole ?? "independent") === opt.v
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                  }`}>
+                  <span className="font-medium">{opt.label}</span>
+                  <span className="ml-1 opacity-60">— {opt.desc}</span>
+                </button>
               ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
-            Options will be fetched from this list dynamically when the form is rendered. Manual options below are ignored.
-          </p>
+            </div>
+          </div>
+
+          {/* Depends On selector */}
+          {(settings.fieldRole === "dependent") && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-gray-500 font-medium">Depends On (parent field)</p>
+              <Select
+                value={settings.dependsOnFieldId || ""}
+                onValueChange={v => onUpdate({ settings: { ...settings, dependsOnFieldId: v } } as any)}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select parent field..." /></SelectTrigger>
+                <SelectContent>
+                  {allFields
+                    .filter((f: any) => f.id !== (field as any).id && ["DROPDOWN","STATUS","GLOBAL_RELATION"].includes(f.type))
+                    .map((f: any) => <SelectItem key={f.id} value={f.id}>{f.label || f.name}</SelectItem>)
+                  }
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-400">When the parent changes, this field reloads its options automatically.</p>
+            </div>
+          )}
+
+          {sourceListId && (
+            <p className="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+              Options fetched at runtime from the selected list.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Bulk entry mode */}
-      {mode === "bulk" && (
-        <div className="space-y-2">
-          <textarea
-            value={bulkInput}
-            onChange={(e) => setBulkInput(e.target.value)}
-            placeholder={"Option 1\nOption 2\nOption 3"}
-            rows={5}
-            className="w-full text-xs border border-gray-200 rounded-md p-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-            <input type="checkbox" checked={replaceExisting} onChange={e => setReplaceExisting(e.target.checked)} className="rounded" />
-            Replace existing options
-          </label>
-          <Button size="sm" onClick={applyBulk} className="w-full">Apply Options</Button>
-        </div>
-      )}
+      {!useGlobalSource && (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Options</p>
+            <div className="flex items-center gap-2">
+              {mode === "manual" && (
+                <>
+                  {options.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={copyList}
+                        className="text-xs text-green-600 hover:underline"
+                      >{copied ? "Copied!" : "Copy list"}</button>
+                      <span className="text-gray-300">|</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMode("import")}
+                    className="text-xs text-purple-600 hover:underline"
+                  >Import list</button>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setMode("bulk")}
+                    className="text-xs text-blue-600 hover:underline"
+                  >Bulk add</button>
+                </>
+              )}
+              {mode !== "manual" && (
+                <button type="button" onClick={() => setMode("manual")} className="text-xs text-gray-500 hover:underline">Cancel</button>
+              )}
+            </div>
+          </div>
 
-      {/* Import from global list */}
-      {mode === "import" && (
-        <div className="space-y-2">
-          <Select value={importListId} onValueChange={(v) => { setImportListId(v); loadImportItems(v); }}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select global list to import…" />
-            </SelectTrigger>
-            <SelectContent>
-              {globalLists.map((gl: any) => (
-                <SelectItem key={gl.id} value={gl.id} className="text-xs">{gl.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {importLoading && <p className="text-xs text-gray-400">Loading items…</p>}
-          {!importLoading && importItems.length > 0 && (
-            <>
-              <div className="max-h-32 overflow-y-auto space-y-1 border border-gray-200 rounded-md p-2">
-                {importItems.map((item: any) => (
-                  <div key={item.id} className="flex items-center gap-2 text-xs text-gray-700">
-                    <div className="w-2 h-2 rounded-full bg-gray-300 shrink-0" style={item.color ? { backgroundColor: item.color } : {}} />
-                    {item.label}
-                  </div>
-                ))}
-              </div>
+          {/* Bulk entry mode */}
+          {mode === "bulk" && (
+            <div className="space-y-2">
+              <textarea
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                placeholder={"Option 1\nOption 2\nOption 3"}
+                rows={5}
+                className="w-full text-xs border border-gray-200 rounded-md p-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
               <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
                 <input type="checkbox" checked={replaceExisting} onChange={e => setReplaceExisting(e.target.checked)} className="rounded" />
                 Replace existing options
               </label>
-              <Button size="sm" onClick={applyImport} className="w-full">Import {importItems.length} Options</Button>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Manual options list with drag/drop */}
-      {mode === "manual" && (
-        <div className="space-y-1.5">
-          {options.length > 4 && (
-            <div className="relative">
-              <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                placeholder="Search options…"
-                className="w-full pl-6 pr-2 h-7 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+              <Button size="sm" onClick={applyBulk} className="w-full">Apply Options</Button>
             </div>
           )}
 
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext
-              items={options.map((o: any, i: number) => o.id || `opt-${i}`)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-1">
-                {(searchText ? filteredOptions : options).map((opt: any, i: number) => {
-                  const realIndex = options.indexOf(opt);
-                  return (
-                    <SortableOption
-                      key={opt.id || i}
-                      opt={opt}
-                      index={realIndex}
-                      onUpdateLabel={(label) => updateLabel(realIndex, label)}
-                      onUpdateColor={(color) => updateColor(realIndex, color)}
-                      onRemove={() => removeOption(realIndex)}
-                    />
-                  );
-                })}
-              </div>
-            </SortableContext>
-          </DndContext>
-
-          {options.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-2">No options yet. Add one below or use Bulk add.</p>
+          {/* Import from global list */}
+          {mode === "import" && (
+            <div className="space-y-2">
+              <Select value={importListId} onValueChange={(v) => { setImportListId(v); loadImportItems(v); }}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select global list to import…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {globalLists.map((gl: any) => (
+                    <SelectItem key={gl.id} value={gl.id} className="text-xs">{gl.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {importLoading && <p className="text-xs text-gray-400">Loading items…</p>}
+              {!importLoading && importItems.length > 0 && (
+                <>
+                  <div className="max-h-32 overflow-y-auto space-y-1 border border-gray-200 rounded-md p-2">
+                    {importItems.map((item: any) => (
+                      <div key={item.id} className="flex items-center gap-2 text-xs text-gray-700">
+                        <div className="w-2 h-2 rounded-full bg-gray-300 shrink-0" style={item.color ? { backgroundColor: item.color } : {}} />
+                        {item.label}
+                      </div>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={replaceExisting} onChange={e => setReplaceExisting(e.target.checked)} className="rounded" />
+                    Replace existing options
+                  </label>
+                  <Button size="sm" onClick={applyImport} className="w-full">Import {importItems.length} Options</Button>
+                </>
+              )}
+            </div>
           )}
-          <Button variant="outline" size="sm" onClick={addOption} className="w-full gap-1.5 text-xs mt-1">
-            <Plus className="w-3 h-3" /> Add Option
-          </Button>
-        </div>
+
+          {/* Manual options list with drag/drop */}
+          {mode === "manual" && (
+            <div className="space-y-1.5">
+              {options.length > 4 && (
+                <div className="relative">
+                  <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={searchText}
+                    onChange={e => setSearchText(e.target.value)}
+                    placeholder="Search options…"
+                    className="w-full pl-6 pr-2 h-7 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext
+                  items={options.map((o: any, i: number) => o.id || `opt-${i}`)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-1">
+                    {(searchText ? filteredOptions : options).map((opt: any, i: number) => {
+                      const realIndex = options.indexOf(opt);
+                      return (
+                        <SortableOption
+                          key={opt.id || i}
+                          opt={opt}
+                          index={realIndex}
+                          onUpdateLabel={(label) => updateLabel(realIndex, label)}
+                          onUpdateColor={(color) => updateColor(realIndex, color)}
+                          onRemove={() => removeOption(realIndex)}
+                        />
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
+
+              {options.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">No options yet. Add one below or use Bulk add.</p>
+              )}
+              <Button variant="outline" size="sm" onClick={addOption} className="w-full gap-1.5 text-xs mt-1">
+                <Plus className="w-3 h-3" /> Add Option
+              </Button>
+
+              {/* Default value picker */}
+              {options.length > 0 && (() => {
+                const isMulti = field.type === "MULTI_SELECT";
+                const defs: string[] = isMulti
+                  ? (settings?.defaultValues ?? [])
+                  : (settings?.defaultValue ? [settings.defaultValue] : []);
+                const toggle = (val: string) => {
+                  if (isMulti) {
+                    const curr: string[] = settings?.defaultValues ?? [];
+                    const next = curr.includes(val) ? curr.filter((v: string) => v !== val) : [...curr, val];
+                    onUpdate({ settings: { ...settings, defaultValues: next } } as any);
+                  } else {
+                    const next = settings?.defaultValue === val ? null : val;
+                    onUpdate({ settings: { ...settings, defaultValue: next } } as any);
+                  }
+                };
+                return (
+                  <div className="pt-3 mt-1 border-t border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Default Value</p>
+                      {defs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onUpdate({ settings: { ...settings, defaultValue: null, defaultValues: [] } } as any)}
+                          className="text-[11px] text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400">Click to pre-select when creating new records.</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {options.map((opt: any) => {
+                        const v = opt.value || opt.label;
+                        const active = defs.includes(v);
+                        return (
+                          <button
+                            key={opt.id || v}
+                            type="button"
+                            onClick={() => toggle(v)}
+                            className={cn(
+                              "px-2.5 py-1 text-xs rounded-full border transition-all",
+                              active
+                                ? "border-blue-400 bg-blue-50 text-blue-700 font-semibold ring-1 ring-blue-200"
+                                : "border-gray-200 text-gray-600 hover:border-gray-300"
+                            )}
+                            style={opt.color && !active ? { borderColor: opt.color + "88", color: opt.color } : {}}
+                          >
+                            {active && <span className="mr-1">✓</span>}
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

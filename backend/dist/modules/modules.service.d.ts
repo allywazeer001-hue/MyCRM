@@ -15,8 +15,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -28,6 +28,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         }[];
     } & {
         id: string;
@@ -37,8 +38,8 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
@@ -68,8 +69,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -81,6 +82,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
     } & {
         id: string;
@@ -90,8 +92,8 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
@@ -121,8 +123,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -134,6 +136,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
     } & {
         id: string;
@@ -143,13 +146,13 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
     })[]>;
-    findOne(id: string, orgId: string): Promise<{
+    findOne(id: string, orgId: string | null): Promise<{
         fields: ({
             options: {
                 id: string;
@@ -169,8 +172,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -182,6 +185,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
     } & {
         id: string;
@@ -191,13 +195,13 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
     }>;
-    findBySlug(slug: string, orgId: string): Promise<{
+    findBySlug(slug: string, orgId: string | null): Promise<{
         fields: ({
             options: {
                 id: string;
@@ -217,8 +221,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -230,6 +234,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
     } & {
         id: string;
@@ -239,8 +244,8 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
@@ -265,8 +270,8 @@ export declare class ModulesService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -278,6 +283,7 @@ export declare class ModulesService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
     } & {
         id: string;
@@ -287,8 +293,8 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;
@@ -301,8 +307,8 @@ export declare class ModulesService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         icon: string | null;
         color: string | null;
         order: number;

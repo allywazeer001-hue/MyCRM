@@ -6,6 +6,12 @@ export declare class DepartmentsController {
         _count: {
             users: number;
         };
+        head: {
+            email: string;
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
     } & {
         id: string;
         organizationId: string;
@@ -13,9 +19,10 @@ export declare class DepartmentsController {
         updatedAt: Date;
         name: string;
         slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
         color: string;
+        headUserId: string | null;
     })[]>;
     findOne(id: string, user: any): Promise<{
         users: {
@@ -30,6 +37,12 @@ export declare class DepartmentsController {
         _count: {
             users: number;
         };
+        head: {
+            email: string;
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
     } & {
         id: string;
         organizationId: string;
@@ -37,28 +50,20 @@ export declare class DepartmentsController {
         updatedAt: Date;
         name: string;
         slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
         color: string;
+        headUserId: string | null;
     }>;
     create(user: any, body: any): Promise<{
         _count: {
             users: number;
         };
-    } & {
-        id: string;
-        organizationId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
-        slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
-        description: string | null;
-        color: string;
-    }>;
-    update(id: string, user: any, body: any): Promise<{
-        _count: {
-            users: number;
+        head: {
+            email: string;
+            firstName: string;
+            lastName: string;
+            id: string;
         };
     } & {
         id: string;
@@ -67,9 +72,32 @@ export declare class DepartmentsController {
         updatedAt: Date;
         name: string;
         slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
         color: string;
+        headUserId: string | null;
+    }>;
+    update(id: string, user: any, body: any): Promise<{
+        _count: {
+            users: number;
+        };
+        head: {
+            email: string;
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
+    } & {
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
+        color: string;
+        headUserId: string | null;
     }>;
     remove(id: string, user: any): Promise<{
         id: string;
@@ -78,9 +106,10 @@ export declare class DepartmentsController {
         updatedAt: Date;
         name: string;
         slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
         color: string;
+        headUserId: string | null;
     }>;
     getMembers(id: string, user: any): Promise<{
         email: string;
@@ -161,8 +190,33 @@ export declare class DepartmentsController {
         updatedAt: Date;
         name: string;
         slug: string;
-        permissions: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
         color: string;
+        headUserId: string | null;
+    }>;
+    setHead(id: string, user: any, body: {
+        headUserId: string | null;
+    }): Promise<{
+        _count: {
+            users: number;
+        };
+        head: {
+            email: string;
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
+    } & {
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        description: string | null;
+        permissions: import("@prisma/client/runtime/library").JsonValue;
+        color: string;
+        headUserId: string | null;
     }>;
 }

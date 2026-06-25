@@ -21,21 +21,21 @@ export declare class PortalDocumentService {
         recordId: string | null;
         originalName: string;
         mimeType: string;
+        filePath: string;
         portalUserId: string;
         fieldKey: string | null;
         fileName: string;
         fileSize: number;
-        filePath: string;
     }>;
     listDocuments(portalUserId: string): Promise<{
         id: string;
         createdAt: Date;
         originalName: string;
         mimeType: string;
+        filePath: string;
         fieldKey: string;
         fileName: string;
         fileSize: number;
-        filePath: string;
     }[]>;
     deleteDocument(portalUserId: string, docId: string): Promise<{
         success: boolean;
@@ -57,10 +57,10 @@ export declare class PortalDocumentService {
         recordId: string | null;
         originalName: string;
         mimeType: string;
+        filePath: string;
         portalUserId: string;
         fieldKey: string | null;
         fileName: string;
         fileSize: number;
-        filePath: string;
     })[]>;
 }

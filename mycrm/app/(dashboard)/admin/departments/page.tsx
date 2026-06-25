@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Building2, Plus, Trash2, Pencil, Users, Shield,
-  Loader2, Check, Settings, MoreHorizontal, UserPlus, UserMinus,
+  Loader2, Check, Settings, MoreHorizontal, UserPlus, UserMinus, Crown, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,12 +22,21 @@ import { useToast } from "@/components/ui/toast";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-interface Department {
+interface UnitHead {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+interface Unit {
   id: string;
   name: string;
   slug: string;
   description?: string;
   color: string;
+  headUserId?: string | null;
+  head?: UnitHead | null;
   _count?: { users: number };
   permissions?: Permission[];
   users?: any[];
@@ -44,7 +53,7 @@ interface Permission {
   canForms: boolean; canDashboard: boolean;
 }
 
-const DEPT_COLORS = [
+const UNIT_COLORS = [
   "#3b82f6", "#8b5cf6", "#10b981", "#f59e0b",
   "#ef4444", "#06b6d4", "#ec4899", "#f97316",
 ];
@@ -67,41 +76,41 @@ const SYSTEM_PERM_KEYS: { key: keyof Permission; label: string; desc: string }[]
   { key: "canStudio", label: "Studio", desc: "Access module studio" },
 ];
 
-// ── Department Form Dialog ─────────────────────────────────────────────────
+// ── Unit Form Dialog ───────────────────────────────────────────────────────
 
-function DeptFormDialog({
-  dept, open, onClose, onSave,
+function UnitFormDialog({
+  unit, open, onClose, onSave,
 }: {
-  dept?: Department | null;
+  unit?: Unit | null;
   open: boolean;
   onClose: () => void;
-  onSave: (d: Department) => void;
+  onSave: (d: Unit) => void;
 }) {
-  const [name, setName] = useState(dept?.name || "");
-  const [description, setDescription] = useState(dept?.description || "");
-  const [color, setColor] = useState(dept?.color || DEPT_COLORS[0]);
+  const [name, setName] = useState(unit?.name || "");
+  const [description, setDescription] = useState(unit?.description || "");
+  const [color, setColor] = useState(unit?.color || UNIT_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
-    setName(dept?.name || "");
-    setDescription(dept?.description || "");
-    setColor(dept?.color || DEPT_COLORS[0]);
-  }, [dept]);
+    setName(unit?.name || "");
+    setDescription(unit?.description || "");
+    setColor(unit?.color || UNIT_COLORS[0]);
+  }, [unit]);
 
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
     try {
       const payload = { name, description, color };
-      const { data } = dept
-        ? await api.patch(`/departments/${dept.id}`, payload)
+      const { data } = unit
+        ? await api.patch(`/departments/${unit.id}`, payload)
         : await api.post("/departments", payload);
-      toast.success(dept ? "Department updated" : "Department created");
+      toast.success(unit ? "Unit updated" : "Unit created");
       onSave(data);
       onClose();
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Failed to save department");
+      toast.error(err?.response?.data?.message || "Failed to save unit");
     } finally {
       setSaving(false);
     }
@@ -111,7 +120,7 @@ function DeptFormDialog({
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{dept ? "Edit Department" : "Create Department"}</DialogTitle>
+          <DialogTitle>{unit ? "Edit Unit" : "Create Unit"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -125,7 +134,7 @@ function DeptFormDialog({
           <div className="space-y-1.5">
             <Label>Color</Label>
             <div className="flex gap-2">
-              {DEPT_COLORS.map(c => (
+              {UNIT_COLORS.map(c => (
                 <button key={c} onClick={() => setColor(c)}
                   className={cn("w-7 h-7 rounded-full border-2 transition-transform hover:scale-110",
                     color === c ? "border-gray-900 scale-110" : "border-transparent")}
@@ -138,7 +147,7 @@ function DeptFormDialog({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={!name.trim() || saving}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-            {dept ? "Save Changes" : "Create Department"}
+            {unit ? "Save Changes" : "Create Unit"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -146,10 +155,144 @@ function DeptFormDialog({
   );
 }
 
+// ── Set Unit Head Dialog ───────────────────────────────────────────────────
+
+function SetUnitHeadDialog({
+  unit, open, onClose, onHeadSet,
+}: {
+  unit: Unit;
+  open: boolean;
+  onClose: () => void;
+  onHeadSet: (head: UnitHead | null) => void;
+}) {
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(unit.headUserId || null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!open) return;
+    setSearch("");
+    setSelectedUserId(unit.headUserId || null);
+    setLoading(true);
+    api.get("/users")
+      .then(r => setAllUsers(r.data ?? []))
+      .catch(() => toast.error("Failed to load users"))
+      .finally(() => setLoading(false));
+  }, [open, unit.headUserId]);
+
+  const filtered = allUsers.filter(u =>
+    u.isActive &&
+    `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/departments/${unit.id}/head`, { headUserId: selectedUserId });
+      if (selectedUserId) {
+        const user = allUsers.find(u => u.id === selectedUserId);
+        onHeadSet(user ? { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email } : null);
+        toast.success(`Unit head set to ${user?.firstName} ${user?.lastName}`);
+      } else {
+        onHeadSet(null);
+        toast.success("Unit head cleared");
+      }
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to set unit head");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Crown className="w-5 h-5 text-amber-500" /> Set Unit Head
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          {unit.head && (
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 border border-amber-100 text-sm">
+              <Crown className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="text-amber-800 font-medium">Current head:</span>
+              <span className="text-amber-700">{unit.head.firstName} {unit.head.lastName}</span>
+              <button
+                className="ml-auto p-0.5 rounded hover:bg-amber-200 text-amber-600"
+                title="Clear unit head"
+                onClick={() => setSelectedUserId(null)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <Input
+            placeholder="Search users…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
+          />
+          <div className="max-h-72 overflow-y-auto divide-y divide-gray-50 rounded-lg border border-gray-100">
+            {loading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+            ) : filtered.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No users match your search.</p>
+            ) : (
+              filtered.map(u => (
+                <button
+                  key={u.id}
+                  onClick={() => setSelectedUserId(selectedUserId === u.id ? null : u.id)}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left transition-colors",
+                    selectedUserId === u.id && "bg-blue-50 hover:bg-blue-50"
+                  )}
+                >
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                    selectedUserId === u.id ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700"
+                  )}>
+                    {u.firstName?.[0]}{u.lastName?.[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{u.firstName} {u.lastName}</p>
+                    <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs shrink-0">{u.role?.replace(/_/g, " ")}</Badge>
+                  {selectedUserId === u.id && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                </button>
+              ))
+            )}
+          </div>
+          {!unit.head && !selectedUserId && (
+            <p className="text-xs text-gray-400 text-center">Select a user to assign as unit head, or leave unselected to clear.</p>
+          )}
+        </div>
+        <DialogFooter className="gap-2">
+          {(unit.headUserId || selectedUserId) && (
+            <Button variant="ghost" className="text-red-500 hover:text-red-600 hover:bg-red-50 mr-auto"
+              onClick={() => setSelectedUserId(null)} disabled={saving}>
+              Clear Head
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Crown className="w-4 h-4 mr-2" />}
+            Confirm
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ── Permissions Editor ─────────────────────────────────────────────────────
 
-function PermissionsEditor({ deptId }: { deptId: string }) {
+function PermissionsEditor({ unitId }: { unitId: string }) {
   const [data, setData] = useState<{
     systemPermission: Permission;
     modulePermissions: { module: any; permission: Permission }[];
@@ -162,14 +305,14 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: d } = await api.get(`/departments/${deptId}/permissions`);
+      const { data: d } = await api.get(`/departments/${unitId}/permissions`);
       setData(d);
     } catch {
       toast.error("Failed to load permissions");
     } finally {
       setLoading(false);
     }
-  }, [deptId]);
+  }, [unitId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -200,7 +343,7 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
         { ...data.systemPermission, moduleId: null },
         ...data.modulePermissions.map(mp => ({ ...mp.permission, moduleId: mp.module.id })),
       ];
-      await api.patch(`/departments/${deptId}/permissions`, { permissions });
+      await api.patch(`/departments/${unitId}/permissions`, { permissions });
       toast.success("Permissions saved");
       setDirty(false);
     } catch {
@@ -256,8 +399,9 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
           {data.modulePermissions.length === 0 ? (
             <p className="text-sm text-gray-400 py-8 text-center">No modules found. Create modules in Studio first.</p>
           ) : (
+            <div className="overflow-x-auto">
             <div>
-              {/* Header row — matches row layout exactly */}
+              {/* Header row */}
               <div className="flex items-center px-6 py-2 bg-gray-50 border-b border-gray-100 rounded-t-xl">
                 <div className="flex items-center gap-2 w-48 shrink-0">
                   <Settings className="w-4 h-4 text-blue-500" />
@@ -291,6 +435,7 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
                 </div>
               ))}
             </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -310,9 +455,9 @@ function PermissionsEditor({ deptId }: { deptId: string }) {
 // ── Add Member Dialog ──────────────────────────────────────────────────────
 
 function AddMemberDialog({
-  deptId, currentMemberIds, open, onClose, onAdded,
+  unitId, currentMemberIds, open, onClose, onAdded,
 }: {
-  deptId: string;
+  unitId: string;
   currentMemberIds: string[];
   open: boolean;
   onClose: () => void;
@@ -342,7 +487,7 @@ function AddMemberDialog({
   const handleAdd = async (user: any) => {
     setAdding(user.id);
     try {
-      await api.post(`/departments/${deptId}/members/${user.id}`);
+      await api.post(`/departments/${unitId}/members/${user.id}`);
       onAdded(user);
       toast.success(`${user.firstName} ${user.lastName} added`);
     } catch {
@@ -372,7 +517,7 @@ function AddMemberDialog({
               <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
             ) : available.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">
-                {search ? "No users match your search." : "All active users are already in this department."}
+                {search ? "No users match your search." : "All active users are already in this unit."}
               </p>
             ) : (
               available.map(u => (
@@ -409,19 +554,19 @@ function AddMemberDialog({
 
 // ── Members Panel ──────────────────────────────────────────────────────────
 
-function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersChange: (members: any[]) => void }) {
-  const [members, setMembers] = useState<any[]>(dept.users || []);
+function MembersPanel({ unit, onMembersChange }: { unit: Unit; onMembersChange: (members: any[]) => void }) {
+  const [members, setMembers] = useState<any[]>(unit.users || []);
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const toast = useToast();
 
-  useEffect(() => { setMembers(dept.users || []); }, [dept]);
+  useEffect(() => { setMembers(unit.users || []); }, [unit]);
 
   const handleRemove = async (user: any) => {
-    if (!confirm(`Remove ${user.firstName} ${user.lastName} from this department?`)) return;
+    if (!confirm(`Remove ${user.firstName} ${user.lastName} from this unit?`)) return;
     setRemoving(user.id);
     try {
-      await api.delete(`/departments/${dept.id}/members/${user.id}`);
+      await api.delete(`/departments/${unit.id}/members/${user.id}`);
       const updated = members.filter(m => m.id !== user.id);
       setMembers(updated);
       onMembersChange(updated);
@@ -452,7 +597,7 @@ function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersCh
         <div className="text-center py-10 text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">
           <Users className="w-10 h-10 mx-auto mb-2 opacity-40" />
           <p className="text-sm font-medium">No members yet</p>
-          <p className="text-xs mt-1">Click "Add Member" to assign users to this department.</p>
+          <p className="text-xs mt-1">Click "Add Member" to assign users to this unit.</p>
         </div>
       ) : (
         <div className="divide-y divide-gray-50">
@@ -470,7 +615,7 @@ function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersCh
                 onClick={() => handleRemove(u)}
                 disabled={removing === u.id}
                 className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40 shrink-0"
-                title="Remove from department"
+                title="Remove from unit"
               >
                 {removing === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />}
               </button>
@@ -480,7 +625,7 @@ function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersCh
       )}
 
       <AddMemberDialog
-        deptId={dept.id}
+        unitId={unit.id}
         currentMemberIds={members.map(m => m.id)}
         open={addOpen}
         onClose={() => setAddOpen(false)}
@@ -492,34 +637,35 @@ function MembersPanel({ dept, onMembersChange }: { dept: Department; onMembersCh
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-export default function DepartmentsPage() {
-  const [departments, setDepartments] = useState<Department[]>([]);
+export default function UnitsManagementPage() {
+  const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Department | null>(null);
+  const [selected, setSelected] = useState<Unit | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Department | null>(null);
+  const [editTarget, setEditTarget] = useState<Unit | null>(null);
+  const [setHeadTarget, setSetHeadTarget] = useState<Unit | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const toast = useToast();
 
   const loadList = useCallback(async () => {
     try {
       const { data } = await api.get("/departments");
-      setDepartments(data);
+      setUnits(data);
       if (data.length > 0 && !selected) loadDetail(data[0]);
     } catch {
-      toast.error("Failed to load departments");
+      toast.error("Failed to load units");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadDetail = async (dept: Department) => {
+  const loadDetail = async (unit: Unit) => {
     setDetailLoading(true);
     try {
-      const { data } = await api.get(`/departments/${dept.id}`);
+      const { data } = await api.get(`/departments/${unit.id}`);
       setSelected(data);
     } catch {
-      setSelected(dept);
+      setSelected(unit);
     } finally {
       setDetailLoading(false);
     }
@@ -527,20 +673,20 @@ export default function DepartmentsPage() {
 
   useEffect(() => { loadList(); }, [loadList]);
 
-  const handleDelete = async (dept: Department) => {
-    if (!confirm(`Delete "${dept.name}"? Users will be unassigned.`)) return;
+  const handleDelete = async (unit: Unit) => {
+    if (!confirm(`Delete "${unit.name}"? Users will be unassigned.`)) return;
     try {
-      await api.delete(`/departments/${dept.id}`);
-      toast.success("Department deleted");
-      setDepartments(prev => prev.filter(d => d.id !== dept.id));
-      if (selected?.id === dept.id) setSelected(null);
+      await api.delete(`/departments/${unit.id}`);
+      toast.success("Unit deleted");
+      setUnits(prev => prev.filter(d => d.id !== unit.id));
+      if (selected?.id === unit.id) setSelected(null);
     } catch {
-      toast.error("Failed to delete department");
+      toast.error("Failed to delete unit");
     }
   };
 
-  const handleSaved = (saved: Department) => {
-    setDepartments(prev => {
+  const handleSaved = (saved: Unit) => {
+    setUnits(prev => {
       const idx = prev.findIndex(d => d.id === saved.id);
       if (idx >= 0) { const n = [...prev]; n[idx] = { ...prev[idx], ...saved }; return n; }
       return [...prev, saved];
@@ -548,52 +694,70 @@ export default function DepartmentsPage() {
     loadDetail(saved);
   };
 
+  const handleHeadSet = (unit: Unit, head: UnitHead | null) => {
+    const updated = { ...unit, head, headUserId: head?.id ?? null };
+    setUnits(prev => prev.map(u => u.id === unit.id ? { ...u, head, headUserId: head?.id ?? null } : u));
+    if (selected?.id === unit.id) setSelected(updated);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Departments</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage departments and their access permissions</p>
+          <h1 className="text-2xl font-bold text-gray-900">Units Management</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Manage organizational units, assign unit heads, and configure access permissions
+          </p>
         </div>
         <Button className="gap-2" onClick={() => { setEditTarget(null); setFormOpen(true); }}>
-          <Plus className="w-4 h-4" /> New Department
+          <Plus className="w-4 h-4" /> New Unit
         </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sidebar — department list */}
+        {/* Sidebar — unit list */}
         <div className="space-y-2">
           {loading ? (
             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-600" /></div>
-          ) : departments.length === 0 ? (
+          ) : units.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center">
                 <Building2 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-500">No departments yet.</p>
-                <Button size="sm" className="mt-4" onClick={() => setFormOpen(true)}>Create First Department</Button>
+                <p className="text-sm text-gray-500">No units yet.</p>
+                <Button size="sm" className="mt-4" onClick={() => setFormOpen(true)}>Create First Unit</Button>
               </CardContent>
             </Card>
           ) : (
-            departments.map(dept => (
+            units.map(unit => (
               <button
-                key={dept.id}
-                onClick={() => loadDetail(dept)}
+                key={unit.id}
+                onClick={() => loadDetail(unit)}
                 className={cn(
                   "w-full text-left p-3 rounded-xl border transition-all group",
-                  selected?.id === dept.id
+                  selected?.id === unit.id
                     ? "border-blue-300 bg-blue-50 shadow-sm"
                     : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm"
                 )}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
-                    style={{ backgroundColor: dept.color || "#3b82f6" }}>
-                    {dept.name[0]}
+                    style={{ backgroundColor: unit.color || "#3b82f6" }}>
+                    {unit.name[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{dept.name}</p>
-                    <p className="text-xs text-gray-500">{dept._count?.users || 0} members</p>
+                    <p className="text-sm font-semibold text-gray-800 truncate">{unit.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-gray-500">{unit._count?.users || 0} members</p>
+                      {unit.head ? (
+                        <p className="text-xs text-amber-600 flex items-center gap-0.5">
+                          <Crown className="w-3 h-3" />
+                          {unit.head.firstName} {unit.head.lastName}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400">No head</p>
+                      )}
+                    </div>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
@@ -602,13 +766,16 @@ export default function DepartmentsPage() {
                       </div>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={e => { e.stopPropagation(); setEditTarget(dept); setFormOpen(true); }}>
-                        <Pencil className="w-4 h-4 mr-2" /> Edit
+                      <DropdownMenuItem onClick={e => { e.stopPropagation(); setEditTarget(unit); setFormOpen(true); }}>
+                        <Pencil className="w-4 h-4 mr-2" /> Edit Unit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={e => { e.stopPropagation(); setSetHeadTarget(unit); }}>
+                        <Crown className="w-4 h-4 mr-2" /> Set Unit Head
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                        onClick={e => { e.stopPropagation(); handleDelete(dept); }}>
-                        <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        onClick={e => { e.stopPropagation(); handleDelete(unit); }}>
+                        <Trash2 className="w-4 h-4 mr-2" /> Delete Unit
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -626,22 +793,45 @@ export default function DepartmentsPage() {
             <Card>
               <CardContent className="py-16 text-center text-gray-400">
                 <Building2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>Select a department to view details</p>
+                <p>Select a unit to view details</p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-4">
-              {/* Department header */}
-              <div className="flex items-center gap-3 p-4 rounded-xl border border-gray-200 bg-white">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold"
+              {/* Unit header */}
+              <div className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-white">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shrink-0"
                   style={{ backgroundColor: selected.color || "#3b82f6" }}>
                   {selected.name[0]}
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-bold text-gray-900">{selected.name}</h2>
                   {selected.description && <p className="text-sm text-gray-500">{selected.description}</p>}
+                  {/* Unit Head info */}
+                  <div className="mt-2 flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-500 shrink-0" />
+                    {selected.head ? (
+                      <div>
+                        <span className="text-sm font-medium text-gray-700">
+                          {selected.head.firstName} {selected.head.lastName}
+                        </span>
+                        <span className="text-xs text-gray-400 ml-1">— Unit Head</span>
+                        <p className="text-xs text-gray-400">{selected.head.email}</p>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400 italic">No Unit Head assigned</span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-1 h-7 px-2 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                      onClick={() => setSetHeadTarget(selected)}
+                    >
+                      {selected.head ? "Change" : "Set Unit Head"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="ml-auto flex items-center gap-3">
+                <div className="flex items-center gap-2 shrink-0">
                   <Badge variant="secondary" className="gap-1">
                     <Users className="w-3 h-3" /> {selected.users?.length || 0} members
                   </Badge>
@@ -661,13 +851,13 @@ export default function DepartmentsPage() {
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="permissions" className="mt-4">
-                  <PermissionsEditor deptId={selected.id} />
+                  <PermissionsEditor unitId={selected.id} />
                 </TabsContent>
                 <TabsContent value="members" className="mt-4">
                   <Card>
                     <CardContent className="pt-4">
                       <MembersPanel
-                        dept={selected}
+                        unit={selected}
                         onMembersChange={members => setSelected(s => s ? { ...s, users: members } : s)}
                       />
                     </CardContent>
@@ -679,12 +869,21 @@ export default function DepartmentsPage() {
         </div>
       </div>
 
-      <DeptFormDialog
-        dept={editTarget}
+      <UnitFormDialog
+        unit={editTarget}
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditTarget(null); }}
         onSave={handleSaved}
       />
+
+      {setHeadTarget && (
+        <SetUnitHeadDialog
+          unit={setHeadTarget}
+          open={!!setHeadTarget}
+          onClose={() => setSetHeadTarget(null)}
+          onHeadSet={head => handleHeadSet(setHeadTarget, head)}
+        />
+      )}
     </div>
   );
 }

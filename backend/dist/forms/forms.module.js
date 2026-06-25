@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const forms_service_1 = require("./forms.service");
 const forms_controller_1 = require("./forms.controller");
 const workflows_module_1 = require("../workflows/workflows.module");
+const calendar_sync_module_1 = require("../calendar-sync/calendar-sync.module");
 let FormsModule = class FormsModule {
 };
 exports.FormsModule = FormsModule;
 exports.FormsModule = FormsModule = __decorate([
     (0, common_1.Module)({
-        imports: [workflows_module_1.WorkflowsModule],
+        imports: [workflows_module_1.WorkflowsModule, calendar_sync_module_1.CalendarSyncModule],
         controllers: [forms_controller_1.FormsController, forms_controller_1.PublicFormsController],
         providers: [forms_service_1.FormsService],
         exports: [forms_service_1.FormsService],

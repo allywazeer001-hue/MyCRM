@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { portalApi } from "@/lib/portal-api";
-import { Bell, FileText, Megaphone, TrendingUp, Loader2, CheckCircle, Info, AlertTriangle, XCircle } from "lucide-react";
+import { Bell, FileText, Megaphone, TrendingUp, Loader2, CheckCircle, Info, AlertTriangle, XCircle, UserCircle, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 interface DashboardData {
@@ -11,6 +11,128 @@ interface DashboardData {
   latestNotifications: any[];
   announcements: any[];
   recordSummary: Record<string, any> | null;
+  /** Portal field mappings for the user's linked module (injected by dashboard endpoint) */
+  fieldMappings?: Array<{ crmFieldName: string; displayLabel: string; isVisible: boolean }>;
+  fields?: Array<{ name: string; label: string; type: string; isRequired: boolean }>;
+}
+
+// ── Profile completion helpers ─────────────────────────────────────────────
+
+function calcProfileCompletion(data: DashboardData): {
+  pct: number;
+  empty: string[];
+  total: number;
+  filled: number;
+} {
+  const record = data.recordSummary;
+  if (!record) return { pct: 0, empty: [], total: 0, filled: 0 };
+
+  const visibleMappings = (data.fieldMappings ?? []).filter(m => m.isVisible);
+  if (visibleMappings.length === 0) return { pct: 100, empty: [], total: 0, filled: 0 };
+
+  const empty: string[] = [];
+  let filled = 0;
+
+  for (const mapping of visibleMappings) {
+    const val = record[mapping.crmFieldName];
+    const hasValue = val !== null && val !== undefined && String(val).trim() !== "";
+    if (hasValue) {
+      filled++;
+    } else {
+      empty.push(mapping.displayLabel || mapping.crmFieldName);
+    }
+  }
+
+  const total = visibleMappings.length;
+  const pct   = total > 0 ? Math.round((filled / total) * 100) : 100;
+  return { pct, empty, total, filled };
+}
+
+// ── Profile Completion Banner ──────────────────────────────────────────────
+
+function ProfileCompletionBanner({ data }: { data: DashboardData }) {
+  const [dismissed, setDismissed] = useState(false);
+  const { pct, empty, total } = calcProfileCompletion(data);
+
+  if (dismissed || total === 0 || pct === 100) return null;
+
+  const color =
+    pct >= 75 ? { bg: "bg-blue-50",   border: "border-blue-200",   bar: "bg-blue-500",   text: "text-blue-700",   icon: "text-blue-500" }
+    : pct >= 40 ? { bg: "bg-amber-50",  border: "border-amber-200",  bar: "bg-amber-500",  text: "text-amber-700",  icon: "text-amber-500" }
+    : { bg: "bg-red-50",   border: "border-red-200",   bar: "bg-red-500",   text: "text-red-700",   icon: "text-red-500" };
+
+  return (
+    <div className={`rounded-2xl border ${color.bg} ${color.border} p-5 shadow-sm relative`}>
+      {/* Dismiss */}
+      <button
+        onClick={() => setDismissed(true)}
+        className="absolute top-3 right-3 p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-white/60 transition"
+        title="Dismiss"
+      >
+        <XCircle className="w-4 h-4" />
+      </button>
+
+      <div className="flex items-start gap-4">
+        <div className={`w-10 h-10 rounded-xl bg-white/80 flex items-center justify-center shrink-0 ${color.icon}`}>
+          <UserCircle className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-3">
+          <div>
+            <p className={`font-semibold text-sm ${color.text}`}>
+              Your profile is {pct}% complete
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Complete your profile to unlock all features and ensure you receive important updates.
+            </p>
+          </div>
+
+          {/* Progress bar */}
+          <div className="space-y-1">
+            <div className="w-full h-2 rounded-full bg-white/70 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${color.bar}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-gray-500">{data.fieldMappings ? `${Math.round(pct * total / 100)} of ${total} fields filled` : ""}</p>
+          </div>
+
+          {/* Empty fields list */}
+          {empty.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                Still needed:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {empty.slice(0, 6).map((label, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 border border-gray-200 text-xs text-gray-600"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+                    {label}
+                  </span>
+                ))}
+                {empty.length > 6 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/80 border border-gray-200 text-xs text-gray-400">
+                    +{empty.length - 6} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* CTA */}
+          <Link
+            href="/portal/profile"
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold ${color.text} hover:underline`}
+          >
+            Complete my profile <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NotifIcon({ type }: { type: string }) {
@@ -50,9 +172,12 @@ export default function PortalDashboardPage() {
       ) : !data ? (
         <div className="text-center text-gray-500 py-16">Failed to load dashboard</div>
       ) : (
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
+          {/* Profile completion reminder — shown when fields are incomplete */}
+          <ProfileCompletionBanner data={data} />
+
           {/* Welcome banner */}
-          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-4 sm:p-6 text-white shadow-lg">
             <p className="text-indigo-200 text-sm font-medium uppercase tracking-wide">Welcome back</p>
             <h1 className="text-2xl font-bold mt-1">
               {data.user.firstName} {data.user.lastName}

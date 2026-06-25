@@ -5,4 +5,12 @@ export declare class RegisterDto {
     lastName: string;
     organizationName?: string;
     organizationSlug?: string;
+    organizationCode?: string;
+    organizationDescription?: string;
+    organizationAddress?: string;
+    organizationEmail?: string;
+    organizationWebsite?: string;
+    organizationIndustry?: string;
+    organizationLogo?: string;
+    packages?: string[];
 }

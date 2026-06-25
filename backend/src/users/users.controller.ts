@@ -31,24 +31,52 @@ export class UsersController {
     return this.usersService.getMyPermissions(user.id, user.organizationId);
   }
 
+  @Get('me/profile')
+  getMyProfile(@CurrentUser() user: any) {
+    return this.usersService.getMyProfile(user.id, user.organizationId);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: any, @Body() body: any) {
+    return this.usersService.update(user.id, user.organizationId, body);
+  }
+
+  @Delete('me/activity')
+  clearMyActivity(@CurrentUser() user: any) {
+    return this.usersService.clearMyActivity(user.id, user.organizationId);
+  }
+
+  private resolveOrgId(user: any): string {
+    return user.organizationId;
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.findOne(id, user.organizationId);
+    return this.usersService.findOne(id, this.resolveOrgId(user));
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
-    return this.usersService.update(id, user.organizationId, body);
+    return this.usersService.update(id, this.resolveOrgId(user), body);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.remove(id, user.organizationId);
+    return this.usersService.remove(id, this.resolveOrgId(user));
+  }
+
+  /** Permanently removes the user from the database. Restricted to ADMIN+. */
+  @Delete(':id/permanent')
+  hardDelete(@Param('id') id: string, @CurrentUser() user: any) {
+    if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
+      throw new ForbiddenException('Only admins can permanently delete users');
+    }
+    return this.usersService.hardDelete(id, this.resolveOrgId(user));
   }
 
   @Patch(':id/reactivate')
   reactivate(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.reactivate(id, user.organizationId);
+    return this.usersService.reactivate(id, this.resolveOrgId(user));
   }
 
   @Patch(':id/suspend')
@@ -56,12 +84,12 @@ export class UsersController {
     if (!this.isSuperAdmin(user)) {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.suspend(id, user.organizationId, user.id);
+    return this.usersService.suspend(id, this.resolveOrgId(user), user.id);
   }
 
   @Patch(':id/unsuspend')
   unsuspend(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.unsuspend(id, user.organizationId, user.id);
+    return this.usersService.unsuspend(id, this.resolveOrgId(user), user.id);
   }
 
   @Patch(':id/lock')
@@ -69,7 +97,7 @@ export class UsersController {
     if (!this.isSuperAdmin(user)) {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.lock(id, user.organizationId, user.id);
+    return this.usersService.lock(id, this.resolveOrgId(user), user.id);
   }
 
   @Patch(':id/unlock')
@@ -77,7 +105,7 @@ export class UsersController {
     if (!this.isSuperAdmin(user)) {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.unlock(id, user.organizationId, user.id);
+    return this.usersService.unlock(id, this.resolveOrgId(user), user.id);
   }
 
   @Post(':id/reset-password')
@@ -85,7 +113,7 @@ export class UsersController {
     if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.resetPassword(id, user.organizationId, user.id);
+    return this.usersService.resetPassword(id, this.resolveOrgId(user), user.id);
   }
 
   @Patch(':id/force-password-reset')
@@ -93,17 +121,17 @@ export class UsersController {
     if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.forcePasswordReset(id, user.organizationId, user.id);
+    return this.usersService.forcePasswordReset(id, this.resolveOrgId(user), user.id);
   }
 
   @Get(':id/permissions')
   getPermissionSummary(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.getPermissionSummary(id, user.organizationId);
+    return this.usersService.getPermissionSummary(id, this.resolveOrgId(user));
   }
 
   @Get(':id/permission-overrides')
   getPermissionOverrides(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.getPermissionOverrides(id, user.organizationId);
+    return this.usersService.getPermissionOverrides(id, this.resolveOrgId(user));
   }
 
   @Post(':id/permission-overrides')
@@ -111,7 +139,7 @@ export class UsersController {
     if (!this.isSuperAdmin(user)) {
       throw new ForbiddenException('Only Super Admin can perform this action');
     }
-    return this.usersService.setPermissionOverride(id, user.organizationId, user.id, body);
+    return this.usersService.setPermissionOverride(id, this.resolveOrgId(user), user.id, body);
   }
 
   @Delete('permission-overrides/:overrideId')

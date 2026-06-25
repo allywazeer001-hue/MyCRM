@@ -2,12 +2,127 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/auth.store";
+import { usePortalAuthStore } from "@/store/portal-auth.store";
 import {
   Layers, Plug, Rocket, ArrowLeft, LayoutGrid, Sparkles,
   Eye, PanelLeftClose, PanelLeftOpen, Globe, Shield,
+  Monitor, Tablet, Smartphone, X, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// ── Device Preview Modal ───────────────────────────────────────────────────────
+
+type DeviceId = "mobile" | "tablet" | "laptop" | "desktop" | "wide";
+
+const DEVICES: { id: DeviceId; label: string; width: number; icon: React.ElementType }[] = [
+  { id: "mobile",  label: "Mobile",  width: 390,  icon: Smartphone },
+  { id: "tablet",  label: "Tablet",  width: 768,  icon: Tablet     },
+  { id: "laptop",  label: "Laptop",  width: 1280, icon: Monitor    },
+  { id: "desktop", label: "Desktop", width: 1440, icon: Monitor    },
+];
+
+function DevicePreviewModal({ onClose }: { onClose: () => void }) {
+  const [device, setDevice] = useState<DeviceId>("laptop");
+  const [iframeKey, setIframeKey] = useState(0);
+  const current = DEVICES.find(d => d.id === device)!;
+  const iframeWidth = current.width;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col" style={{ background: "rgba(3,6,18,0.93)", backdropFilter: "blur(6px)" }}>
+      {/* Toolbar */}
+      <div className="h-12 shrink-0 flex items-center gap-3 px-4 border-b border-white/[0.08]" style={{ background: "rgba(10,14,28,0.9)" }}>
+        <div className="flex items-center gap-2 text-white/70">
+          <Eye className="w-4 h-4 text-indigo-400" />
+          <span className="text-sm font-semibold">Device Preview</span>
+        </div>
+
+        {/* Device switcher */}
+        <div className="flex items-center gap-1 ml-4 p-0.5 rounded-lg" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          {DEVICES.map(d => (
+            <button
+              key={d.id}
+              onClick={() => setDevice(d.id)}
+              title={`${d.label} (${d.width}px)`}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all",
+                device === d.id
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-400 hover:text-white hover:bg-white/10"
+              )}
+            >
+              <d.icon className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">{d.label}</span>
+              <span className="text-[9px] opacity-60 hidden xl:inline">({d.width}px)</span>
+            </button>
+          ))}
+        </div>
+
+        <span className="ml-2 text-[11px] text-gray-500 hidden xl:block">
+          Viewport: {iframeWidth} × viewport-height
+        </span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setIframeKey(k => k + 1)}
+            title="Reload preview"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Preview canvas */}
+      <div className="flex-1 overflow-auto flex items-start justify-center py-6 px-4">
+        {/* Device chrome */}
+        <div
+          className="relative flex flex-col rounded-2xl overflow-hidden shadow-2xl"
+          style={{
+            width: iframeWidth,
+            maxWidth: "100%",
+            minHeight: 520,
+            border: "1.5px solid rgba(99,102,241,0.35)",
+            boxShadow: "0 0 60px rgba(79,70,229,0.2), 0 24px 80px rgba(0,0,0,0.6)",
+          }}
+        >
+          {/* Address bar */}
+          <div className="h-8 shrink-0 flex items-center gap-2 px-3" style={{ background: "#1a1f35", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500/70" />
+            </div>
+            <div className="flex-1 mx-2 h-4 rounded-sm flex items-center px-2" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <span className="text-[9px] text-gray-500">{typeof window !== "undefined" ? window.location.origin : ""}/portal/dashboard</span>
+            </div>
+          </div>
+
+          {/* iFrame */}
+          <iframe
+            key={iframeKey}
+            src="/portal/dashboard"
+            title="Portal preview"
+            className="flex-1 w-full bg-white"
+            style={{ minHeight: 540, border: "none" }}
+          />
+        </div>
+      </div>
+
+      {/* Footer hint */}
+      <div className="h-9 shrink-0 flex items-center justify-center border-t border-white/[0.05]" style={{ background: "rgba(10,14,28,0.9)" }}>
+        <p className="text-[10px] text-gray-600">
+          Preview reflects the live portal — changes save automatically to the builder before previewing.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 const NAV = [
   { href: "/apps/portal-builder",                  label: "Home",           icon: Sparkles, exact: true },
@@ -21,14 +136,21 @@ const NAV = [
 export default function PortalBuilderLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user } = usePortalAuthStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) router.push("/login");
-  }, [isAuthenticated, router]);
+    if (!isAuthenticated) {
+      router.replace("/portal/login?redirect=/apps/portal-builder");
+      return;
+    }
+    if (!(user as any)?.isPortalAdmin) {
+      router.replace("/portal/dashboard");
+    }
+  }, [isAuthenticated, user, router]);
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated || !(user as any)?.isPortalAdmin) return null;
 
   // Full-screen builder pages — no sidebar
   const isBuilderPage = /\/apps\/portal-builder\/portals\/[^/]+/.test(pathname);
@@ -124,15 +246,15 @@ export default function PortalBuilderLayout({ children }: { children: React.Reac
           {!collapsed ? (
             <div className="space-y-2">
               <div className="px-2">
-                <p className="text-xs font-medium text-white truncate">{user ? `${user.firstName} ${user.lastName}`.trim() || user.email : "User"}</p>
-                <p className="text-[10px] text-gray-500 truncate">{user?.email ?? ""}</p>
+                <p className="text-xs font-medium text-white truncate">{user ? `${(user as any).firstName} ${(user as any).lastName}`.trim() || (user as any).email : "Portal Admin"}</p>
+                <p className="text-[10px] text-gray-500 truncate">{(user as any)?.email ?? ""}</p>
               </div>
               <Link
-                href="/dashboard"
+                href="/portal/dashboard"
                 className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
               >
                 <ArrowLeft className="w-4 h-4 shrink-0" />
-                <span>Back to CRM</span>
+                <span>Portal Dashboard</span>
               </Link>
             </div>
           ) : (
@@ -167,16 +289,35 @@ export default function PortalBuilderLayout({ children }: { children: React.Reac
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-12 px-6 border-b border-gray-800 bg-gray-900 flex items-center justify-between shrink-0">
+        <header className="h-12 px-4 lg:px-6 border-b border-gray-800 bg-gray-900 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-indigo-400" />
             <span className="text-sm font-semibold text-white">Portal Builder Studio</span>
           </div>
+
+          {/* Device Preview — only shown on laptop+ screens */}
+          <button
+            onClick={() => setPreviewOpen(true)}
+            className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all"
+            style={{
+              background: "linear-gradient(135deg, #4338ca, #6d28d9)",
+              color: "white",
+              boxShadow: "0 2px 10px rgba(67,56,202,0.35)",
+              border: "1px solid rgba(255,255,255,0.1)",
+            }}
+            title="Preview portal at different screen sizes"
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>Device Preview</span>
+          </button>
         </header>
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
         </main>
       </div>
+
+      {/* Device preview modal */}
+      {previewOpen && <DevicePreviewModal onClose={() => setPreviewOpen(false)} />}
     </div>
   );
 }

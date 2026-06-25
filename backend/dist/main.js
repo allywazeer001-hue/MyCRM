@@ -7,8 +7,17 @@ const app_module_1 = require("./app.module");
 const http_exception_filter_1 = require("./common/filters/http-exception.filter");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
+    const rawOrigins = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const allowedOrigins = rawOrigins.split(',').map(o => o.trim());
     app.enableCors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: (origin, callback) => {
+            if (!origin)
+                return callback(null, true);
+            if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+            return callback(null, false);
+        },
         credentials: true,
     });
     app.useGlobalFilters(new http_exception_filter_1.GlobalExceptionFilter());
@@ -27,8 +36,8 @@ async function bootstrap() {
     const document = swagger_1.SwaggerModule.createDocument(app, config);
     swagger_1.SwaggerModule.setup('api/docs', app, document);
     const port = process.env.PORT || 4000;
-    await app.listen(port);
-    console.log(`Application running on http://localhost:${port}`);
+    await app.listen(port, '0.0.0.0');
+    console.log(`Application running on http://0.0.0.0:${port}`);
 }
 bootstrap();
 //# sourceMappingURL=main.js.map

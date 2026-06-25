@@ -26,14 +26,15 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
         isAdminOnly: boolean;
         portalPageId: string | null;
         isCollapsible: boolean;
+        fieldColumns: number;
         crmModuleSlug: string | null;
         crmRelationField: string | null;
         crmSectionType: string | null;
@@ -46,14 +47,15 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
         isAdminOnly: boolean;
         portalPageId: string | null;
         isCollapsible: boolean;
+        fieldColumns: number;
         crmModuleSlug: string | null;
         crmRelationField: string | null;
         crmSectionType: string | null;
@@ -66,14 +68,15 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
         isAdminOnly: boolean;
         portalPageId: string | null;
         isCollapsible: boolean;
+        fieldColumns: number;
         crmModuleSlug: string | null;
         crmRelationField: string | null;
         crmSectionType: string | null;
@@ -104,6 +107,7 @@ export declare class PortalPadminController {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -115,6 +119,7 @@ export declare class PortalPadminController {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     })[]>;
     createField(user: any, dto: any): Promise<{
@@ -135,6 +140,7 @@ export declare class PortalPadminController {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -146,6 +152,7 @@ export declare class PortalPadminController {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     updateField(user: any, id: string, dto: any): Promise<{
@@ -166,6 +173,7 @@ export declare class PortalPadminController {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -177,6 +185,7 @@ export declare class PortalPadminController {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     deleteField(user: any, id: string): Promise<{
@@ -237,6 +246,7 @@ export declare class PortalPadminController {
             helpText: string | null;
             defaultValue: string | null;
             options: import("@prisma/client/runtime/library").JsonValue;
+            content: string | null;
             sectionId: string | null;
             portalModuleConfigId: string | null;
             isEditable: boolean;
@@ -248,6 +258,7 @@ export declare class PortalPadminController {
             mappedCrmFieldName: string | null;
             mappedCrmModuleSlug: string | null;
             formula: string | null;
+            colSpan: number;
             portalPageId: string | null;
         }[];
     } & {
@@ -258,14 +269,15 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         portalModuleConfigId: string | null;
         isVisible: boolean;
         columnIndex: number;
         isAdminOnly: boolean;
         portalPageId: string | null;
         isCollapsible: boolean;
+        fieldColumns: number;
         crmModuleSlug: string | null;
         crmRelationField: string | null;
         crmSectionType: string | null;
@@ -300,6 +312,7 @@ export declare class PortalPadminController {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -311,6 +324,7 @@ export declare class PortalPadminController {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     unmapField(user: any, id: string): Promise<{
@@ -326,6 +340,7 @@ export declare class PortalPadminController {
         helpText: string | null;
         defaultValue: string | null;
         options: import("@prisma/client/runtime/library").JsonValue;
+        content: string | null;
         sectionId: string | null;
         portalModuleConfigId: string | null;
         isEditable: boolean;
@@ -337,6 +352,7 @@ export declare class PortalPadminController {
         mappedCrmFieldName: string | null;
         mappedCrmModuleSlug: string | null;
         formula: string | null;
+        colSpan: number;
         portalPageId: string | null;
     }>;
     createCrmField(user: any, id: string, dto: any): Promise<{
@@ -353,6 +369,7 @@ export declare class PortalPadminController {
             helpText: string | null;
             defaultValue: string | null;
             options: import("@prisma/client/runtime/library").JsonValue;
+            content: string | null;
             sectionId: string | null;
             portalModuleConfigId: string | null;
             isEditable: boolean;
@@ -364,6 +381,7 @@ export declare class PortalPadminController {
             mappedCrmFieldName: string | null;
             mappedCrmModuleSlug: string | null;
             formula: string | null;
+            colSpan: number;
             portalPageId: string | null;
         };
         crmField: {
@@ -375,8 +393,8 @@ export declare class PortalPadminController {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -388,6 +406,7 @@ export declare class PortalPadminController {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         };
     }>;
     listMenu(user: any): Promise<any[]>;
@@ -398,8 +417,8 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         parentId: string | null;
         isVisible: boolean;
         accessTypes: import("@prisma/client/runtime/library").JsonValue;
@@ -415,8 +434,8 @@ export declare class PortalPadminController {
         updatedAt: Date;
         icon: string | null;
         order: number;
-        label: string;
         type: string;
+        label: string;
         parentId: string | null;
         isVisible: boolean;
         accessTypes: import("@prisma/client/runtime/library").JsonValue;
@@ -474,6 +493,7 @@ export declare class PortalPadminController {
                 helpText: string | null;
                 defaultValue: string | null;
                 options: import("@prisma/client/runtime/library").JsonValue;
+                content: string | null;
                 sectionId: string | null;
                 portalModuleConfigId: string | null;
                 isEditable: boolean;
@@ -485,6 +505,7 @@ export declare class PortalPadminController {
                 mappedCrmFieldName: string | null;
                 mappedCrmModuleSlug: string | null;
                 formula: string | null;
+                colSpan: number;
                 portalPageId: string | null;
             }[];
         } & {
@@ -495,14 +516,15 @@ export declare class PortalPadminController {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -651,13 +673,13 @@ export declare class PortalPadminController {
         recordId: string | null;
         originalName: string;
         mimeType: string;
+        filePath: string;
         portalUserId: string;
         fieldKey: string | null;
         fileName: string;
         fileSize: number;
-        filePath: string;
     })[]>;
-    listUsers(user: any): Promise<{
+    listUsers(user: any, page?: number, limit?: number, search?: string, status?: string): Promise<{
         users: {
             email: string;
             firstName: string;
@@ -667,8 +689,8 @@ export declare class PortalPadminController {
             createdAt: Date;
             moduleId: string;
             type: string;
-            recordId: string;
             accountStatus: string;
+            recordId: string;
             isFirstLogin: boolean;
             isEmailVerified: boolean;
             isPortalAdmin: boolean;
@@ -677,6 +699,66 @@ export declare class PortalPadminController {
         total: number;
         page: number;
         limit: number;
+    }>;
+    getUserCounts(user: any): Promise<{
+        active: number;
+        suspended: number;
+        deleted: number;
+        total: number;
+    }>;
+    softDeleteUser(id: string, user: any): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        phone: string | null;
+        isActive: boolean;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string | null;
+        profilePicture: string | null;
+        type: string;
+        accountStatus: string;
+        recordId: string | null;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
+        resetToken: string | null;
+        resetTokenExpiry: Date | null;
+        isPortalAdmin: boolean;
+        customData: import("@prisma/client/runtime/library").JsonValue;
+        portalRole: string;
+    }>;
+    restoreUser(id: string, user: any): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        phone: string | null;
+        isActive: boolean;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string | null;
+        profilePicture: string | null;
+        type: string;
+        accountStatus: string;
+        recordId: string | null;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
+        resetToken: string | null;
+        resetTokenExpiry: Date | null;
+        isPortalAdmin: boolean;
+        customData: import("@prisma/client/runtime/library").JsonValue;
+        portalRole: string;
+    }>;
+    permanentDeleteUser(id: string, user: any): Promise<{
+        success: boolean;
+        message: string;
     }>;
     toggleAdmin(user: any, id: string, dto: {
         isPortalAdmin: boolean;

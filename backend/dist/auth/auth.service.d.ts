@@ -11,6 +11,15 @@ export declare class AuthService {
         refreshToken: string;
         user: any;
     }>;
+    checkEmail(email: string): Promise<{
+        exists: boolean;
+        firstName?: undefined;
+        organizationName?: undefined;
+    } | {
+        exists: boolean;
+        firstName: string;
+        organizationName: any;
+    }>;
     login(dto: LoginDto): Promise<{
         accessToken: string;
         refreshToken: string;
@@ -43,6 +52,7 @@ export declare class AuthService {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;

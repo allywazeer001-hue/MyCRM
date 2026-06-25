@@ -14,19 +14,38 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { Field } from "@/store/modules.store";
-import { cn } from "@/lib/utils";
+import { cn, generateId } from "@/lib/utils";
+import { FormSectionRenderer } from "@/components/ui/form-section-renderer";
+import { DEFAULT_MODULE_LAYOUT } from "@/lib/layout-templates";
+import { evaluateModuleRules } from "@/lib/evaluate-layout-rules";
+import { FileUploadInput } from "@/components/ui/file-upload-input";
+import { DependentGlobalListInput, GlobalListInput, GlobalListCombobox } from "@/components/ui/dependent-global-list-input";
+import { useGlobalListDependency } from "@/hooks/use-global-list-dependency";
+import { useWorkflowEvaluator } from "@/hooks/use-workflow-evaluator";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Reusable field inputs ─────────────────────────────────────────────────
 
 function LookupInput({ field, value, onChange }: { field: Field; value: any; onChange: (v: any) => void }) {
-  const settings = (field as any).settings || {};
-  const targetModuleId = settings.lookupModuleId;
+  const rawSettings = (field as any).settings;
+  const settings = typeof rawSettings === "string" ? (() => { try { return JSON.parse(rawSettings); } catch { return {}; } })() : (rawSettings || {});
+  const targetModuleId = settings.lookupModuleId || (field as any).lookupModuleId;
   const displayField = settings.displayField || "name";
-  const [search, setSearch] = useState("");
+
+  // Resolver may return {id, label} — extract both for initialization
+  const resolvedId    = value && typeof value === "object" && value.id  ? String(value.id)    : (typeof value === "string" ? value : "");
+  const resolvedLabel = value && typeof value === "object" && value.label ? String(value.label) : "";
+
+  const [search, setSearch] = useState(resolvedLabel);
   const [results, setResults] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // When the record loads with a pre-existing value, pre-populate the search with the label
+  useEffect(() => {
+    if (resolvedLabel && !search) setSearch(resolvedLabel);
+  }, [resolvedLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -60,7 +79,7 @@ function LookupInput({ field, value, onChange }: { field: Field; value: any; onC
             className="pl-9"
           />
         </div>
-        {value && <button onClick={() => { setSearch(""); onChange(null); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>}
+        {resolvedId && <button onClick={() => { setSearch(""); onChange(null); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>}
       </div>
       {open && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-lg border shadow-lg max-h-48 overflow-y-auto">
@@ -78,16 +97,72 @@ function LookupInput({ field, value, onChange }: { field: Field; value: any; onC
   );
 }
 
+// Dropdown that loads options from a Global List — supports externalOptions for dependency engine
+function GlobalSourceDropdown({ field, value, onChange, externalOptions }: {
+  field: Field; value: any; onChange: (v: any) => void; externalOptions?: any[] | null;
+}) {
+  const raw = (field as any).settings;
+  const s = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : (raw || {});
+  const listId = s?.globalListSource?.listId || s?.globalListId || "";
+  const rawId = value && typeof value === "object" && value.id ? String(value.id) : (value || "");
+
+  // Dependent field with engine-provided options → static combobox (local search)
+  if (Array.isArray(externalOptions)) {
+    return (
+      <GlobalListCombobox
+        listId={listId}
+        value={rawId}
+        onChange={onChange}
+        placeholder={`Select ${field.label}`}
+        staticItems={externalOptions}
+        disabled={externalOptions.length === 0 && !rawId}
+      />
+    );
+  }
+  // Primary / independent field → full combobox with backend search
+  return (
+    <GlobalListCombobox
+      listId={listId}
+      value={rawId}
+      onChange={onChange}
+      placeholder={`Select ${field.label}`}
+    />
+  );
+}
+
 function GlobalRelationInput({ field, value, onChange }: { field: Field; value: any; onChange: (v: any) => void }) {
-  const settings = (field as any).settings || {};
+  const raw = (field as any).settings;
+  const settings = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : (raw || {});
   const globalListId = settings.globalListId;
   const levels: string[] = settings.levels || [];
   const [selections, setSelections] = useState<Record<number, string>>(value || {});
   const [options, setOptions] = useState<Record<number, any[]>>({});
+  const [loading, setLoading] = useState<Record<number, boolean>>({});
 
+  const loadLevel = async (level: number, parentId?: string): Promise<void> => {
+    if (!globalListId) return;
+    setLoading(p => ({ ...p, [level]: true }));
+    try {
+      const r = await api.get(`/global-lists/${globalListId}/items${parentId ? `?parentId=${parentId}` : ""}`);
+      setOptions(p => ({ ...p, [level]: r.data || [] }));
+    } catch { setOptions(p => ({ ...p, [level]: [] })); }
+    finally { setLoading(p => ({ ...p, [level]: false })); }
+  };
+
+  // Load level 0 on mount, then cascade through any pre-existing selections (edit mode).
   useEffect(() => {
     if (!globalListId) return;
-    api.get(`/global-lists/${globalListId}/items`).then(r => setOptions(prev => ({ ...prev, 0: r.data || [] }))).catch(() => {});
+    const initial = value || {};
+    const cascade = async () => {
+      await loadLevel(0, undefined);
+      for (let i = 0; i + 1 < levels.length; i++) {
+        const parentId = initial[i];
+        if (!parentId) break;
+        await loadLevel(i + 1, parentId);
+      }
+    };
+    cascade();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalListId]);
 
   const selectLevel = (level: number, itemId: string) => {
@@ -96,8 +171,8 @@ function GlobalRelationInput({ field, value, onChange }: { field: Field; value: 
     setSelections(newSel);
     onChange(newSel);
     if (level + 1 < levels.length) {
-      api.get(`/global-lists/${globalListId}/items?parentId=${itemId}`)
-        .then(r => setOptions(prev => ({ ...prev, [level + 1]: r.data || [] }))).catch(() => {});
+      loadLevel(level + 1, itemId);
+      setOptions(p => { const n = { ...p }; for (let i = level + 1; i < levels.length; i++) delete n[i]; return n; });
     }
   };
 
@@ -108,8 +183,8 @@ function GlobalRelationInput({ field, value, onChange }: { field: Field; value: 
       {levels.map((levelName, i) => (
         <div key={i} className="space-y-1">
           <Label className="text-xs text-gray-500">{levelName}</Label>
-          <Select value={selections[i] || "__none__"} onValueChange={v => v !== "__none__" && selectLevel(i, v)} disabled={i > 0 && !selections[i - 1]}>
-            <SelectTrigger><SelectValue placeholder={`Select ${levelName}...`} /></SelectTrigger>
+          <Select value={selections[i] || "__none__"} onValueChange={v => v !== "__none__" && selectLevel(i, v)} disabled={(i > 0 && !selections[i - 1]) || !!loading[i]}>
+            <SelectTrigger><SelectValue placeholder={loading[i] ? "Loading…" : `Select ${levelName}...`} /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">Select {levelName}...</SelectItem>
               {(options[i] || []).map((item: any) => (
@@ -270,7 +345,7 @@ function SubformInput({ field, value, onChange }: { field: Field; value: any; on
     onChange(rows.map(r => r._id !== rowId ? r : recomputeFormulas({ ...r, [colName]: cellValue })));
   };
 
-  const addRow = () => onChange([...rows, recomputeFormulas({ _id: crypto.randomUUID() })]);
+  const addRow = () => onChange([...rows, recomputeFormulas({ _id: generateId() })]);
   const removeRow = (rowId: string) => onChange(rows.filter(r => r._id !== rowId));
 
   if (columns.length === 0) {
@@ -335,102 +410,73 @@ function SubformInput({ field, value, onChange }: { field: Field; value: any; on
   );
 }
 
-function DynamicFieldInput({ field, value, onChange }: { field: Field; value: any; onChange: (v: any) => void }) {
+// ── DynamicFieldInput — exact same implementation as create (new) page ──────
+function DynamicFieldInput({ field, value, onChange, externalOptions }: { field: Field; value: any; onChange: (v: any) => void; externalOptions?: Record<string, any[]> }) {
   switch (field.type) {
-    case "AUTO_NUMBER":
-      return <Input value={value || "(auto-generated)"} readOnly disabled className="font-mono text-gray-400 bg-gray-50" />;
-    case "FORMULA":
-      return (
-        <div className="flex items-center gap-2 h-10 px-3 bg-blue-50/60 border border-blue-100 rounded-md">
-          <span className="text-[10px] font-mono text-blue-400 shrink-0">fx</span>
-          <span className="text-sm font-mono font-semibold text-blue-700 tabular-nums">
-            {value !== undefined && value !== null && value !== ""
-              ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 })
-              : <span className="text-blue-300 font-normal">calculated</span>}
-          </span>
-        </div>
-      );
-    case "LOOKUP":
-      return <LookupInput field={field} value={value} onChange={onChange} />;
-    case "GLOBAL_RELATION":
+    case "AUTO_NUMBER": return <Input value="(auto-generated)" readOnly disabled className="font-mono text-gray-400 bg-gray-50" />;
+    case "FORMULA": return <div className="flex items-center gap-2 h-10 px-3 bg-blue-50/60 border border-blue-100 rounded-md"><span className="text-[10px] font-mono text-blue-400 shrink-0">fx</span><span className="text-sm font-mono font-semibold text-blue-700">{value !== undefined && value !== null && value !== "" ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 }) : <span className="text-blue-300 font-normal">calculated</span>}</span></div>;
+    case "LOOKUP": return <LookupInput field={field} value={value} onChange={onChange} />;
+    case "GLOBAL_RELATION": {
+      const role = (field as any).settings?.fieldRole;
+      const extOpts = (role === "primary" || role === "dependent") ? (externalOptions?.[(field as any).id] ?? null) : null;
+      if (extOpts !== null) {
+        return (
+          <select value={value || ""} onChange={e => onChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">Select...</option>
+            {extOpts.map((item: any) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        );
+      }
       return <GlobalRelationInput field={field} value={value} onChange={onChange} />;
-    case "TEXTAREA": case "RICH_TEXT":
-      return <Textarea value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} rows={4} />;
-    case "BOOLEAN":
+    }
+    case "DEPENDENT_GLOBAL_LIST": {
+      const _sD = (field as any).settings;
+      const _pD = typeof _sD === "string" ? (() => { try { return JSON.parse(_sD); } catch { return {}; } })() : (_sD || {});
+      return <DependentGlobalListInput listId={_pD.globalListId || _pD.globalListSource?.listId || ""} value={value || ""} onChange={onChange} />;
+    }
+    case "GLOBAL_LIST": {
+      const _sG = (field as any).settings;
+      const _pG = typeof _sG === "string" ? (() => { try { return JSON.parse(_sG); } catch { return {}; } })() : (_sG || {});
+      return <GlobalListInput listId={_pG.globalListId || _pG.globalListSource?.listId || ""} value={value || ""} onChange={onChange} />;
+    }
+    case "TEXTAREA": case "RICH_TEXT": return <Textarea value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} rows={4} />;
+    case "BOOLEAN": return <div className="flex items-center gap-2"><Switch checked={!!value} onCheckedChange={onChange} /><span className="text-sm text-gray-600">{value ? "Yes" : "No"}</span></div>;
+    case "CHECKBOX": return <div className="flex items-center gap-2"><Checkbox checked={!!value} onCheckedChange={onChange} /><Label>{field.label}</Label></div>;
+    case "DROPDOWN": case "STATUS": {
+      const rawSN = (field as any).settings;
+      const parsedSN = typeof rawSN === "string" ? (() => { try { return JSON.parse(rawSN); } catch { return {}; } })() : (rawSN || {});
+      const hasGlSrc = !!(parsedSN?.globalListSource?.listId || parsedSN?.globalListId);
+      if (hasGlSrc) {
+        const depExtN = externalOptions?.[(field as any).id];
+        const isDependentN = parsedSN?.fieldRole === "dependent";
+        const extOptsN = Array.isArray(depExtN) ? depExtN : (isDependentN ? [] : null);
+        return <GlobalSourceDropdown field={field} value={value} onChange={onChange} externalOptions={extOptsN} />;
+      }
+      return <Select value={value || ""} onValueChange={onChange}><SelectTrigger><SelectValue placeholder={field.placeholder || `Select ${field.label}`} /></SelectTrigger><SelectContent>{field.options?.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;
+    }
+    case "RADIO": return <div className="flex flex-col gap-2">{field.options?.map(opt => <label key={opt.value} className="flex items-center gap-2.5 cursor-pointer"><input type="radio" name={field.name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} className="w-4 h-4 accent-blue-600" /><span className="text-sm text-gray-700">{opt.label}</span></label>)}</div>;
+    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map(o => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.value} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>{o.label}</button>; })}</div>;
+    case "NUMBER": case "DECIMAL": case "CURRENCY": return <Input type="number" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} step={field.type === "DECIMAL" ? "0.01" : "1"} />;
+    case "DATE": return <Input type="date" value={value || ""} onChange={e => onChange(e.target.value)} />;
+    case "DATETIME": return <Input type="datetime-local" value={value || ""} onChange={e => onChange(e.target.value)} />;
+    case "EMAIL": return <Input type="email" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "email@example.com"} />;
+    case "PHONE": return <Input type="tel" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "+1 (555) 000-0000"} />;
+    case "URL": return <Input type="url" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "https://"} />;
+    case "RATING": return <div className="flex gap-1">{[1,2,3,4,5].map(n => <button key={n} type="button" onClick={() => onChange(n)} className={`text-2xl transition-transform hover:scale-110 ${n <= (value||0) ? "text-yellow-400" : "text-gray-200"}`}>★</button>)}</div>;
+    case "PROGRESS": return <div className="space-y-2"><Input type="range" min="0" max="100" value={value||0} onChange={e => onChange(Number(e.target.value))} className="w-full" /><p className="text-sm text-gray-500 text-right">{value||0}%</p></div>;
+    case "COLOR_PICKER": return <Input type="color" value={value||"#3b82f6"} onChange={e => onChange(e.target.value)} className="w-16 h-9 p-1" />;
+    case "FILE":
+    case "IMAGE":
+    case "SIGNATURE":
       return (
-        <div className="flex items-center gap-2">
-          <Switch checked={!!value} onCheckedChange={onChange} />
-          <span className="text-sm text-gray-600">{value ? "Yes" : "No"}</span>
-        </div>
+        <FileUploadInput
+          value={value}
+          onChange={onChange}
+          fieldType={field.type}
+          disabled={(field as any).isReadonly}
+        />
       );
-    case "CHECKBOX":
-      return <div className="flex items-center gap-2"><Checkbox checked={!!value} onCheckedChange={onChange} /><Label>{field.label}</Label></div>;
-    case "DROPDOWN": case "STATUS":
-      return (
-        <Select value={value || "__none__"} onValueChange={v => onChange(v === "__none__" ? "" : v)}>
-          <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">— Select —</SelectItem>
-            {field.options?.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      );
-    case "RADIO":
-      return (
-        <div className="flex flex-wrap gap-2">
-          {field.options?.map(opt => (
-            <button key={opt.value} type="button" onClick={() => onChange(opt.value)}
-              className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${value === opt.value ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      );
-    case "MULTI_SELECT":
-      return (
-        <div className="flex flex-wrap gap-2">
-          {field.options?.map(opt => {
-            const selected = Array.isArray(value) && value.includes(opt.value);
-            return (
-              <button key={opt.value} type="button"
-                onClick={() => { const c = Array.isArray(value) ? value : []; onChange(selected ? c.filter((v: string) => v !== opt.value) : [...c, opt.value]); }}
-                className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${selected ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-      );
-    case "NUMBER": case "DECIMAL": case "CURRENCY":
-      return <Input type="number" value={value ?? ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} step={field.type === "DECIMAL" ? "0.01" : "1"} />;
-    case "DATE":
-      return <Input type="date" value={value || ""} onChange={e => onChange(e.target.value)} />;
-    case "DATETIME":
-      return <Input type="datetime-local" value={value || ""} onChange={e => onChange(e.target.value)} />;
-    case "EMAIL":
-      return <Input type="email" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "email@example.com"} />;
-    case "PHONE":
-      return <Input type="tel" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} />;
-    case "URL":
-      return <Input type="url" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "https://"} />;
-    case "RATING":
-      return (
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5].map(n => (
-            <button key={n} type="button" onClick={() => onChange(n)}
-              className={`text-2xl transition-transform hover:scale-110 ${n <= (value || 0) ? "text-yellow-400" : "text-gray-200"}`}>★</button>
-          ))}
-        </div>
-      );
-    case "PROGRESS":
-      return (
-        <div className="space-y-2">
-          <input type="range" min="0" max="100" value={value || 0} onChange={e => onChange(Number(e.target.value))} className="w-full" />
-          <p className="text-sm text-gray-500 text-right">{value || 0}%</p>
-        </div>
-      );
-    case "COLOR_PICKER":
-      return <Input type="color" value={value || "#3b82f6"} onChange={e => onChange(e.target.value)} className="w-16 h-9 p-1" />;
     case "INLINE_SUBFORM":
       return <SubformInput field={field} value={value} onChange={onChange} />;
     default:
@@ -488,24 +534,31 @@ export default function EditRecordPage() {
   const [saving, setSaving] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   // Auto-save state tracking
   const isLoaded = useRef(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modIdRef = useRef<string | null>(null);
   const recordIdRef = useRef<string | null>(null);
+  const loadedDataRef = useRef<Record<string, any>>({});
+  const bootstrapped = useRef(false);
 
   useEffect(() => {
     const load = async () => {
       try {
         const modRes = await api.get(`/modules/by-slug/${slug}`);
         const module = modRes.data;
+        console.debug("[EditRecord] loaded module — layout rules:", (module as any)?.settings?.layout?.rules ?? "none");
         setMod(module);
         modIdRef.current = module.id;
         recordIdRef.current = id;
         const recRes = await api.get(`/modules/${module.id}/records/${id}`);
         const loaded = (recRes.data.data as Record<string, any>) || {};
-        setFormData(recomputeFormulaFields(loaded, module.fields || []));
+        const computedData = recomputeFormulaFields(loaded, module.fields || []);
+        loadedDataRef.current = computedData;
+        setFormData(computedData);
+        setDataLoaded(true);
       } catch {
         router.push(`/m/${slug}`);
       } finally {
@@ -524,7 +577,7 @@ export default function EditRecordPage() {
     const rId = recordIdRef.current;
     if (!mId || !rId) return;
 
-    const captured = formData;
+    const captured = Object.fromEntries(Object.entries(formData).filter(([k]) => !k.endsWith("__label")));
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaving(true);
@@ -537,9 +590,32 @@ export default function EditRecordPage() {
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [formData]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const { fieldOptions, onDependencyFieldChange, bootstrapDependencies } = useGlobalListDependency(
+    (mod?.fields ?? []) as any[],
+    formData,
+    setFormData
+  );
+
+  // Explicitly load dependent field options based on already-loaded parent values
+  useEffect(() => {
+    if (!dataLoaded || !mod || bootstrapped.current) return;
+    bootstrapped.current = true;
+    bootstrapDependencies(loadedDataRef.current);
+  }, [dataLoaded, mod, bootstrapDependencies]);
+
+  const { execLog, showDebug, setShowDebug } = useWorkflowEvaluator(
+    (mod as any)?.id,
+    id,
+    formData,
+    (fieldName, newValue) => {
+      setFormData(prev => ({ ...prev, [fieldName]: newValue }));
+    }
+  );
+
   const validate = () => {
     const errs: Record<string, string> = {};
     mod?.fields?.forEach((f: Field) => {
+      if (f.isHidden || f.type === "AUTO_NUMBER") return; // skip fields not shown to the user
       const state = evaluateFieldState(f, formData);
       if (!state.visible || !state.required) return;
       if (f.type === "INLINE_SUBFORM") {
@@ -554,12 +630,13 @@ export default function EditRecordPage() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!validate()) return;
     setSaving(true);
+    const cleanData = Object.fromEntries(Object.entries(formData).filter(([k]) => !k.endsWith("__label")));
     try {
-      await api.patch(`/modules/${mod.id}/records/${id}`, formData);
+      await api.patch(`/modules/${mod.id}/records/${id}`, cleanData);
       router.push(`/m/${slug}/${id}`);
     } catch (err: any) {
       alert(err?.response?.data?.message || "Failed to save record");
@@ -572,75 +649,163 @@ export default function EditRecordPage() {
     return <div className="flex items-center justify-center h-48"><Loader2 className="w-8 h-8 text-blue-600 animate-spin" /></div>;
   }
 
+  const ruleEffects = evaluateModuleRules(
+    (mod as any)?.settings?.layout?.rules,
+    formData,
+  );
   const computedFields = (mod?.fields || [])
     .filter((f: Field) => !f.isHidden)
-    .map((f: Field) => ({ ...f, _state: evaluateFieldState(f, formData) }))
+    .map((f: Field) => {
+      const state = evaluateFieldState(f, formData);
+      return {
+        ...f,
+        _state: {
+          visible:  state.visible && !ruleEffects.hiddenFields.has(f.name),
+          required: ruleEffects.requiredFields.has(f.name)
+            ? true
+            : ruleEffects.unrequiredFields.has(f.name)
+              ? false
+              : state.required,
+          readonly: ruleEffects.readonlyFields.has(f.name) ? true : state.readonly,
+        },
+      };
+    })
     .filter((f: any) => f._state.visible);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href={`/m/${slug}/${id}`}>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <ArrowLeft className="w-4 h-4" />
+    <div className="flex flex-col h-[calc(100vh-64px)] max-w-3xl mx-auto">
+
+      {/* Sticky top bar — always visible */}
+      <div className="flex items-center justify-between gap-3 px-1 py-3 shrink-0 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link href={`/m/${slug}/${id}`}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+          </Link>
+          <h1 className="text-lg font-bold text-gray-900 truncate flex items-center gap-2">
+            {mod?.icon && <ModuleIcon icon={mod.icon} slug={mod?.slug ?? ""} size={18} />}
+            Edit {mod?.name}
+          </h1>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {autoSaving && (
+            <span className="flex items-center gap-1.5 text-xs text-gray-400">
+              <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+            </span>
+          )}
+          <Link href={`/m/${slug}/${id}`}>
+            <Button type="button" variant="outline" size="sm">Cancel</Button>
+          </Link>
+          <Button size="sm" className="gap-2" onClick={handleSubmit} disabled={saving}>
+            {saving
+              ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
+              : <><Save className="w-4 h-4" />Save Changes</>}
           </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Edit {mod?.name?.replace(/s$/, "")} Record</h1>
-          <p className="text-sm text-gray-500">Update the fields and save changes.</p>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <span>{mod?.icon || "📦"}</span>
-            {mod?.name} Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {computedFields.map((field: any) => (
-              <div key={field.id} className="space-y-1.5">
-                <Label htmlFor={field.name} className="flex items-center gap-1">
-                  {field.label}
-                  {field._state.required && <span className="text-red-500 text-xs">*</span>}
-                  {field.type === "AUTO_NUMBER" && <Badge variant="secondary" className="text-xs ml-1">Auto</Badge>}
-                </Label>
-                <DynamicFieldInput
-                  field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
-                  value={formData[field.name]}
-                  onChange={v => {
-                    if (field._state.readonly || field.type === "FORMULA") return;
-                    setFormData(prev => recomputeFormulaFields({ ...prev, [field.name]: v }, mod?.fields || []));
-                  }}
-                />
-                {field.helpText && <p className="text-xs text-gray-400">{field.helpText}</p>}
-                {errors[field.name] && <p className="text-xs text-red-500">{errors[field.name]}</p>}
-              </div>
-            ))}
-
-            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-              <div className="flex items-center gap-2 text-xs text-gray-400 h-6">
-                {autoSaving && (
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto py-5 px-1">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <span>{mod?.icon || "📦"}</span>
+              {mod?.name} Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {Object.keys(errors).length > 0 && (
+                <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                  Please fill in all required fields before saving.
+                </div>
+              )}
+              <FormSectionRenderer
+                layout={(mod as any)?.settings?.layout ?? DEFAULT_MODULE_LAYOUT}
+                fields={computedFields}
+                formData={formData}
+                showCompletion={false}
+                hiddenSectionIds={ruleEffects.hiddenSections}
+                renderField={(field: any) => (
                   <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Auto-saving…</span>
+                    <Label htmlFor={field.name} className="flex items-center gap-1">
+                      {field.label}
+                      {field._state.required && <span className="text-red-500 text-xs">*</span>}
+                      {field.type === "AUTO_NUMBER" && <Badge variant="secondary" className="text-xs ml-1">Auto</Badge>}
+                    </Label>
+                    <DynamicFieldInput
+                      field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
+                      value={formData[field.name]}
+                      externalOptions={fieldOptions}
+                      onChange={v => {
+                        if (field._state.readonly || field.type === "FORMULA") return;
+                        const allFields = mod?.fields || [];
+                        setFormData(prev => recomputeFormulaFields({ ...prev, [field.name]: v }, allFields));
+                        if (["GLOBAL_RELATION","GLOBAL_LIST","DEPENDENT_GLOBAL_LIST","DROPDOWN","STATUS"].includes(field.type)) {
+                          onDependencyFieldChange(field.name, v);
+                        }
+                      }}
+                    />
+                    {field.helpText && <p className="text-xs text-gray-400">{field.helpText}</p>}
+                    {errors[field.name] && <p className="text-xs text-red-500">{errors[field.name]}</p>}
                   </>
                 )}
-              </div>
-              <div className="flex gap-3">
+              />
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <Link href={`/m/${slug}/${id}`}>
                   <Button type="button" variant="outline">Cancel</Button>
                 </Link>
                 <Button type="submit" disabled={saving} className="gap-2">
-                  {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</> : <><Save className="w-4 h-4" />Save Changes</>}
+                  {saving
+                    ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</>
+                    : <><Save className="w-4 h-4" />Save Changes</>}
                 </Button>
               </div>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Workflow debug (fixed overlay) */}
+      {execLog.length > 0 && (
+        <button
+          onClick={() => setShowDebug(s => !s)}
+          className="fixed bottom-4 right-4 z-50 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-full shadow-lg transition-colors"
+        >
+          ⚡ {execLog.length} workflow{execLog.length !== 1 ? "s" : ""} ran
+        </button>
+      )}
+      {showDebug && (
+        <div className="fixed bottom-16 right-4 z-50 w-80 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-gray-900 text-white">
+            <span className="text-xs font-semibold">⚡ Workflow Activity</span>
+            <button onClick={() => setShowDebug(false)} className="text-gray-400 hover:text-white text-xs">✕</button>
+          </div>
+          <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+            {execLog.slice(0, 20).map((log, i) => (
+              <div key={i} className={"px-3 py-2 text-xs " + (log.conditionResult ? "bg-green-50" : "bg-gray-50")}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-gray-800 truncate flex-1">{log.workflowName}</span>
+                  <span className={log.conditionResult ? "text-green-600 shrink-0" : "text-gray-400 shrink-0"}>
+                    {log.conditionResult ? "✓ matched" : "✗ skip"}
+                  </span>
+                </div>
+                {log.fieldChanged && (
+                  <div className="text-gray-400 mt-0.5 truncate">
+                    {log.fieldChanged}: {String(log.oldValue ?? "∅")} → {String(log.newValue ?? "∅")}
+                  </div>
+                )}
+                {log.conditionResult && (
+                  <div className="text-green-600 mt-0.5">
+                    {log.actionsExecuted} action{log.actionsExecuted !== 1 ? "s" : ""} fired
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

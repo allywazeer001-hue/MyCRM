@@ -1,10 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import {
   User, Building2, Shield, Globe, Users, Mail,
   Zap, BarChart3, FileText, ArrowRight,
-  CheckCircle2, AlertCircle, GitBranch,
+  CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { useAuthStore } from "@/store/auth.store";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { PORTAL_APPEARANCES, getStoredAppearance, setStoredAppearance, AppearanceId, BRAND } from "@/lib/core-brand";
 
 function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
   return (
@@ -72,7 +73,7 @@ function ProfileSection() {
       <CardContent>
         {msg && <Toast msg={msg.text} type={msg.type} />}
         <form onSubmit={form.handleSubmit(onSave)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>First name</Label>
               <Input {...form.register("firstName")} />
@@ -159,7 +160,7 @@ function SecuritySection() {
             <Label>Current password</Label>
             <Input type="password" {...form.register("currentPassword")} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>New password</Label>
               <Input type="password" {...form.register("newPassword")} />
@@ -183,6 +184,13 @@ function SecuritySection() {
 
 const ADMIN_QUICK_LINKS = [
   {
+    href: "/settings/organization",
+    icon: Building2,
+    label: "Organization",
+    description: "Manage organization profile, branding, and view usage statistics.",
+    color: "bg-blue-50 text-blue-600 border-blue-100",
+  },
+  {
     href: "/admin/global-lists",
     icon: Globe,
     label: "Global Lists",
@@ -192,8 +200,8 @@ const ADMIN_QUICK_LINKS = [
   {
     href: "/admin/departments",
     icon: Building2,
-    label: "Departments",
-    description: "Organize your organization's structure and teams.",
+    label: "Units",
+    description: "Manage organizational units, assign unit heads, configure unit-level permissions and access control.",
     color: "bg-blue-50 text-blue-600 border-blue-100",
   },
   {
@@ -273,6 +281,14 @@ function QuickLinkCard({ href, icon: Icon, label, description, color, badge }: {
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
+  const [activeAppearance, setActiveAppearance] = useState<AppearanceId>("professional-web");
+
+  useEffect(() => { setActiveAppearance(getStoredAppearance()); }, []);
+
+  const handleAppearanceChange = (id: AppearanceId) => {
+    setActiveAppearance(id);
+    setStoredAppearance(id);
+  };
 
   return (
     <div className="space-y-8">
@@ -289,11 +305,54 @@ export default function SettingsPage() {
           <Separator />
           <div>
             <h2 className="text-base font-semibold text-gray-900 mb-1">Administration</h2>
-            <p className="text-sm text-gray-500 mb-4">Manage users, departments, access control, and shared data.</p>
+            <p className="text-sm text-gray-500 mb-4">Manage users, units, access control, and shared data.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {ADMIN_QUICK_LINKS.map(link => (
                 <QuickLinkCard key={link.href} {...link} />
               ))}
+            </div>
+          </div>
+
+          <Separator />
+          {/* ── Portal Appearance ── */}
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 mb-1">Portal Appearance</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Choose how the {BRAND.name} portal looks and feels for your users.
+              Selection is saved automatically and persists across sessions.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {PORTAL_APPEARANCES.map(appearance => {
+                const active = activeAppearance === appearance.id;
+                return (
+                  <button
+                    key={appearance.id}
+                    type="button"
+                    onClick={() => handleAppearanceChange(appearance.id)}
+                    className={cn(
+                      "text-left p-4 rounded-xl border-2 transition-all",
+                      active
+                        ? "border-blue-500 bg-blue-50 shadow-sm"
+                        : "border-gray-200 bg-white hover:border-gray-300"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={cn("text-sm font-semibold", active ? "text-blue-700" : "text-gray-800")}>
+                        {appearance.name}
+                      </span>
+                      {active && (
+                        <span className="text-xs px-2 py-0.5 bg-blue-600 text-white rounded-full font-medium">Active</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">{appearance.description}</p>
+                    <div className="mt-3 flex gap-2 flex-wrap">
+                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.navStyle} nav</span>
+                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.layout}</span>
+                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.density}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

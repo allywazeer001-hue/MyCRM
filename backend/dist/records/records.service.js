@@ -13,10 +13,14 @@ exports.RecordsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const workflows_service_1 = require("../workflows/workflows.service");
+const process_service_1 = require("../process/process.service");
+const relation_resolver_service_1 = require("./relation-resolver.service");
 let RecordsService = class RecordsService {
-    constructor(prisma, workflows) {
+    constructor(prisma, workflows, processService, resolver) {
         this.prisma = prisma;
         this.workflows = workflows;
+        this.processService = processService;
+        this.resolver = resolver;
     }
     async create(moduleId, orgId, userId, data) {
         const mod = await this.prisma.dynamicModule.findFirst({
@@ -42,6 +46,7 @@ let RecordsService = class RecordsService {
             },
         });
         this.workflows.executeForRecord('RECORD_CREATED', moduleId, orgId, record).catch(() => { });
+        this.processService.triggerForRecord(record.id, moduleId, "status", enrichedData.status || "", userId, orgId).catch(() => { });
         return record;
     }
     async generateAutoNumber(field, moduleId, orgId) {
@@ -57,15 +62,19 @@ let RecordsService = class RecordsService {
         return parts.join('-');
     }
     async findAll(moduleId, orgId, query) {
-        const { page = 1, limit = 25, search, filterGroup, sortField, sortDir } = query;
+        const { page = 1, limit = 25, search, filterGroup, sortField, sortDir, showArchived } = query;
         const where = { moduleId, organizationId: orgId, isDeleted: false };
+        if (!showArchived || showArchived === 'false')
+            where.isArchived = false;
         const hasFilter = !!(filterGroup || search);
+        const needsInMemorySort = !!(sortField && sortField !== 'createdAt');
+        const needsFullFetch = !!(hasFilter || needsInMemorySort);
         let records = await this.prisma.record.findMany({
             where,
             include: { createdBy: { select: { id: true, firstName: true, lastName: true, email: true } } },
-            orderBy: { createdAt: sortDir === 'asc' ? 'asc' : 'desc' },
-            take: hasFilter ? 5000 : Number(limit),
-            skip: hasFilter ? 0 : (Number(page) - 1) * Number(limit),
+            orderBy: { createdAt: (!sortField || sortField === 'createdAt') ? (sortDir === 'asc' ? 'asc' : 'desc') : 'desc' },
+            take: needsFullFetch ? 5000 : Number(limit),
+            skip: needsFullFetch ? 0 : (Number(page) - 1) * Number(limit),
         });
         if (search) {
             const s = search.toLowerCase();
@@ -78,12 +87,23 @@ let RecordsService = class RecordsService {
             }
             catch { }
         }
-        const total = hasFilter ? records.length : await this.prisma.record.count({ where });
-        const paged = hasFilter
+        if (sortField && sortField !== 'createdAt') {
+            const dir = sortDir === 'asc' ? 1 : -1;
+            records.sort((a, b) => {
+                const av = a.data?.[sortField] ?? '';
+                const bv = b.data?.[sortField] ?? '';
+                const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+                return cmp * dir;
+            });
+        }
+        const total = needsFullFetch ? records.length : await this.prisma.record.count({ where });
+        const paged = needsFullFetch
             ? records.slice((Number(page) - 1) * Number(limit), Number(page) * Number(limit))
             : records;
+        const moduleFields = await this.prisma.field.findMany({ where: { moduleId, isActive: true }, include: { options: true } });
+        const resolvedData = await this.resolver.resolveRecords(paged, moduleFields);
         return {
-            data: paged,
+            data: resolvedData,
             meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
         };
     }
@@ -167,12 +187,12 @@ let RecordsService = class RecordsService {
         });
         if (!record)
             throw new common_1.NotFoundException('Record not found');
-        return record;
+        const moduleFields = record.module?.fields ?? await this.prisma.field.findMany({ where: { moduleId: record.moduleId, isActive: true }, include: { options: true } });
+        return this.resolver.resolveRecord(record, moduleFields);
     }
     async update(id, orgId, userId, data) {
-        const record = await this.prisma.record.findFirst({
-            where: { id, organizationId: orgId, isDeleted: false },
-        });
+        const where = orgId ? { id, organizationId: orgId, isDeleted: false } : { id, isDeleted: false };
+        const record = await this.prisma.record.findFirst({ where });
         if (!record)
             throw new common_1.NotFoundException('Record not found');
         const existingData = record.data || {};
@@ -181,23 +201,28 @@ let RecordsService = class RecordsService {
             where: { id },
             data: { data: mergedData, updatedById: userId },
         });
+        const oldValues = {};
+        for (const key of Object.keys(data))
+            oldValues[key] = existingData[key] ?? null;
+        const auditOrgId = orgId ?? record.organizationId;
         await this.prisma.auditLog.create({
             data: {
-                userId, organizationId: orgId,
+                userId, organizationId: auditOrgId,
                 action: 'RECORD_UPDATED', entityType: 'Record', entityId: id,
-                metadata: { changes: data },
+                metadata: { oldValues, newValues: data },
             },
         });
-        this.workflows.executeForRecord('RECORD_UPDATED', record.moduleId, orgId, { ...updated, data: mergedData }, existingData).catch(() => { });
+        this.workflows.executeForRecord('RECORD_UPDATED', record.moduleId, auditOrgId, { ...updated, data: mergedData }, existingData).catch(() => { });
         return updated;
     }
     async softDelete(id, orgId, userId) {
-        const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId } });
+        const where = orgId ? { id, organizationId: orgId } : { id };
+        const record = await this.prisma.record.findFirst({ where });
         if (!record)
             throw new common_1.NotFoundException('Record not found');
         await this.prisma.record.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } });
         await this.prisma.auditLog.create({
-            data: { userId, organizationId: orgId, action: 'RECORD_DELETED', entityType: 'Record', entityId: id, metadata: {} },
+            data: { userId, organizationId: orgId ?? record.organizationId, action: 'RECORD_DELETED', entityType: 'Record', entityId: id, metadata: {} },
         });
         return { success: true };
     }
@@ -241,6 +266,102 @@ let RecordsService = class RecordsService {
             data: { recordId, userId, content },
             include: { user: { select: { id: true, firstName: true, lastName: true } } },
         });
+    }
+    async getActivity(recordId, orgId) {
+        const [auditLogs, comments] = await Promise.all([
+            this.prisma.auditLog.findMany({
+                where: { entityId: recordId, organizationId: orgId },
+                include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+                orderBy: { createdAt: 'desc' },
+                take: 200,
+            }),
+            this.prisma.comment.findMany({
+                where: { recordId },
+                include: { user: { select: { id: true, firstName: true, lastName: true } } },
+                orderBy: { createdAt: 'desc' },
+            }),
+        ]);
+        const entries = [
+            ...auditLogs.map((log) => ({
+                id: log.id, type: 'audit',
+                action: log.action, user: log.user,
+                metadata: log.metadata, createdAt: log.createdAt,
+            })),
+            ...comments.map((c) => ({
+                id: c.id, type: 'comment',
+                action: 'COMMENT_ADDED', user: c.user,
+                metadata: { content: c.content }, createdAt: c.createdAt,
+            })),
+        ];
+        return entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    async duplicate(id, orgId, userId) {
+        const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+        if (!record)
+            throw new common_1.NotFoundException('Record not found');
+        const mod = await this.prisma.dynamicModule.findFirst({
+            where: { id: record.moduleId },
+            include: { fields: { where: { isActive: true } } },
+        });
+        const sourceData = record.data || {};
+        const duplicateData = {};
+        const skipTypes = new Set(['AUTO_NUMBER', 'FORMULA', 'INLINE_SUBFORM']);
+        for (const [key, value] of Object.entries(sourceData)) {
+            const field = mod?.fields.find((f) => f.name === key);
+            if (field && skipTypes.has(field.type))
+                continue;
+            duplicateData[key] = value;
+        }
+        for (const field of mod?.fields ?? []) {
+            if (field.type === 'AUTO_NUMBER') {
+                duplicateData[field.name] = await this.generateAutoNumber(field, record.moduleId, orgId);
+            }
+        }
+        const newRecord = await this.prisma.record.create({
+            data: { moduleId: record.moduleId, organizationId: orgId, createdById: userId, data: duplicateData },
+        });
+        await this.prisma.auditLog.create({
+            data: {
+                userId, organizationId: orgId,
+                action: 'RECORD_CREATED', entityType: 'Record', entityId: newRecord.id,
+                metadata: { moduleId: record.moduleId, duplicatedFrom: id },
+            },
+        });
+        return newRecord;
+    }
+    async setArchived(id, orgId, userId, archived) {
+        const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+        if (!record)
+            throw new common_1.NotFoundException('Record not found');
+        await this.prisma.record.update({
+            where: { id },
+            data: { isArchived: archived, archivedAt: archived ? new Date() : null },
+        });
+        await this.prisma.auditLog.create({
+            data: {
+                userId, organizationId: orgId,
+                action: archived ? 'RECORD_ARCHIVED' : 'RECORD_UNARCHIVED',
+                entityType: 'Record', entityId: id, metadata: {},
+            },
+        });
+        return { success: true, isArchived: archived };
+    }
+    async setLocked(id, orgId, userId, locked) {
+        const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+        if (!record)
+            throw new common_1.NotFoundException('Record not found');
+        await this.prisma.record.update({
+            where: { id },
+            data: { isLocked: locked, lockedAt: locked ? new Date() : null },
+        });
+        await this.prisma.auditLog.create({
+            data: {
+                userId, organizationId: orgId,
+                action: locked ? 'RECORD_LOCKED' : 'RECORD_UNLOCKED',
+                entityType: 'Record', entityId: id, metadata: {},
+            },
+        });
+        return { success: true, isLocked: locked };
     }
     async exportCsv(moduleId, orgId, filterGroup) {
         const mod = await this.prisma.dynamicModule.findFirst({
@@ -405,6 +526,8 @@ exports.RecordsService = RecordsService;
 exports.RecordsService = RecordsService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        workflows_service_1.WorkflowsService])
+        workflows_service_1.WorkflowsService,
+        process_service_1.ProcessService,
+        relation_resolver_service_1.RelationResolverService])
 ], RecordsService);
 //# sourceMappingURL=records.service.js.map

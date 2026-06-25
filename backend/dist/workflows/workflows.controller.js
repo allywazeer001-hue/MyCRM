@@ -19,29 +19,43 @@ const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const swagger_1 = require("@nestjs/swagger");
 let WorkflowsController = class WorkflowsController {
-    constructor(svc) {
-        this.svc = svc;
+    constructor(workflowsService) {
+        this.workflowsService = workflowsService;
     }
     create(body, user) {
-        return this.svc.create(user.organizationId, body);
+        return this.workflowsService.create(user.organizationId, body);
     }
     findAll(user) {
-        return this.svc.findAll(user.organizationId);
+        return this.workflowsService.findAll(user.organizationId);
     }
     findOne(id, user) {
-        return this.svc.findOne(id, user.organizationId);
+        return this.workflowsService.findOne(id, user.organizationId);
     }
     update(id, body, user) {
-        return this.svc.update(id, user.organizationId, body);
+        return this.workflowsService.update(id, user.organizationId, body);
     }
     remove(id, user) {
-        return this.svc.remove(id, user.organizationId);
+        return this.workflowsService.remove(id, user.organizationId);
     }
     toggle(id, user) {
-        return this.svc.toggle(id, user.organizationId);
+        return this.workflowsService.toggle(id, user.organizationId);
     }
     getExecutions(id, user) {
-        return this.svc.getExecutions(id, user.organizationId);
+        return this.workflowsService.getExecutions(id, user.organizationId);
+    }
+    async executeOnRecord(id, body, user) {
+        const workflow = await this.workflowsService.findOne(id, user.organizationId);
+        if (!workflow || !workflow.isActive)
+            return { executed: false, actionsExecuted: 0 };
+        const fakeRecord = {
+            id: body.recordId,
+            moduleId: workflow.moduleId,
+            data: body.data,
+            organizationId: user.organizationId,
+            createdById: user.id,
+        };
+        await this.workflowsService.executeWorkflow(workflow, fakeRecord, user.organizationId);
+        return { executed: true, actionsExecuted: (workflow.actions?.length ?? 0) };
     }
 };
 exports.WorkflowsController = WorkflowsController;
@@ -101,6 +115,15 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], WorkflowsController.prototype, "getExecutions", null);
+__decorate([
+    (0, common_1.Post)(':id/execute-on-record'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], WorkflowsController.prototype, "executeOnRecord", null);
 exports.WorkflowsController = WorkflowsController = __decorate([
     (0, swagger_1.ApiTags)('workflows'),
     (0, swagger_1.ApiBearerAuth)(),

@@ -16,6 +16,7 @@ export declare class RecordsController {
     constructor(recordsService: RecordsService, permCheck: PermissionCheckService);
     create(moduleId: string, body: any, user: any): Promise<{
         id: string;
+        lockedAt: Date | null;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -23,29 +24,14 @@ export declare class RecordsController {
         moduleId: string;
         isDeleted: boolean;
         deletedAt: Date | null;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        isLocked: boolean;
         createdById: string;
         updatedById: string | null;
     }>;
     findAll(moduleId: string, query: any, user: any): Promise<{
-        data: ({
-            createdBy: {
-                email: string;
-                firstName: string;
-                lastName: string;
-                id: string;
-            };
-        } & {
-            id: string;
-            organizationId: string;
-            createdAt: Date;
-            updatedAt: Date;
-            data: import("@prisma/client/runtime/library").JsonValue;
-            moduleId: string;
-            isDeleted: boolean;
-            deletedAt: Date | null;
-            createdById: string;
-            updatedById: string | null;
-        })[];
+        data: any[];
         meta: {
             total: number;
             page: number;
@@ -53,102 +39,10 @@ export declare class RecordsController {
             totalPages: number;
         };
     }>;
-    findOne(id: string, user: any): Promise<{
-        comments: ({
-            user: {
-                firstName: string;
-                lastName: string;
-                id: string;
-            };
-        } & {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            userId: string;
-            recordId: string;
-            content: string;
-        })[];
-        files: {
-            id: string;
-            organizationId: string;
-            createdAt: Date;
-            name: string;
-            recordId: string | null;
-            originalName: string;
-            mimeType: string;
-            size: number;
-            url: string;
-            path: string | null;
-            uploadedById: string;
-        }[];
-        module: {
-            fields: ({
-                options: {
-                    id: string;
-                    createdAt: Date;
-                    color: string | null;
-                    order: number;
-                    label: string;
-                    value: string;
-                    fieldId: string;
-                }[];
-            } & {
-                id: string;
-                isActive: boolean;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                settings: import("@prisma/client/runtime/library").JsonValue;
-                order: number;
-                moduleId: string;
-                label: string;
-                type: import(".prisma/client").$Enums.FieldType;
-                isRequired: boolean;
-                isUnique: boolean;
-                isReadonly: boolean;
-                isHidden: boolean;
-                placeholder: string | null;
-                helpText: string | null;
-                defaultValue: string | null;
-                validation: import("@prisma/client/runtime/library").JsonValue | null;
-                conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
-                lookupModuleId: string | null;
-                lookupFieldId: string | null;
-            })[];
-        } & {
-            id: string;
-            isActive: boolean;
-            organizationId: string;
-            createdAt: Date;
-            updatedAt: Date;
-            name: string;
-            slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
-            description: string | null;
-            icon: string | null;
-            color: string | null;
-            order: number;
-        };
-        createdBy: {
-            email: string;
-            firstName: string;
-            lastName: string;
-            id: string;
-        };
-    } & {
-        id: string;
-        organizationId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        data: import("@prisma/client/runtime/library").JsonValue;
-        moduleId: string;
-        isDeleted: boolean;
-        deletedAt: Date | null;
-        createdById: string;
-        updatedById: string | null;
-    }>;
+    findOne(id: string, user: any): Promise<any>;
     update(moduleId: string, id: string, body: any, user: any): Promise<{
         id: string;
+        lockedAt: Date | null;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
@@ -156,6 +50,9 @@ export declare class RecordsController {
         moduleId: string;
         isDeleted: boolean;
         deletedAt: Date | null;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        isLocked: boolean;
         createdById: string;
         updatedById: string | null;
     }>;
@@ -196,5 +93,46 @@ export declare class RecordsController {
         userId: string;
         recordId: string;
         content: string;
+    }>;
+    getActivity(id: string, user: any): Promise<({
+        id: any;
+        type: "audit";
+        action: any;
+        user: any;
+        metadata: any;
+        createdAt: any;
+    } | {
+        id: any;
+        type: "comment";
+        action: string;
+        user: any;
+        metadata: {
+            content: any;
+        };
+        createdAt: any;
+    })[]>;
+    duplicate(moduleId: string, id: string, user: any): Promise<{
+        id: string;
+        lockedAt: Date | null;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        data: import("@prisma/client/runtime/library").JsonValue;
+        moduleId: string;
+        isDeleted: boolean;
+        deletedAt: Date | null;
+        isArchived: boolean;
+        archivedAt: Date | null;
+        isLocked: boolean;
+        createdById: string;
+        updatedById: string | null;
+    }>;
+    archive(id: string, archived: boolean, user: any): Promise<{
+        success: boolean;
+        isArchived: boolean;
+    }>;
+    lock(id: string, locked: boolean, user: any): Promise<{
+        success: boolean;
+        isLocked: boolean;
     }>;
 }

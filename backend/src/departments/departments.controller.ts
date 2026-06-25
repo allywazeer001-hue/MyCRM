@@ -60,4 +60,9 @@ export class DepartmentsController {
   updatePermissions(@Param('id') id: string, @CurrentUser() user: any, @Body() body: any) {
     return this.depts.updatePermissions(id, user.organizationId, body);
   }
+
+  @Patch(':id/head')
+  setHead(@Param('id') id: string, @CurrentUser() user: any, @Body() body: { headUserId: string | null }) {
+    return this.depts.setHead(id, user.organizationId, body.headUserId);
+  }
 }

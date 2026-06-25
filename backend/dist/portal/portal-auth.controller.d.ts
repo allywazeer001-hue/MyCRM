@@ -2,35 +2,7 @@ import { PortalAuthService } from './portal-auth.service';
 export declare class PortalAuthController {
     private authService;
     constructor(authService: PortalAuthService);
-    register(body: {
-        email: string;
-        password: string;
-        firstName: string;
-        lastName: string;
-        phone?: string;
-        type?: string;
-        orgSlug?: string;
-    }): Promise<{
-        accessToken: string;
-        refreshToken: string;
-        user: {
-            id: any;
-            email: any;
-            firstName: any;
-            lastName: any;
-            phone: any;
-            type: any;
-            accountStatus: any;
-            profilePicture: any;
-            organizationId: any;
-            moduleId: any;
-            recordId: any;
-            isEmailVerified: any;
-            lastLoginAt: any;
-            isPortalAdmin: any;
-            portalRole: any;
-        };
-    }>;
+    register(): void;
     login(body: {
         email: string;
         password: string;

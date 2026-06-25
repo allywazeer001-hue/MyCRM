@@ -33,8 +33,8 @@ export declare class RelationshipsService {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;
@@ -47,8 +47,8 @@ export declare class RelationshipsService {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;

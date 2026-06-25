@@ -14,15 +14,15 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  private connectedUsers = new Map<string, string>();
+  // userId → socketId (last known socket for that user)
+  private userSockets = new Map<string, string>();
 
-  handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
-  }
+  handleConnection(client: Socket) {}
 
   handleDisconnect(client: Socket) {
-    this.connectedUsers.delete(client.id);
-    console.log(`Client disconnected: ${client.id}`);
+    for (const [uid, sid] of this.userSockets.entries()) {
+      if (sid === client.id) { this.userSockets.delete(uid); break; }
+    }
   }
 
   @SubscribeMessage('join-org')
@@ -40,7 +40,32 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join-user')
   handleJoinUser(@ConnectedSocket() client: Socket, @MessageBody() userId: string) {
     client.join(`user:${userId}`);
+    this.userSockets.set(userId, client.id);
     return { event: 'joined', data: `user:${userId}` };
+  }
+
+  @SubscribeMessage('chat:join')
+  handleChatJoin(@ConnectedSocket() client: Socket, @MessageBody() conversationId: string) {
+    client.join(`chat:${conversationId}`);
+    return { event: 'chat:joined', data: conversationId };
+  }
+
+  @SubscribeMessage('chat:typing')
+  handleTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string; userId: string; isTyping: boolean },
+  ) {
+    // Relay to everyone else in the room (not the sender)
+    client.to(`chat:${data.conversationId}`).emit('chat:typing', data);
+  }
+
+  @SubscribeMessage('chat:read')
+  handleRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string; userId: string; lastReadAt: string },
+  ) {
+    // Relay read receipt to everyone else in the conversation
+    client.to(`chat:${data.conversationId}`).emit('chat:read', data);
   }
 
   emitToOrg(orgId: string, event: string, data: any) {
@@ -53,5 +78,17 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitToUser(userId: string, event: string, data: any) {
     this.server.to(`user:${userId}`).emit(event, data);
+  }
+
+  /** Emit to conversation room — excluding the sender's socket so they don't get their own message. */
+  emitToConversation(conversationId: string, event: string, data: any, excludeSenderId?: string) {
+    const room = `chat:${conversationId}`;
+    const senderSocketId = excludeSenderId ? this.userSockets.get(excludeSenderId) : undefined;
+    if (senderSocketId) {
+      // Socket.IO v4: .except() filters out the sender without needing the Socket object
+      this.server.to(room).except(senderSocketId).emit(event, data);
+    } else {
+      this.server.to(room).emit(event, data);
+    }
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck } from "lucide-react";
+import { Bell, CheckCheck, ArrowRight, ExternalLink } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,13 @@ const TYPE_STYLES: Record<string, string> = {
   ERROR:    "bg-red-50 border-red-200 text-red-700",
   WORKFLOW: "bg-purple-50 border-purple-200 text-purple-700",
   SYSTEM:   "bg-gray-50 border-gray-200 text-gray-700",
+};
+
+const TYPE_DOT: Record<string, string> = {
+  SUCCESS:  "bg-emerald-500",
+  WARNING:  "bg-amber-500",
+  ERROR:    "bg-red-500",
+  WORKFLOW: "bg-purple-500",
 };
 
 const TABS: { id: Tab; label: string }[] = [
@@ -49,31 +56,26 @@ export default function NotificationsPage() {
 
   const tabUnread = notifications.filter((n) => !n.isRead).length;
 
-  // Group consecutive notifications with same title+type within 10 minutes
+  // Group consecutive notifications that have the SAME title, type AND link within 10 minutes.
+  // Notifications with different links are never grouped (each is about a different record).
+  type SingleNotif = typeof filtered[0];
   type GroupedItem =
-    | { kind: "single"; notif: typeof filtered[0] }
-    | { kind: "group"; title: string; type: string; count: number; ids: string[]; isRead: boolean; createdAt: string };
+    | { kind: "single"; notif: SingleNotif }
+    | { kind: "group"; title: string; type: string; count: number; ids: string[]; isRead: boolean; createdAt: string; link?: string };
 
   const grouped: GroupedItem[] = [];
   for (const notif of filtered) {
     const prev = grouped[grouped.length - 1];
     const tenMin = 10 * 60 * 1000;
-    if (
-      prev?.kind === "group" &&
-      prev.title === notif.title &&
-      prev.type === notif.type &&
-      Math.abs(new Date(notif.createdAt).getTime() - new Date(prev.createdAt).getTime()) < tenMin
-    ) {
+    const sameGroup = (a: { title: string; type: string; link?: string }, b: SingleNotif) =>
+      a.title === b.title && a.type === b.type && (a.link ?? "") === (b.link ?? "") &&
+      Math.abs(new Date(b.createdAt).getTime() - new Date(a.createdAt ?? b.createdAt).getTime()) < tenMin;
+
+    if (prev?.kind === "group" && sameGroup(prev, notif)) {
       prev.count += 1;
       prev.ids.push(notif.id);
       if (!notif.isRead) prev.isRead = false;
-    } else if (
-      prev?.kind === "single" &&
-      prev.notif.title === notif.title &&
-      prev.notif.type === notif.type &&
-      Math.abs(new Date(notif.createdAt).getTime() - new Date(prev.notif.createdAt).getTime()) < tenMin
-    ) {
-      // Promote single → group
+    } else if (prev?.kind === "single" && sameGroup({ title: prev.notif.title, type: prev.notif.type, link: prev.notif.link, createdAt: prev.notif.createdAt }, notif)) {
       grouped[grouped.length - 1] = {
         kind: "group",
         title: notif.title,
@@ -82,6 +84,7 @@ export default function NotificationsPage() {
         ids: [prev.notif.id, notif.id],
         isRead: prev.notif.isRead && notif.isRead,
         createdAt: prev.notif.createdAt,
+        link: notif.link,
       };
     } else {
       grouped.push({ kind: "single", notif });
@@ -91,7 +94,7 @@ export default function NotificationsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
           <p className="text-gray-500 mt-1">
@@ -147,35 +150,46 @@ export default function NotificationsPage() {
               {grouped.map((item, idx) => {
                 if (item.kind === "group") {
                   const handleGroupClick = async () => {
-                    for (const gid of item.ids) {
-                      if (!item.isRead) await markRead(gid).catch(() => {});
-                    }
+                    await Promise.all(item.ids.map(gid => markRead(gid).catch(() => {})));
+                    if (item.link) router.push(item.link);
                   };
                   return (
                     <div
                       key={`g-${idx}`}
+                      onClick={handleGroupClick}
                       className={cn(
-                        "flex items-start gap-4 p-4 transition-colors cursor-pointer hover:bg-gray-50",
+                        "flex items-start gap-4 p-4 transition-colors",
+                        item.link ? "cursor-pointer hover:bg-gray-50" : "cursor-default",
                         !item.isRead && "bg-blue-50/40"
                       )}
-                      onClick={handleGroupClick}
                     >
-                      <div className={cn("w-2 h-2 rounded-full mt-2 shrink-0", item.isRead ? "bg-gray-300" : "bg-blue-500")} />
+                      <div className={cn(
+                        "w-2 h-2 rounded-full mt-2 shrink-0",
+                        item.isRead ? "bg-gray-300" : (TYPE_DOT[item.type] ?? "bg-blue-500")
+                      )} />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-start justify-between gap-2">
                           <p className={cn("text-sm font-medium", item.isRead ? "text-gray-600" : "text-gray-900")}>
-                            {item.count} new · {item.title}
+                            {item.count} notifications · {item.title}
                           </p>
-                          <Badge variant="outline" className={cn("text-xs shrink-0", TYPE_STYLES[item.type] ?? TYPE_STYLES.INFO)}>
+                          <Badge variant="outline" className={cn("text-xs shrink-0 mt-0.5", TYPE_STYLES[item.type] ?? TYPE_STYLES.INFO)}>
                             {item.type}
                           </Badge>
                         </div>
-                        <p className="text-sm text-gray-500 mt-0.5">{item.count} notifications grouped</p>
-                        <p className="text-xs text-gray-400 mt-1">{formatDateTime(item.createdAt)}</p>
+                        <p className="text-sm text-gray-500 mt-0.5">{item.count} similar notifications</p>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <p className="text-xs text-gray-400">{formatDateTime(item.createdAt)}</p>
+                          {item.link && (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800">
+                              <ExternalLink className="w-3 h-3" /> View record
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
                 }
+
                 const notif = item.notif;
                 return (
                   <div
@@ -183,25 +197,39 @@ export default function NotificationsPage() {
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => e.key === "Enter" && handleClick(notif)}
+                    onClick={() => handleClick(notif)}
                     className={cn(
                       "flex items-start gap-4 p-4 transition-colors",
                       notif.link ? "cursor-pointer hover:bg-gray-50" : "cursor-default",
                       !notif.isRead && "bg-blue-50/40"
                     )}
-                    onClick={() => handleClick(notif)}
                   >
-                    <div className={cn("w-2 h-2 rounded-full mt-2 shrink-0", notif.isRead ? "bg-gray-300" : "bg-blue-500")} />
+                    <div className={cn(
+                      "w-2 h-2 rounded-full mt-2 shrink-0",
+                      notif.isRead ? "bg-gray-300" : (TYPE_DOT[notif.type] ?? "bg-blue-500")
+                    )} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className={cn("text-sm font-medium", notif.isRead ? "text-gray-600" : "text-gray-900")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className={cn("text-sm font-semibold", notif.isRead ? "text-gray-600" : "text-gray-900")}>
                           {notif.title}
                         </p>
-                        <Badge variant="outline" className={cn("text-xs shrink-0", TYPE_STYLES[notif.type] ?? TYPE_STYLES.INFO)}>
+                        <Badge variant="outline" className={cn("text-xs shrink-0 mt-0.5", TYPE_STYLES[notif.type] ?? TYPE_STYLES.INFO)}>
                           {notif.type}
                         </Badge>
                       </div>
-                      <p className="text-sm text-gray-500 mt-0.5">{notif.message}</p>
-                      <p className="text-xs text-gray-400 mt-1">{formatDateTime(notif.createdAt)}</p>
+
+                      {notif.message && (
+                        <p className="text-sm text-gray-600 mt-1 leading-relaxed">{notif.message}</p>
+                      )}
+
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <p className="text-xs text-gray-400">{formatDateTime(notif.createdAt)}</p>
+                        {notif.link && (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 group-hover:text-blue-800">
+                            <ArrowRight className="w-3 h-3" /> View record
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

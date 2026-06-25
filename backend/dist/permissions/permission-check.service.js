@@ -32,7 +32,7 @@ let PermissionCheckService = class PermissionCheckService {
     }
     async resolveUserPermissions(userId, orgId) {
         const userRole = await this.prisma.user.findFirst({
-            where: { id: userId, organizationId: orgId },
+            where: { id: userId },
             select: { role: true },
         });
         if (userRole?.role === 'SUPER_ADMIN') {
@@ -44,7 +44,7 @@ let PermissionCheckService = class PermissionCheckService {
             };
         }
         const user = await this.prisma.user.findFirst({
-            where: { id: userId, organizationId: orgId },
+            where: { id: userId },
             select: { id: true, role: true, departmentId: true },
         });
         if (!user)
@@ -56,7 +56,35 @@ let PermissionCheckService = class PermissionCheckService {
         });
         let baseSystem;
         let baseMods;
-        if (isAdmin) {
+        if (isAdmin && user.departmentId) {
+            const dept = await this.prisma.department.findFirst({
+                where: { id: user.departmentId, organizationId: orgId },
+                select: { permissions: true },
+            });
+            const stored = dept?.permissions || {};
+            const ss = stored.system || {};
+            const ms = stored.modules || {};
+            baseSystem = {
+                canDashboard: ss.canDashboard ?? true,
+                canAnalytics: ss.canAnalytics ?? true,
+                canWorkflow: ss.canWorkflow ?? true,
+                canForms: ss.canForms ?? true,
+                canStudio: ss.canStudio ?? true,
+            };
+            baseMods = Object.fromEntries(modules.map(m => {
+                const mp = ms[m.id] || {};
+                return [m.slug, {
+                        canView: mp.canView ?? true,
+                        canCreate: mp.canCreate ?? true,
+                        canEdit: mp.canEdit ?? true,
+                        canDelete: mp.canDelete ?? true,
+                        canExport: mp.canExport ?? true,
+                        canImport: mp.canImport ?? true,
+                        canPrint: mp.canPrint ?? true,
+                    }];
+            }));
+        }
+        else if (isAdmin) {
             baseSystem = { ...SYSTEM_ALL_ON };
             baseMods = Object.fromEntries(modules.map(m => [m.slug, { ...MODULE_ALL_ON }]));
         }
@@ -137,19 +165,66 @@ let PermissionCheckService = class PermissionCheckService {
         }
         return { isAdmin, system: baseSystem, modules: baseMods };
     }
+    async canViewResource(userId, _orgId, resource) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId },
+            select: { role: true, departmentId: true },
+        });
+        if (!user)
+            return false;
+        if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN')
+            return true;
+        if (resource.createdById === userId)
+            return true;
+        if (resource.isPublic)
+            return true;
+        const sharedUsers = asArray(resource.sharedUsers);
+        const sharedRoles = asArray(resource.sharedRoles);
+        const sharedDepartments = asArray(resource.sharedDepartments);
+        const hasRestrictions = sharedUsers.length > 0 || sharedRoles.length > 0 || sharedDepartments.length > 0;
+        if (!hasRestrictions)
+            return true;
+        if (sharedUsers.includes(userId))
+            return true;
+        if (sharedRoles.includes(user.role))
+            return true;
+        if (user.departmentId && sharedDepartments.includes(user.departmentId))
+            return true;
+        return false;
+    }
+    async enforceCanEditResource(userId, _orgId, resource) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId },
+            select: { role: true },
+        });
+        if (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN')
+            return;
+        if (resource.createdById === userId)
+            return;
+        throw new common_1.ForbiddenException('You do not have permission to manage this resource');
+    }
+    async getUserUnit(userId) {
+        const user = await this.prisma.user.findFirst({
+            where: { id: userId },
+            select: { role: true, departmentId: true },
+        });
+        if (!user || user.role === 'SUPER_ADMIN')
+            return null;
+        if (user.role === 'ADMIN')
+            return user.departmentId ?? null;
+        return null;
+    }
     async checkModulePermById(userId, orgId, moduleId, action) {
         const user = await this.prisma.user.findFirst({
-            where: { id: userId, organizationId: orgId },
+            where: { id: userId },
             select: { role: true },
         });
         if (!user)
             return false;
         if (user.role === 'SUPER_ADMIN')
             return true;
-        if (user.role === 'ADMIN')
-            return true;
         const mod = await this.prisma.dynamicModule.findFirst({
-            where: { id: moduleId, organizationId: orgId },
+            where: { id: moduleId },
             select: { slug: true },
         });
         if (!mod)
@@ -159,7 +234,7 @@ let PermissionCheckService = class PermissionCheckService {
     }
     async enforceModulePerm(userId, orgId, moduleId, action) {
         const user = await this.prisma.user.findFirst({
-            where: { id: userId, organizationId: orgId },
+            where: { id: userId },
             select: { role: true },
         });
         if (user?.role === 'SUPER_ADMIN')
@@ -174,4 +249,9 @@ exports.PermissionCheckService = PermissionCheckService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], PermissionCheckService);
+function asArray(value) {
+    if (Array.isArray(value))
+        return value.filter(v => typeof v === 'string');
+    return [];
+}
 //# sourceMappingURL=permission-check.service.js.map

@@ -20,6 +20,16 @@ export declare class PermissionCheckService {
         modules: Record<string, Record<string, boolean>>;
         isSuperAdmin?: undefined;
     }>;
+    canViewResource(userId: string, _orgId: string, resource: ShareableResource): Promise<boolean>;
+    enforceCanEditResource(userId: string, _orgId: string, resource: ShareableResource): Promise<void>;
+    getUserUnit(userId: string): Promise<string | null>;
     checkModulePermById(userId: string, orgId: string, moduleId: string, action: string): Promise<boolean>;
     enforceModulePerm(userId: string, orgId: string, moduleId: string, action: string): Promise<void>;
+}
+export interface ShareableResource {
+    createdById: string;
+    isPublic?: boolean | null;
+    sharedUsers?: unknown;
+    sharedRoles?: unknown;
+    sharedDepartments?: unknown;
 }

@@ -18,8 +18,18 @@ interface MenuItem {
   children?: MenuItem[];
 }
 
-const ICONS = ["Home", "LayoutDashboard", "User", "FileText", "Bell", "Settings", "Star", "Bookmark", "HelpCircle", "ChevronRight"];
-const TYPES = ["page", "link", "section", "divider"];
+const ICONS = ["Home", "LayoutDashboard", "User", "FileText", "Bell", "Settings", "Star", "Bookmark", "HelpCircle", "ChevronRight", "Newspaper", "Images"];
+const TYPES = ["page", "link", "section", "divider", "publications", "gallery", "dashboard", "records", "notifications", "profile"];
+
+// Built-in types resolve to fixed URLs — no target needed
+const BUILTIN_TARGETS: Record<string, string> = {
+  dashboard:     "/portal/dashboard",
+  records:       "/portal/records",
+  notifications: "/portal/notifications",
+  profile:       "/portal/profile",
+  publications:  "/portal/publications",
+  gallery:       "/portal/gallery",
+};
 
 function ItemRow({
   item,
@@ -40,39 +50,39 @@ function ItemRow({
   return (
     <>
       <div
-        className={`flex items-center gap-3 px-4 py-3 border-b border-gray-800 hover:bg-gray-800/40 transition-colors`}
+        className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors`}
         style={{ paddingLeft: `${16 + depth * 24}px` }}
       >
         <GripVertical className="w-4 h-4 text-gray-600 shrink-0 cursor-grab" />
         {hasChildren ? (
-          <button onClick={() => setExpanded(e => !e)} className="text-gray-500 hover:text-gray-300">
+          <button onClick={() => setExpanded(e => !e)} className="text-gray-400 hover:text-gray-700">
             {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
         ) : (
           <span className="w-3.5" />
         )}
-        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 font-mono shrink-0">{item.type}</span>
-        <span className="flex-1 text-sm text-white truncate">{item.label}</span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-mono shrink-0">{item.type}</span>
+        <span className="flex-1 text-sm text-gray-900 truncate">{item.label}</span>
         {item.target && (
           <span className="text-xs text-gray-600 truncate max-w-[160px] hidden sm:block">{item.target}</span>
         )}
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => onToggleVisibility(item)}
-            className={`p-1.5 rounded-lg transition-colors ${item.isVisible ? "text-gray-400 hover:text-gray-200" : "text-gray-600 hover:text-gray-400"}`}
+            className={`p-1.5 rounded-lg transition-colors ${item.isVisible ? "text-green-500 hover:text-green-600" : "text-gray-400 hover:text-gray-600"}`}
             title={item.isVisible ? "Visible" : "Hidden"}
           >
             {item.isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={() => onEdit(item)}
-            className="p-1.5 text-gray-500 hover:text-violet-400 hover:bg-violet-900/20 rounded-lg transition-colors"
+            className="p-1.5 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => onDelete(item.id)}
-            className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -153,11 +163,12 @@ export default function MenuBuilderPage() {
     setSaving(true);
     setError("");
     try {
+      const isBuiltin = form.type in BUILTIN_TARGETS;
       const payload = {
         label: form.label.trim(),
         type: form.type,
-        target: form.target || undefined,
-        icon: form.icon || undefined,
+        target: isBuiltin ? BUILTIN_TARGETS[form.type] : (form.target || undefined),
+        icon: form.icon || form.type || undefined,
         isVisible: form.isVisible,
         parentId: form.parentId || undefined,
         autoCreatePage: form.autoCreatePage,
@@ -195,13 +206,13 @@ export default function MenuBuilderPage() {
   const rootItems = items.filter(i => !i.parentId);
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Menu className="w-5 h-5 text-violet-400" />
+          <Menu className="w-5 h-5 text-violet-500" />
           <div>
-            <h1 className="text-xl font-bold text-white">Menu Builder</h1>
-            <p className="text-sm text-gray-400 mt-0.5">Create and manage portal navigation menus.</p>
+            <h1 className="text-xl font-bold text-gray-900">Menu Builder</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Create and manage portal navigation menus.</p>
           </div>
         </div>
         <button
@@ -215,58 +226,61 @@ export default function MenuBuilderPage() {
 
       {/* Form drawer */}
       {showForm && (
-        <div className="bg-gray-900 border border-gray-700 rounded-xl p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-white">{editingId ? "Edit Menu Item" : "Add Menu Item"}</h2>
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-900">{editingId ? "Edit Menu Item" : "Add Menu Item"}</h2>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Label *</label>
+              <label className="block text-xs text-gray-600 mb-1.5">Label *</label>
               <input
                 value={form.label}
                 onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
                 placeholder="e.g. My Documents"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Type</label>
+              <label className="block text-xs text-gray-600 mb-1.5">Type</label>
               <select
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               >
                 {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Target URL / Slug</label>
+              <label className="block text-xs text-gray-600 mb-1.5">Target URL / Slug</label>
               <div className="relative">
-                <Link2 className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-600" />
+                <Link2 className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
                 <input
-                  value={form.target}
+                  value={form.type in BUILTIN_TARGETS ? BUILTIN_TARGETS[form.type] : form.target}
                   onChange={e => setForm(f => ({ ...f, target: e.target.value }))}
                   placeholder="/portal/pages/my-page"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
-                  disabled={form.autoCreatePage}
+                  className="w-full bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50"
+                  disabled={form.autoCreatePage || form.type in BUILTIN_TARGETS}
                 />
               </div>
+              {form.type in BUILTIN_TARGETS && (
+                <p className="text-[10px] text-gray-400 mt-1">Built-in page — target is auto-set</p>
+              )}
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Icon name</label>
+              <label className="block text-xs text-gray-600 mb-1.5">Icon name</label>
               <input
                 value={form.icon}
                 onChange={e => setForm(f => ({ ...f, icon: e.target.value }))}
                 placeholder="e.g. FileText"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               />
             </div>
             {!editingId && (
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Parent item (optional)</label>
+                <label className="block text-xs text-gray-600 mb-1.5">Parent item (optional)</label>
                 <select
                   value={form.parentId}
                   onChange={e => setForm(f => ({ ...f, parentId: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
                 >
                   <option value="">— Top-level —</option>
                   {rootItems.map(i => (
@@ -279,27 +293,27 @@ export default function MenuBuilderPage() {
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <div
                   onClick={() => setForm(f => ({ ...f, isVisible: !f.isVisible }))}
-                  className={`w-9 h-5 rounded-full transition-colors cursor-pointer ${form.isVisible ? "bg-violet-600" : "bg-gray-700"} flex items-center px-0.5`}
+                  className={`w-9 h-5 rounded-full transition-colors cursor-pointer ${form.isVisible ? "bg-violet-600" : "bg-gray-300"} flex items-center px-0.5`}
                 >
                   <div className={`w-4 h-4 rounded-full bg-white transition-transform ${form.isVisible ? "translate-x-4" : "translate-x-0"}`} />
                 </div>
-                <span className="text-xs text-gray-300">Visible</span>
+                <span className="text-xs text-gray-600">Visible</span>
               </label>
               {!editingId && form.type === "page" && (
                 <label className="flex items-center gap-2.5 cursor-pointer">
                   <div
                     onClick={() => setForm(f => ({ ...f, autoCreatePage: !f.autoCreatePage, target: f.autoCreatePage ? f.target : "" }))}
-                    className={`w-9 h-5 rounded-full transition-colors cursor-pointer ${form.autoCreatePage ? "bg-emerald-600" : "bg-gray-700"} flex items-center px-0.5`}
+                    className={`w-9 h-5 rounded-full transition-colors cursor-pointer ${form.autoCreatePage ? "bg-emerald-600" : "bg-gray-300"} flex items-center px-0.5`}
                   >
                     <div className={`w-4 h-4 rounded-full bg-white transition-transform ${form.autoCreatePage ? "translate-x-4" : "translate-x-0"}`} />
                   </div>
-                  <span className="text-xs text-gray-300">Auto-create page</span>
+                  <span className="text-xs text-gray-600">Auto-create page</span>
                 </label>
               )}
             </div>
           </div>
 
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-red-600">{error}</p>}
 
           <div className="flex items-center gap-2 pt-1">
             <button
@@ -310,7 +324,7 @@ export default function MenuBuilderPage() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {editingId ? "Update" : "Add"}
             </button>
-            <button onClick={closeForm} className="flex items-center gap-1.5 px-4 py-2 text-gray-400 hover:text-white text-sm rounded-lg transition-colors">
+            <button onClick={closeForm} className="flex items-center gap-1.5 px-4 py-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 text-sm rounded-lg transition-colors">
               <X className="w-4 h-4" />Cancel
             </button>
           </div>
@@ -318,22 +332,22 @@ export default function MenuBuilderPage() {
       )}
 
       {/* Menu tree */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
           </div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-            <Menu className="w-8 h-8 text-gray-700" />
+            <Menu className="w-8 h-8 text-gray-300" />
             <p className="text-sm text-gray-500">No menu items yet.</p>
-            <button onClick={openAdd} className="flex items-center gap-1.5 text-sm text-violet-400 hover:text-violet-300">
+            <button onClick={openAdd} className="flex items-center gap-1.5 text-sm text-violet-600 hover:text-violet-700">
               <Plus className="w-4 h-4" />Add the first item
             </button>
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-800 bg-gray-800/40">
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50">
               <span className="text-xs text-gray-500 font-medium">{allFlat.length} item{allFlat.length !== 1 ? "s" : ""}</span>
             </div>
             {items.map(item => (

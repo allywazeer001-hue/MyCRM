@@ -22,7 +22,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }[]>;
@@ -46,7 +48,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -67,6 +71,98 @@ export declare class UsersController {
         modules: Record<string, Record<string, boolean>>;
         isSuperAdmin?: undefined;
     }>;
+    getMyProfile(user: any): Promise<{
+        recentActivity: {
+            id: string;
+            createdAt: Date;
+            action: string;
+            entityType: string;
+        }[];
+        departmentPermissions: {
+            isAdmin: boolean;
+            isSuperAdmin: boolean;
+            system: {
+                canDashboard: boolean;
+                canAnalytics: boolean;
+                canWorkflow: boolean;
+                canForms: boolean;
+                canStudio: boolean;
+            };
+            modules: Record<string, any>;
+        } | {
+            isAdmin: boolean;
+            system: Record<string, boolean>;
+            modules: Record<string, Record<string, boolean>>;
+            isSuperAdmin?: undefined;
+        };
+        department: {
+            id: string;
+            name: string;
+            color: string;
+        };
+        organization: {
+            id: string;
+            name: string;
+            slug: string;
+            description: string;
+            logo: string;
+            website: string;
+        };
+        email: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        avatar: string;
+        phone: string;
+        jobTitle: string;
+        role: import(".prisma/client").$Enums.UserRole;
+        isActive: boolean;
+        status: string;
+        usertype: string;
+        lastLoginAt: Date;
+        departmentId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        auditLogs: {
+            id: string;
+            createdAt: Date;
+            action: string;
+            entityType: string;
+        }[];
+        _count: {
+            createdRecords: number;
+            comments: number;
+        };
+    }>;
+    updateMe(user: any, body: any): Promise<{
+        department: {
+            id: string;
+            name: string;
+            color: string;
+        };
+        email: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        avatar: string;
+        phone: string;
+        jobTitle: string;
+        role: import(".prisma/client").$Enums.UserRole;
+        isActive: boolean;
+        status: string;
+        mustChangePassword: boolean;
+        suspendedAt: Date;
+        lockedAt: Date;
+        usertype: string;
+        lastLoginAt: Date;
+        organizationId: string;
+        departmentId: string;
+        createdAt: Date;
+    }>;
+    clearMyActivity(user: any): Promise<{
+        cleared: boolean;
+    }>;
+    private resolveOrgId;
     findOne(id: string, user: any): Promise<{
         department: {
             id: string;
@@ -86,7 +182,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -109,7 +207,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -128,6 +228,30 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
+        refreshToken: string | null;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        departmentId: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    hardDelete(id: string, user: any): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        avatar: string | null;
+        phone: string | null;
+        jobTitle: string | null;
+        role: import(".prisma/client").$Enums.UserRole;
+        isActive: boolean;
+        status: string;
+        mustChangePassword: boolean;
+        suspendedAt: Date | null;
+        lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;
@@ -150,6 +274,7 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;
@@ -176,7 +301,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -199,7 +326,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -222,7 +351,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -245,7 +376,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;
@@ -271,7 +404,9 @@ export declare class UsersController {
         mustChangePassword: boolean;
         suspendedAt: Date;
         lockedAt: Date;
+        usertype: string;
         lastLoginAt: Date;
+        organizationId: string;
         departmentId: string;
         createdAt: Date;
     }>;

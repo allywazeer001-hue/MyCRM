@@ -12,50 +12,87 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DashboardsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const permission_check_service_1 = require("../permissions/permission-check.service");
 let DashboardsService = class DashboardsService {
-    constructor(prisma) {
+    constructor(prisma, perm) {
         this.prisma = prisma;
+        this.perm = perm;
     }
-    async create(orgId, userId, data) {
-        return this.prisma.dashboard.create({ data: { ...data, organizationId: orgId, createdById: userId } });
+    pickWritable(data) {
+        const out = {};
+        for (const key of ['name', 'description', 'config', 'isPublic', 'isDefault', 'sharedRoles', 'sharedDepartments', 'sharedUsers']) {
+            if (data[key] !== undefined)
+                out[key] = data[key];
+        }
+        return out;
     }
-    async findAll(orgId) {
-        return this.prisma.dashboard.findMany({ where: { organizationId: orgId }, include: { widgets: true } });
+    async findAll(userId, orgId) {
+        const dashboards = await this.prisma.dashboard.findMany({
+            where: { organizationId: orgId },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        });
+        const visible = [];
+        for (const d of dashboards) {
+            if (await this.perm.canViewResource(userId, orgId, d)) {
+                visible.push(d);
+            }
+        }
+        return visible;
     }
-    async findOne(id, orgId) {
-        const d = await this.prisma.dashboard.findFirst({ where: { id, organizationId: orgId }, include: { widgets: { orderBy: { order: 'asc' } } } });
+    async findOne(id, userId, orgId) {
+        const d = await this.prisma.dashboard.findFirst({ where: { id, organizationId: orgId } });
         if (!d)
             throw new common_1.NotFoundException('Dashboard not found');
+        const allowed = await this.perm.canViewResource(userId, orgId, d);
+        if (!allowed)
+            throw new common_1.ForbiddenException('You do not have access to this dashboard');
         return d;
     }
-    async addWidget(dashboardId, orgId, data) {
-        const d = await this.prisma.dashboard.findFirst({ where: { id: dashboardId, organizationId: orgId } });
+    async create(userId, orgId, data) {
+        const existing = await this.prisma.dashboard.count({ where: { organizationId: orgId, createdById: userId } });
+        const writable = this.pickWritable(data);
+        return this.prisma.dashboard.create({
+            data: {
+                name: writable.name ?? 'Untitled Dashboard',
+                description: writable.description ?? null,
+                config: writable.config ?? {},
+                isPublic: writable.isPublic ?? false,
+                isDefault: writable.isDefault ?? existing === 0,
+                sharedRoles: writable.sharedRoles ?? [],
+                sharedDepartments: writable.sharedDepartments ?? [],
+                sharedUsers: writable.sharedUsers ?? [],
+                organizationId: orgId,
+                createdById: userId,
+            },
+        });
+    }
+    async update(id, userId, orgId, data) {
+        const d = await this.prisma.dashboard.findFirst({ where: { id, organizationId: orgId } });
         if (!d)
             throw new common_1.NotFoundException('Dashboard not found');
-        return this.prisma.dashboardWidget.create({ data: { ...data, dashboardId } });
-    }
-    async removeWidget(widgetId) {
-        return this.prisma.dashboardWidget.delete({ where: { id: widgetId } });
-    }
-    async getAnalytics(moduleId, orgId, query) {
-        const { groupByField, aggregation = 'count' } = query;
-        const records = await this.prisma.record.findMany({
-            where: { moduleId, organizationId: orgId, isDeleted: false },
-        });
-        if (groupByField) {
-            const groups = {};
-            for (const r of records) {
-                const val = r.data[groupByField] ?? 'Unknown';
-                groups[String(val)] = (groups[String(val)] || 0) + 1;
-            }
-            return Object.entries(groups).map(([name, value]) => ({ name, value }));
+        await this.perm.enforceCanEditResource(userId, orgId, d);
+        const writable = this.pickWritable(data);
+        if (writable.isDefault === true) {
+            await this.prisma.dashboard.updateMany({
+                where: { organizationId: orgId, isDefault: true },
+                data: { isDefault: false },
+            });
         }
-        return { total: records.length };
+        return this.prisma.dashboard.update({ where: { id }, data: writable });
+    }
+    async remove(id, userId, orgId) {
+        const d = await this.prisma.dashboard.findFirst({ where: { id, organizationId: orgId } });
+        if (!d)
+            throw new common_1.NotFoundException('Dashboard not found');
+        await this.perm.enforceCanEditResource(userId, orgId, d);
+        await this.prisma.dashboard.delete({ where: { id } });
+        return { ok: true };
     }
 };
 exports.DashboardsService = DashboardsService;
 exports.DashboardsService = DashboardsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        permission_check_service_1.PermissionCheckService])
 ], DashboardsService);
 //# sourceMappingURL=dashboards.service.js.map

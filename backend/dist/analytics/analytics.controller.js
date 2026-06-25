@@ -32,19 +32,22 @@ let AnalyticsController = class AnalyticsController {
         return this.svc.getKanban(moduleId, user.organizationId, body.statusField, body.filterGroup);
     }
     getViews(user) {
-        return this.svc.getViews(user.organizationId);
+        return this.svc.getViews(user.id, user.organizationId);
+    }
+    getView(id, user) {
+        return this.svc.getView(id, user.id, user.organizationId);
     }
     createView(body, user) {
         return this.svc.createView(user.organizationId, user.id, body);
     }
     updateView(id, body, user) {
-        return this.svc.updateView(id, user.organizationId, body);
+        return this.svc.updateView(id, user.id, user.organizationId, body);
     }
     deleteView(id, user) {
-        return this.svc.deleteView(id, user.organizationId);
+        return this.svc.deleteView(id, user.id, user.organizationId);
     }
     togglePinView(id, user) {
-        return this.svc.togglePinView(id, user.organizationId);
+        return this.svc.togglePinView(id, user.id, user.organizationId);
     }
     getSavedFilters(context, user) {
         return this.svc.getSavedFilters(user.organizationId, context);
@@ -109,6 +112,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AnalyticsController.prototype, "getViews", null);
+__decorate([
+    (0, common_1.Get)('views/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], AnalyticsController.prototype, "getView", null);
 __decorate([
     (0, common_1.Post)('views'),
     __param(0, (0, common_1.Body)()),

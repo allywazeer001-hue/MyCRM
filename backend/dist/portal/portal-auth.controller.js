@@ -19,8 +19,8 @@ let PortalAuthController = class PortalAuthController {
     constructor(authService) {
         this.authService = authService;
     }
-    register(body) {
-        return this.authService.register(body);
+    register() {
+        throw new common_1.ForbiddenException('Self-registration is disabled');
     }
     login(body) {
         return this.authService.login(body);
@@ -47,9 +47,8 @@ let PortalAuthController = class PortalAuthController {
 exports.PortalAuthController = PortalAuthController;
 __decorate([
     (0, common_1.Post)('register'),
-    __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], PortalAuthController.prototype, "register", null);
 __decorate([

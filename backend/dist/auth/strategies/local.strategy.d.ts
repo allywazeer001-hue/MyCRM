@@ -19,6 +19,7 @@ export declare class LocalStrategy extends LocalStrategy_base {
         mustChangePassword: boolean;
         suspendedAt: Date | null;
         lockedAt: Date | null;
+        usertype: string;
         refreshToken: string | null;
         lastLoginAt: Date | null;
         organizationId: string;

@@ -24,15 +24,32 @@ let AuthService = class AuthService {
         if (existing)
             throw new common_1.ConflictException('Email already in use');
         const hashedPassword = await bcrypt.hash(dto.password, 12);
-        let org = await this.prisma.organization.findFirst({ where: { slug: dto.organizationSlug } });
-        if (!org) {
-            org = await this.prisma.organization.create({
-                data: {
-                    name: dto.organizationName || 'My Organization',
-                    slug: dto.organizationSlug || `org-${Date.now()}`,
-                },
-            });
+        const baseSlug = dto.organizationSlug
+            || (dto.organizationName?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `org-${Date.now()}`);
+        let slug = baseSlug;
+        let suffix = 1;
+        while (await this.prisma.organization.findFirst({ where: { slug } })) {
+            slug = `${baseSlug}-${suffix++}`;
         }
+        const packages = dto.packages?.length ? [...dto.packages] : ['CRM'];
+        if (!packages.includes('CRM'))
+            packages.unshift('CRM');
+        const org = await this.prisma.organization.create({
+            data: {
+                name: dto.organizationName || 'My Organization',
+                slug,
+                code: dto.organizationCode || null,
+                description: dto.organizationDescription || null,
+                address: dto.organizationAddress || null,
+                email: dto.organizationEmail || null,
+                website: dto.organizationWebsite || null,
+                industry: dto.organizationIndustry || null,
+                logo: dto.organizationLogo || null,
+                settings: { packages },
+                status: 'ACTIVE',
+                isActive: true,
+            },
+        });
         const user = await this.prisma.user.create({
             data: {
                 email: dto.email,
@@ -48,13 +65,29 @@ let AuthService = class AuthService {
         await this.updateRefreshToken(user.id, tokens.refreshToken);
         return { user: this.sanitizeUser(user), ...tokens };
     }
+    async checkEmail(email) {
+        const user = await this.prisma.user.findUnique({
+            where: { email },
+            include: { organization: true },
+        });
+        if (!user)
+            return { exists: false };
+        return {
+            exists: true,
+            firstName: user.firstName,
+            organizationName: user.organization?.name,
+        };
+    }
     async login(dto) {
         const user = await this.prisma.user.findUnique({
             where: { email: dto.email },
             include: { organization: true },
         });
-        if (!user || !await bcrypt.compare(dto.password, user.password)) {
-            throw new common_1.UnauthorizedException('Invalid credentials');
+        if (!user) {
+            throw new common_1.UnauthorizedException('No account found with this email address');
+        }
+        if (!await bcrypt.compare(dto.password, user.password)) {
+            throw new common_1.UnauthorizedException('Incorrect password. Please try again.');
         }
         if (!user.isActive || user.status === 'DISABLED')
             throw new common_1.UnauthorizedException('Account is deactivated');

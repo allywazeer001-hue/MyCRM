@@ -9,6 +9,15 @@ export declare class AuthController {
         refreshToken: string;
         user: any;
     }>;
+    checkEmail(email: string): Promise<{
+        exists: boolean;
+        firstName?: undefined;
+        organizationName?: undefined;
+    } | {
+        exists: boolean;
+        firstName: string;
+        organizationName: any;
+    }>;
     login(dto: LoginDto): Promise<{
         accessToken: string;
         refreshToken: string;

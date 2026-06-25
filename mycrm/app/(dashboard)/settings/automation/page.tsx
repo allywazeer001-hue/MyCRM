@@ -3,25 +3,24 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  Zap, Plus, ArrowLeft, Workflow, GitBranch,
-  Play, Pause, Trash2, Edit2, CheckCircle2, AlertCircle,
-  ArrowRight, Loader2, X, Settings2, ChevronRight, Circle,
-  Lock, ToggleRight,
+  Zap, Plus, Workflow, GitBranch,
+  Play, Trash2, Edit2, CheckCircle2, AlertCircle,
+  Loader2, Settings2, ChevronRight, Lock, ArrowRight,
+  X,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+
 import { api } from "@/lib/api";
 import { useModulesStore } from "@/store/modules.store";
 import { cn } from "@/lib/utils";
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -38,7 +37,7 @@ function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// WORKFLOWS SECTION
+// WORKFLOWS
 // ════════════════════════════════════════════════════════════════════════════
 
 const TRIGGER_OPTIONS = [
@@ -48,350 +47,142 @@ const TRIGGER_OPTIONS = [
   { value: "RECORD_DELETED", label: "Record Deleted",  icon: "🗑️", description: "Fires when a record is deleted" },
   { value: "MANUAL",         label: "Manual",          icon: "▶️", description: "Triggered manually by a user" },
 ];
+
 const TRIGGER_ICONS: Record<string, any> = {
   RECORD_CREATED: Zap, RECORD_UPDATED: Edit2, FIELD_CHANGED: Settings2,
   RECORD_DELETED: Trash2, MANUAL: Play,
 };
-const CONDITION_OPERATORS = [
-  { value: "is",           label: "is" },
-  { value: "is_not",       label: "is not" },
-  { value: "contains",     label: "contains" },
-  { value: "not_contains", label: "does not contain" },
-  { value: "empty",        label: "is empty" },
-  { value: "not_empty",    label: "is not empty" },
-  { value: "gt",           label: "greater than" },
-  { value: "lt",           label: "less than" },
-];
-const WF_ACTION_TYPES = [
-  { value: "SET_FIELD",         label: "Set Field Value",        icon: "✏️" },
-  { value: "UPDATE_RECORD",     label: "Update Multiple Fields", icon: "📝" },
-  { value: "SEND_NOTIFICATION", label: "Send Notification",      icon: "🔔" },
-  { value: "ASSIGN_USER",       label: "Assign User",            icon: "👤" },
-  { value: "CREATE_RECORD",     label: "Create Record",          icon: "➕" },
-];
 
-function ActionConfigEditor({ action, fields, modules, onChange }: {
-  action: any; fields: any[]; modules: any[]; onChange: (cfg: any) => void;
-}) {
-  const cfg = action.config;
-  switch (action.type) {
-    case "SET_FIELD":
-      return (
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <div>
-            <Label className="text-xs">Field</Label>
-            <Select value={cfg.field || ""} onValueChange={v => onChange({ ...cfg, field: v })}>
-              <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Select field" /></SelectTrigger>
-              <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Value</Label>
-            <Input className="h-8 text-xs mt-1" value={cfg.value || ""} onChange={e => onChange({ ...cfg, value: e.target.value })} placeholder="Value" />
-          </div>
-        </div>
-      );
-    case "UPDATE_RECORD": {
-      const updates: any[] = cfg.updates || [{ field: "", value: "" }];
-      return (
-        <div className="mt-2 space-y-2">
-          {updates.map((u: any, i: number) => (
-            <div key={i} className="grid grid-cols-2 gap-2">
-              <Select value={u.field} onValueChange={v => { const next = [...updates]; next[i] = { ...u, field: v }; onChange({ ...cfg, updates: next }); }}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Field" /></SelectTrigger>
-                <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-              </Select>
-              <div className="flex gap-1">
-                <Input className="h-8 text-xs" value={u.value} placeholder="Value"
-                  onChange={e => { const next = [...updates]; next[i] = { ...u, value: e.target.value }; onChange({ ...cfg, updates: next }); }} />
-                {updates.length > 1 && <button onClick={() => onChange({ ...cfg, updates: updates.filter((_: any, j: number) => j !== i) })} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>}
-              </div>
-            </div>
-          ))}
-          <button className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1" onClick={() => onChange({ ...cfg, updates: [...updates, { field: "", value: "" }] })}>
-            <Plus className="w-3 h-3" /> Add field
-          </button>
-        </div>
-      );
-    }
-    case "SEND_NOTIFICATION":
-      return (
-        <div className="mt-2 space-y-2">
-          <Input className="h-8 text-xs" value={cfg.title || ""} placeholder="Title" onChange={e => onChange({ ...cfg, title: e.target.value })} />
-          <Textarea className="text-xs min-h-[56px]" value={cfg.message || ""} placeholder="Message" onChange={e => onChange({ ...cfg, message: e.target.value })} />
-        </div>
-      );
-    default:
-      return null;
-  }
-}
-
-function WorkflowBuilderDialog({ open, onClose, onSave, modules, initial }: {
-  open: boolean; onClose: () => void; onSave: (data: any) => Promise<void>;
-  modules: any[]; initial?: any;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<any>({ name: "", description: "", trigger: "RECORD_CREATED", moduleId: "", conditions: [], actions: [] });
-
-  useEffect(() => {
-    if (open) {
-      setDraft(initial ? {
-        name: initial.name || "", description: initial.description || "",
-        trigger: initial.trigger || "RECORD_CREATED", moduleId: initial.moduleId || "",
-        conditions: (initial.conditions || []).map((c: any) => ({ ...c, id: c.id || uid() })),
-        actions: (initial.actions || []).map((a: any) => ({ ...a, id: a.id || uid() })),
-      } : { name: "", description: "", trigger: "RECORD_CREATED", moduleId: "", conditions: [], actions: [] });
-    }
-  }, [open, initial]);
-
-  const mod = modules.find(m => m.id === draft.moduleId);
-  const fields: any[] = mod?.fields || [];
-  const set = (k: string, v: any) => setDraft((d: any) => ({ ...d, [k]: v }));
-
-  const handleSave = async () => {
-    if (!draft.name.trim() || !draft.moduleId) return;
-    setSaving(true);
-    try { await onSave(draft); onClose(); } finally { setSaving(false); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Workflow className="w-5 h-5 text-violet-600" />
-            {initial ? "Edit Workflow" : "New Workflow"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-5 py-2">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Workflow Name *</Label>
-              <Input value={draft.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Auto-assign on create" className="h-9" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Module *</Label>
-              <Select value={draft.moduleId} onValueChange={v => set("moduleId", v)}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="Select module" /></SelectTrigger>
-                <SelectContent>{modules.map(m => <SelectItem key={m.id} value={m.id}>{m.icon} {m.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Description</Label>
-            <Input value={draft.description} onChange={e => set("description", e.target.value)} placeholder="Optional" className="h-9" />
-          </div>
-          {/* Trigger */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-violet-600 text-white text-xs flex items-center justify-center font-bold">1</div>
-              <Label className="text-sm font-semibold">Trigger</Label>
-            </div>
-            <div className="grid grid-cols-2 gap-2 pl-8">
-              {TRIGGER_OPTIONS.map(t => (
-                <button key={t.value} onClick={() => set("trigger", t.value)}
-                  className={cn("p-3 rounded-lg border text-left transition-all", draft.trigger === t.value ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:border-gray-300 bg-white")}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{t.icon}</span>
-                    <div>
-                      <p className={cn("text-xs font-medium", draft.trigger === t.value ? "text-violet-700" : "text-gray-800")}>{t.label}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{t.description}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* Conditions */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-amber-500 text-white text-xs flex items-center justify-center font-bold">2</div>
-                <Label className="text-sm font-semibold">Conditions</Label>
-                <span className="text-xs text-gray-400">(optional)</span>
-              </div>
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!draft.moduleId}
-                onClick={() => set("conditions", [...draft.conditions, { id: uid(), field: fields[0]?.name || "", operator: "is", value: "", logic: "AND" }])}>
-                <Plus className="w-3 h-3" /> Add
-              </Button>
-            </div>
-            {draft.conditions.length === 0 ? (
-              <p className="pl-8 text-xs text-gray-400">No conditions — runs on every trigger.</p>
-            ) : (
-              <div className="pl-8 space-y-2">
-                {draft.conditions.map((cond: any, idx: number) => (
-                  <div key={cond.id} className="flex items-center gap-2 flex-wrap">
-                    {idx > 0 && (
-                      <Select value={cond.logic || "AND"} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, logic: v } : c))}>
-                        <SelectTrigger className="h-7 w-16 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent><SelectItem value="AND" className="text-xs">AND</SelectItem><SelectItem value="OR" className="text-xs">OR</SelectItem></SelectContent>
-                      </Select>
-                    )}
-                    <Select value={cond.field} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, field: v } : c))}>
-                      <SelectTrigger className="h-7 text-xs w-36"><SelectValue placeholder="Field" /></SelectTrigger>
-                      <SelectContent>{fields.map((f: any) => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Select value={cond.operator} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, operator: v } : c))}>
-                      <SelectTrigger className="h-7 text-xs w-36"><SelectValue /></SelectTrigger>
-                      <SelectContent>{CONDITION_OPERATORS.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    {!["empty", "not_empty"].includes(cond.operator) && (
-                      <Input className="h-7 text-xs w-28" value={cond.value} placeholder="Value"
-                        onChange={e => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, value: e.target.value } : c))} />
-                    )}
-                    <button onClick={() => set("conditions", draft.conditions.filter((c: any) => c.id !== cond.id))} className="text-gray-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* Actions */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-green-600 text-white text-xs flex items-center justify-center font-bold">3</div>
-                <Label className="text-sm font-semibold">Actions</Label>
-                <span className="text-xs text-gray-400">(executed in order)</span>
-              </div>
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled={!draft.moduleId}
-                onClick={() => set("actions", [...draft.actions, { id: uid(), type: "SET_FIELD", config: {}, order: draft.actions.length }])}>
-                <Plus className="w-3 h-3" /> Add
-              </Button>
-            </div>
-            {draft.actions.length === 0 ? (
-              <p className="pl-8 text-xs text-gray-400">No actions added yet.</p>
-            ) : (
-              <div className="pl-8 space-y-3">
-                {draft.actions.map((action: any, idx: number) => (
-                  <div key={action.id} className="border border-gray-200 rounded-lg p-3 bg-white">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-600 text-xs flex items-center justify-center font-medium shrink-0">{idx + 1}</span>
-                      <Select value={action.type} onValueChange={v => set("actions", draft.actions.map((a: any) => a.id === action.id ? { ...a, type: v, config: {} } : a))}>
-                        <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
-                        <SelectContent>{WF_ACTION_TYPES.map(t => <SelectItem key={t.value} value={t.value} className="text-xs">{t.icon} {t.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                      <button onClick={() => set("actions", draft.actions.filter((a: any) => a.id !== action.id))} className="text-gray-400 hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
-                    </div>
-                    <ActionConfigEditor action={action} fields={fields} modules={modules} onChange={cfg => set("actions", draft.actions.map((a: any) => a.id === action.id ? { ...a, config: cfg } : a))} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !draft.name.trim() || !draft.moduleId || draft.actions.length === 0}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-            {initial ? "Update Workflow" : "Create Workflow"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+// ─── Workflows Tab ─────────────────────────────────────────────────────────────
 
 function WorkflowsTab({ modules }: { modules: any[] }) {
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showBuilder, setShowBuilder] = useState(false);
-  const [editingWf, setEditingWf] = useState<any>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  const fetch = async () => {
-    try { const { data } = await api.get("/workflows"); setWorkflows(data); }
-    catch {} finally { setLoading(false); }
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
   };
-  useEffect(() => { fetch(); }, []);
+
+  const load = useCallback(async () => {
+    try { const { data } = await api.get("/workflows"); setWorkflows(data || []); }
+    catch {} finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const toggle = async (id: string) => {
-    try { const { data } = await api.patch(`/workflows/${id}/toggle`); setWorkflows(p => p.map(w => w.id === id ? data : w)); } catch {}
+    try {
+      const { data } = await api.patch(`/workflows/${id}/toggle`);
+      setWorkflows(p => p.map(w => w.id === id ? data : w));
+    } catch { showToast("Failed to toggle", "error"); }
   };
+
   const remove = async (id: string) => {
     if (!confirm("Delete this workflow?")) return;
-    try { await api.delete(`/workflows/${id}`); setWorkflows(p => p.filter(w => w.id !== id)); } catch {}
-  };
-  const save = async (draft: any) => {
-    if (editingWf) { const { data } = await api.patch(`/workflows/${editingWf.id}`, draft); setWorkflows(p => p.map(w => w.id === editingWf.id ? data : w)); }
-    else { const { data } = await api.post("/workflows", draft); setWorkflows(p => [data, ...p]); }
-    setEditingWf(null);
+    try {
+      await api.delete(`/workflows/${id}`);
+      setWorkflows(p => p.filter(w => w.id !== id));
+      showToast("Workflow deleted");
+    } catch { showToast("Failed to delete", "error"); }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Automate actions when records change.</p>
-        <Button className="gap-2" size="sm" onClick={() => { setEditingWf(null); setShowBuilder(true); }}>
-          <Plus className="w-4 h-4" /> New Workflow
-        </Button>
+    <div className="flex-1 overflow-y-auto p-6">
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      <div className="flex items-start gap-4 mb-6">
+        <div className="flex-1 flex items-start gap-3 p-4 bg-violet-50 border border-violet-100 rounded-xl">
+          <Zap className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-violet-700 leading-relaxed">
+            Workflows automate actions when records change — set up triggers, optional conditions, and a sequence of actions to execute automatically.
+          </p>
+        </div>
+        <Link href="/settings/workflows/new">
+          <Button className="gap-2 shrink-0 h-9">
+            <Plus className="w-4 h-4" /> New Workflow
+          </Button>
+        </Link>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-40"><Loader2 className="w-5 h-5 animate-spin text-violet-500" /></div>
       ) : workflows.length === 0 ? (
-        <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-xl space-y-3">
-          <Workflow className="w-12 h-12 text-gray-300 mx-auto" />
-          <p className="text-sm font-medium text-gray-600">No workflows yet</p>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">Automate processes with triggers, conditions, and actions.</p>
-          <Button size="sm" className="gap-2 mt-2" onClick={() => setShowBuilder(true)}>
-            <Plus className="w-4 h-4" /> Create First Workflow
-          </Button>
+        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-14 text-center space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center mx-auto">
+            <Workflow className="w-7 h-7 text-violet-300" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700">No Workflows yet</p>
+          <p className="text-xs text-gray-400 max-w-xs mx-auto">Create your first automation workflow with triggers, conditions and actions.</p>
+          <Link href="/settings/workflows/new">
+            <Button size="sm" className="gap-2 mt-2">
+              <Plus className="w-4 h-4" /> Create Workflow
+            </Button>
+          </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {workflows.map(wf => {
             const TriggerIcon = TRIGGER_ICONS[wf.trigger] || Zap;
+            const trigger = TRIGGER_OPTIONS.find(t => t.value === wf.trigger);
+            const mod = modules.find(m => m.id === wf.moduleId);
             return (
-              <Card key={wf.id} className={cn("transition-all", !wf.isActive && "opacity-60")}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-start gap-3">
-                      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", wf.isActive ? "bg-green-50" : "bg-gray-50")}>
-                        <TriggerIcon className={cn("w-5 h-5", wf.isActive ? "text-green-600" : "text-gray-400")} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-gray-900 truncate text-sm">{wf.name}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {TRIGGER_OPTIONS.find(t => t.value === wf.trigger)?.label ?? wf.trigger}
-                          {wf.moduleId && " · " + (modules.find(m => m.id === wf.moduleId)?.name || "Module")}
-                        </p>
-                      </div>
+              <div key={wf.id} className={cn(
+                "bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md hover:border-gray-300 transition-all",
+                !wf.isActive && "opacity-60"
+              )}>
+                {/* Accent strip */}
+                <div className={cn("h-1.5", wf.isActive ? "bg-gradient-to-r from-violet-500 to-green-500" : "bg-gray-200")} />
+                <div className="p-4">
+                  <div className="flex items-start gap-2.5 mb-3">
+                    <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", wf.isActive ? "bg-green-50" : "bg-gray-100")}>
+                      <TriggerIcon className={cn("w-4 h-4", wf.isActive ? "text-green-600" : "text-gray-400")} />
                     </div>
-                    <Switch checked={wf.isActive} onCheckedChange={() => toggle(wf.id)} className="scale-75" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{wf.name}</p>
+                      {mod && <p className="text-xs text-gray-500 mt-0.5">{mod.icon || "📋"} {mod.name}</p>}
+                    </div>
+                    <Switch checked={wf.isActive} onCheckedChange={() => toggle(wf.id)} className="scale-75 shrink-0" />
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-500 mb-3 flex-wrap">
-                    {(wf.conditions?.length ?? 0) > 0 && <Badge variant="outline" className="text-xs">{wf.conditions.length} cond.</Badge>}
-                    <ArrowRight className="w-3 h-3 text-gray-300" />
-                    {(wf.actions || []).slice(0, 3).map((a: any, i: number) => (
-                      <Badge key={i} className="text-xs font-normal bg-violet-50 text-violet-700 border-violet-200">
-                        {WF_ACTION_TYPES.find(t => t.value === a.type)?.label ?? a.type}
-                      </Badge>
-                    ))}
+
+                  {/* Trigger + actions summary */}
+                  <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+                      {trigger?.icon} {trigger?.label ?? wf.trigger}
+                    </span>
+                    {(wf.conditions?.length ?? 0) > 0 && (
+                      <span className="text-[10px] text-gray-400">{wf.conditions.length} cond.</span>
+                    )}
+                    {(wf.actions?.length ?? 0) > 0 && (
+                      <>
+                        <ArrowRight className="w-3 h-3 text-gray-300" />
+                        <span className="text-[10px] text-gray-500">{wf.actions.length} action{wf.actions.length !== 1 ? "s" : ""}</span>
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 pt-2 border-t border-gray-50">
-                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { setEditingWf(wf); setShowBuilder(true); }}>
-                      <Edit2 className="w-3 h-3" /> Edit
+
+                  <div className="flex items-center gap-2 pt-2.5 border-t border-gray-100">
+                    <Link href={`/settings/workflows/${wf.id}`} className="flex-1">
+                      <Button size="sm" variant="outline" className="w-full gap-1 h-7 text-xs">
+                        <Edit2 className="w-3 h-3" /> Edit
+                      </Button>
+                    </Link>
+                    <Button size="sm" variant="ghost" onClick={() => remove(wf.id)}
+                      className="h-7 w-7 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 shrink-0">
+                      <Trash2 className="w-3 h-3" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500 hover:text-red-700 gap-1" onClick={() => remove(wf.id)}>
-                      <Trash2 className="w-3 h-3" /> Delete
-                    </Button>
-                    <Badge className={cn("ml-auto text-xs", wf.isActive ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-500")}>
-                      {wf.isActive ? "Active" : "Inactive"}
-                    </Badge>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             );
           })}
         </div>
       )}
-
-      <WorkflowBuilderDialog open={showBuilder} onClose={() => { setShowBuilder(false); setEditingWf(null); }} onSave={save} modules={modules} initial={editingWf} />
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// BLUEPRINTS SECTION
+// BLUEPRINTS
 // ════════════════════════════════════════════════════════════════════════════
 
 interface Blueprint {
@@ -428,12 +219,17 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
   const handleCreate = async () => {
     if (!name.trim() || !selectedMod || !statusField) return;
     const field = sfFields.find((f: any) => f.name === statusField);
-    const phases = (field?.options || []).map((o: any, i: number) => ({ id: o.value, name: o.value, label: o.label, color: o.color || "#6366f1", order: i }));
+    const phases = (field?.options || []).map((o: any, i: number) => ({
+      id: o.value, name: o.value, label: o.label, color: o.color || "#6366f1", order: i,
+    }));
     setSaving(true);
     try {
-      const { data } = await api.post("/blueprints", { name: name.trim(), description: description.trim() || undefined, moduleId: selectedMod.id, statusFieldName: statusField, phases, transitions: [], fieldLocks: {} });
-      onCreated(data);
-      onClose();
+      const { data } = await api.post("/blueprints", {
+        name: name.trim(), description: description.trim() || undefined,
+        moduleId: selectedMod.id, statusFieldName: statusField,
+        phases, transitions: [], fieldLocks: {},
+      });
+      onCreated(data); onClose();
       router.push(`/settings/blueprints/${data.id}`);
     } catch {} finally { setSaving(false); }
   };
@@ -453,8 +249,7 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2 py-1">
+        <div className="flex items-center gap-1 py-1">
           {([1, 2, 3] as const).map(s => (
             <div key={s} className={cn("flex items-center gap-1 text-xs font-medium", step >= s ? "text-indigo-600" : "text-gray-400")}>
               <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold",
@@ -473,7 +268,7 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
                 <button key={mod.id} onClick={() => { setSelectedMod(mod); setStatusField(""); setStep(2); }}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-left transition-colors group">
                   <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-sm">{mod.icon || "📋"}</div>
-                  <div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-900">{mod.name}</p></div>
+                  <p className="flex-1 text-sm font-medium text-gray-900">{mod.name}</p>
                   <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500" />
                 </button>
               ))}
@@ -483,7 +278,8 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
         {step === 2 && selectedMod && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg text-sm">
-              <span>{selectedMod.icon || "📋"}</span><span className="font-medium text-gray-700">{selectedMod.name}</span>
+              <span>{selectedMod.icon || "📋"}</span>
+              <span className="font-medium text-gray-700">{selectedMod.name}</span>
               <button onClick={() => setStep(1)} className="ml-auto text-xs text-gray-400 hover:text-gray-600">Change</button>
             </div>
             {sfFields.length === 0 ? (
@@ -498,7 +294,11 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
                   <p className="text-sm font-medium text-gray-900">{f.label}</p>
                   <p className="text-xs text-gray-400">{(f.options || []).slice(0, 3).map((o: any) => o.label).join(", ")}</p>
                 </div>
-                <div className="flex gap-1">{(f.options || []).slice(0, 4).map((o: any) => <div key={o.value} className="w-3 h-3 rounded-full border border-white" style={{ backgroundColor: o.color || "#6366f1" }} />)}</div>
+                <div className="flex gap-1">
+                  {(f.options || []).slice(0, 4).map((o: any) => (
+                    <div key={o.value} className="w-3 h-3 rounded-full border border-white" style={{ backgroundColor: o.color || "#6366f1" }} />
+                  ))}
+                </div>
                 <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500" />
               </button>
             ))}
@@ -543,90 +343,113 @@ function BlueprintsTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  const showToast = (msg: string, type: "success" | "error" = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
+  };
 
   const load = useCallback(async () => {
-    try { const { data } = await api.get("/blueprints"); setBlueprints(data || []); } catch {} finally { setLoading(false); }
+    try { const { data } = await api.get("/blueprints"); setBlueprints(data || []); }
+    catch {} finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const handleToggle = async (id: string, active: boolean) => {
     setBlueprints(p => p.map(b => b.id === id ? { ...b, isActive: active } : b));
-    try { await api.patch(`/blueprints/${id}`, { isActive: active }); showToast(active ? "Blueprint activated" : "Blueprint deactivated"); }
-    catch { setBlueprints(p => p.map(b => b.id === id ? { ...b, isActive: !active } : b)); showToast("Failed to update", "error"); }
+    try {
+      await api.patch(`/blueprints/${id}`, { isActive: active });
+      showToast(active ? "Blueprint activated" : "Blueprint deactivated");
+    } catch {
+      setBlueprints(p => p.map(b => b.id === id ? { ...b, isActive: !active } : b));
+      showToast("Failed to update", "error");
+    }
   };
+
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this Blueprint?")) return;
-    try { await api.delete(`/blueprints/${id}`); setBlueprints(p => p.filter(b => b.id !== id)); showToast("Blueprint deleted"); }
-    catch { showToast("Failed to delete", "error"); }
+    try {
+      await api.delete(`/blueprints/${id}`);
+      setBlueprints(p => p.filter(b => b.id !== id));
+      showToast("Blueprint deleted");
+    } catch { showToast("Failed to delete", "error"); }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex-1 overflow-y-auto p-6">
       {toast && <Toast msg={toast.msg} type={toast.type} />}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Define process flows, phase transitions, and field locking rules.</p>
-        <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
+
+      <div className="flex items-start gap-4 mb-6">
+        <div className="flex-1 flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
+          <Lock className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
+          <p className="text-xs text-indigo-700 leading-relaxed">
+            Blueprints control record lifecycles — define phases, configure field locks per phase, and add rule logic for automated transitions.
+          </p>
+        </div>
+        <Button className="gap-2 shrink-0 h-9" onClick={() => setCreateOpen(true)}>
           <Plus className="w-4 h-4" /> New Blueprint
         </Button>
-      </div>
-
-      <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-        <Lock className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0" />
-        <p className="text-xs text-indigo-700 leading-relaxed">
-          Blueprints control record lifecycles — define phases, configure field locks per phase, and add IF/ELSE rule logic for automated transitions.
-        </p>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-40"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
       ) : blueprints.length === 0 ? (
-        <div className="border-2 border-dashed border-gray-200 rounded-xl p-14 text-center space-y-3">
-          <GitBranch className="w-12 h-12 text-gray-300 mx-auto" />
-          <p className="text-sm font-medium text-gray-600">No Blueprints yet</p>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">Create your first Blueprint to control record lifecycles.</p>
-          <Button size="sm" className="gap-2 mt-2" onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4" /> Create Blueprint</Button>
+        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-14 text-center space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto">
+            <GitBranch className="w-7 h-7 text-indigo-300" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700">No Blueprints yet</p>
+          <p className="text-xs text-gray-400 max-w-xs mx-auto">Create your first Blueprint to control record lifecycles with phases and transitions.</p>
+          <Button size="sm" className="gap-2 mt-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="w-4 h-4" /> Create Blueprint
+          </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {blueprints.map(bp => {
             const phases = bp.phases as any[];
-            const transitions = bp.transitions as any[];
             return (
-              <div key={bp.id} className={cn("bg-white border rounded-xl overflow-hidden hover:shadow-sm transition-all", !bp.isActive && "opacity-60")}>
+              <div key={bp.id} className={cn(
+                "bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md hover:border-gray-300 transition-all",
+                !bp.isActive && "opacity-60"
+              )}>
                 <div className="h-1.5 flex">
-                  {phases.slice(0, 8).map((p, i) => <div key={i} className="flex-1" style={{ backgroundColor: p.color || "#6366f1" }} />)}
-                  {phases.length === 0 && <div className="flex-1 bg-gray-200" />}
+                  {phases.length > 0
+                    ? phases.slice(0, 8).map((p, i) => <div key={i} className="flex-1" style={{ backgroundColor: p.color || "#6366f1" }} />)
+                    : <div className="flex-1 bg-gray-200" />}
                 </div>
                 <div className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0"><GitBranch className="w-4 h-4 text-indigo-600" /></div>
+                  <div className="flex items-start gap-2.5 mb-3">
+                    <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                      <GitBranch className="w-4 h-4 text-indigo-600" />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{bp.name}</p>
                       {bp.module && <p className="text-xs text-gray-500 mt-0.5">{bp.module.icon || "📋"} {bp.module.name}</p>}
                     </div>
                     <Switch checked={bp.isActive} onCheckedChange={v => handleToggle(bp.id, v)} className="scale-75 shrink-0" />
                   </div>
+
                   {phases.length > 0 && (
-                    <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-                      {phases.slice(0, 4).map((p: any, i: number) => (
-                        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border"
+                    <div className="flex items-center gap-1 flex-wrap mb-3">
+                      {phases.slice(0, 3).map((p: any, i: number) => (
+                        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border"
                           style={{ borderColor: p.color + "44", backgroundColor: p.color + "11", color: p.color }}>
                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
                           {p.label || p.name}
                         </span>
                       ))}
-                      {phases.length > 4 && <span className="text-[10px] text-gray-400">+{phases.length - 4}</span>}
+                      {phases.length > 3 && <span className="text-[10px] text-gray-400">+{phases.length - 3}</span>}
                     </div>
                   )}
-                  <div className="mt-3 flex items-center gap-2">
+
+                  <div className="flex items-center gap-2 pt-2.5 border-t border-gray-100">
                     <Link href={`/settings/blueprints/${bp.id}`} className="flex-1">
-                      <Button size="sm" variant="outline" className="w-full gap-1.5 h-8 text-xs">
-                        <Edit2 className="w-3.5 h-3.5" /> Edit Blueprint
+                      <Button size="sm" variant="outline" className="w-full gap-1 h-7 text-xs">
+                        <Edit2 className="w-3 h-3" /> Edit
                       </Button>
                     </Link>
-                    <Button size="sm" variant="ghost" onClick={() => handleDelete(bp.id)} className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50">
-                      <Trash2 className="w-3.5 h-3.5" />
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(bp.id)}
+                      className="h-7 w-7 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50 shrink-0">
+                      <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
                 </div>
@@ -646,8 +469,8 @@ function BlueprintsTab() {
 // ════════════════════════════════════════════════════════════════════════════
 
 const TABS = [
-  { id: "workflows",  label: "Workflows",  icon: Workflow,   color: "text-green-600" },
-  { id: "blueprints", label: "Blueprints", icon: GitBranch,  color: "text-indigo-600" },
+  { id: "workflows",  label: "Workflows",  icon: Workflow },
+  { id: "blueprints", label: "Blueprints", icon: GitBranch },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -663,44 +486,43 @@ function AutomationPageInner() {
   const setTab = (t: TabId) => router.push(`/settings/automation?tab=${t}`, { scroll: false });
 
   return (
-    <div className="space-y-6 pb-10">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link href="/settings">
-          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Zap className="w-5 h-5 text-violet-600" /> Automation
-          </h1>
-          <p className="text-sm text-gray-500">Workflows, blueprints, and rule-based process automation.</p>
+    <div className="flex flex-col h-full">
+      {/* Page header */}
+      <div className="shrink-0 px-6 pt-5 pb-0 bg-white border-b border-gray-200">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-violet-600" /> Automation
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">Workflows, blueprints, and rule-based process automation.</p>
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex items-center gap-0">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                activeTab === id
+                  ? "border-violet-600 text-violet-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <Icon className={cn("w-4 h-4", activeTab === id ? "text-violet-600" : "text-gray-400")} />
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-gray-200">
-        {TABS.map(({ id, label, icon: Icon, color }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={cn(
-              "flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              activeTab === id
-                ? "border-violet-600 text-violet-600"
-                : "border-transparent text-gray-500 hover:text-gray-700",
-            )}
-          >
-            <Icon className={cn("w-4 h-4", activeTab === id ? "text-violet-600" : "text-gray-400")} />
-            {label}
-          </button>
-        ))}
+      {/* Tab content — fills remaining height */}
+      <div className="flex-1 overflow-hidden">
+        {activeTab === "workflows"  && <WorkflowsTab modules={modules} />}
+        {activeTab === "blueprints" && <BlueprintsTab />}
       </div>
-
-      {/* Tab content */}
-      {activeTab === "workflows"  && <WorkflowsTab modules={modules} />}
-      {activeTab === "blueprints" && <BlueprintsTab />}
     </div>
   );
 }

@@ -30,6 +30,33 @@ let BlueprintsController = class BlueprintsController {
     evaluate(recordId, user) {
         return this.blueprintsService.evaluateForRecord(recordId, user.organizationId);
     }
+    getForRecord(recordId, user) {
+        return this.blueprintsService.getAvailableTransitions(recordId, user.id, user.organizationId);
+    }
+    getStageHistory(recordId, user) {
+        return this.blueprintsService.getStageHistory(recordId, user.organizationId);
+    }
+    initializeRecord(body, user) {
+        const { recordId, stageId } = body;
+        return this.blueprintsService.initializeRecord(recordId, stageId, user.id, user.organizationId);
+    }
+    executeTransition(body, user) {
+        const { recordId, transitionId, formData } = body;
+        return this.blueprintsService.executeTransition(recordId, transitionId, user.id, user.organizationId, formData ?? {});
+    }
+    validateTransition(body, user) {
+        const { moduleId, fromStage, toStage } = body;
+        return this.blueprintsService.validateTransition(moduleId, fromStage, toStage, user.id, user.organizationId);
+    }
+    getMyTasks(user) {
+        return this.blueprintsService.getMyBlueprintTasks(user.id, user.organizationId);
+    }
+    getRecordTasks(recordId, user) {
+        return this.blueprintsService.getBlueprintTasksForRecord(recordId, user.organizationId);
+    }
+    completeTask(id, body, user) {
+        return this.blueprintsService.completeBlueprintTask(id, body.action, body.comment, user.id, user.organizationId);
+    }
     findOne(id, user) {
         return this.blueprintsService.findOne(id, user.organizationId);
     }
@@ -67,6 +94,70 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], BlueprintsController.prototype, "evaluate", null);
+__decorate([
+    (0, common_1.Get)('for-record/:recordId'),
+    __param(0, (0, common_1.Param)('recordId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "getForRecord", null);
+__decorate([
+    (0, common_1.Get)('for-record/:recordId/history'),
+    __param(0, (0, common_1.Param)('recordId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "getStageHistory", null);
+__decorate([
+    (0, common_1.Post)('initialize-record'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "initializeRecord", null);
+__decorate([
+    (0, common_1.Post)('execute-transition'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "executeTransition", null);
+__decorate([
+    (0, common_1.Post)('validate-transition'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "validateTransition", null);
+__decorate([
+    (0, common_1.Get)('my-pending-tasks'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "getMyTasks", null);
+__decorate([
+    (0, common_1.Get)('record/:recordId/tasks'),
+    __param(0, (0, common_1.Param)('recordId')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "getRecordTasks", null);
+__decorate([
+    (0, common_1.Post)('pending-tasks/:id/action'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", void 0)
+], BlueprintsController.prototype, "completeTask", null);
 __decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, common_1.Param)('id')),

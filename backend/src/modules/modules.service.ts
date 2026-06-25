@@ -56,10 +56,11 @@ export class ModulesService {
     }
   }
 
-  async findOne(id: string, orgId: string) {
+  async findOne(id: string, orgId: string | null) {
     try {
+      const where: any = orgId ? { id, organizationId: orgId } : { id };
       const mod = await this.prisma.dynamicModule.findFirst({
-        where: { id, organizationId: orgId },
+        where,
         include: {
           fields: {
             where: { isActive: true },
@@ -79,10 +80,11 @@ export class ModulesService {
     }
   }
 
-  async findBySlug(slug: string, orgId: string) {
+  async findBySlug(slug: string, orgId: string | null) {
     try {
+      const where: any = orgId ? { slug, organizationId: orgId, isActive: true } : { slug, isActive: true };
       const mod = await this.prisma.dynamicModule.findFirst({
-        where: { slug, organizationId: orgId, isActive: true },
+        where,
         include: {
           fields: {
             where: { isActive: true },

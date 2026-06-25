@@ -1,11 +1,16 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+// Relative /api/v1 works via Next.js rewrites on any host — no hardcoded URLs.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+
+// DEBUG — remove once LAN access is confirmed working
+if (typeof window !== "undefined") console.log("[CRM] API URL:", API_URL);
 
 export const api: AxiosInstance = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },
-  withCredentials: true,
+  // No withCredentials — we use JWT in localStorage, not cookies.
+  // withCredentials caused aborted-request errors when the session expired mid-flight.
 });
 
 api.interceptors.request.use((config) => {
@@ -24,7 +29,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
 
-      // Don't try to refresh on auth routes themselves to prevent loops
+      // Don't refresh on auth routes — prevents loops
       if (original.url?.includes("/auth/")) {
         return Promise.reject(error);
       }
@@ -32,7 +37,6 @@ api.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem("refresh_token");
         if (refreshToken) {
-          // Send only the refresh token — no expired access token header
           const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
           localStorage.setItem("access_token", data.accessToken);
           localStorage.setItem("refresh_token", data.refreshToken);
@@ -41,13 +45,16 @@ api.interceptors.response.use(
           return api(original);
         }
       } catch {
-        // Refresh failed — clear session and redirect
+        // Refresh failed — fall through to clear session
       }
 
+      // Clear session and redirect without aborting in-flight requests
       if (typeof window !== "undefined") {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
-        window.location.href = "/login";
+        localStorage.removeItem("crm-auth");
+        // Use setTimeout so the current request chain settles before navigating
+        setTimeout(() => { window.location.href = "/login"; }, 100);
       }
     }
 

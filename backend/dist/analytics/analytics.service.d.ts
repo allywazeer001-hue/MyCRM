@@ -1,16 +1,29 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { PermissionCheckService } from '../permissions/permission-check.service';
 export declare class AnalyticsService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private perm;
+    constructor(prisma: PrismaService, perm: PermissionCheckService);
     applyFilterGroup(records: any[], group: FilterGroup): any[];
     private matchCondition;
-    getAnalytics(moduleId: string, orgId: string, params: AnalyticsParams): Promise<{
+    getAnalytics(moduleId: string, orgId: string, params: AnalyticsParams & {
+        secondaryGroupByField?: string;
+        barMode?: 'stacked' | 'grouped';
+    }): Promise<{
         total: number;
         value: number;
         data: {
             name: string;
             value: number;
         }[];
+        secondaryKeys?: undefined;
+        isMultiLevel?: undefined;
+    } | {
+        total: number;
+        value: number;
+        data: Record<string, any>[];
+        secondaryKeys: string[];
+        isMultiLevel: boolean;
     }>;
     getKanban(moduleId: string, orgId: string, statusField: string, filterGroup?: FilterGroup): Promise<{
         field: {
@@ -22,8 +35,8 @@ export declare class AnalyticsService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -35,6 +48,7 @@ export declare class AnalyticsService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         };
         columns: {
             key: string;
@@ -43,7 +57,7 @@ export declare class AnalyticsService {
             records: any[];
         }[];
     }>;
-    getViews(orgId: string): Promise<{
+    getViews(_userId: string, orgId: string): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
@@ -54,6 +68,17 @@ export declare class AnalyticsService {
         isDefault: boolean;
         isPinned: boolean;
     }[]>;
+    getView(id: string, _userId: string, orgId: string): Promise<{
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        config: import("@prisma/client/runtime/library").JsonValue;
+        createdById: string;
+        isDefault: boolean;
+        isPinned: boolean;
+    }>;
     createView(orgId: string, userId: string, data: any): Promise<{
         id: string;
         organizationId: string;
@@ -65,7 +90,7 @@ export declare class AnalyticsService {
         isDefault: boolean;
         isPinned: boolean;
     }>;
-    updateView(id: string, orgId: string, data: any): Promise<{
+    updateView(id: string, userId: string, orgId: string, data: any): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
@@ -76,7 +101,7 @@ export declare class AnalyticsService {
         isDefault: boolean;
         isPinned: boolean;
     }>;
-    deleteView(id: string, orgId: string): Promise<{
+    deleteView(id: string, userId: string, orgId: string): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
@@ -87,7 +112,7 @@ export declare class AnalyticsService {
         isDefault: boolean;
         isPinned: boolean;
     }>;
-    togglePinView(id: string, orgId: string): Promise<{
+    togglePinView(id: string, userId: string, orgId: string): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
@@ -159,9 +184,9 @@ export declare class AnalyticsService {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -180,9 +205,9 @@ export declare class AnalyticsService {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -195,9 +220,9 @@ export declare class AnalyticsService {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -210,9 +235,9 @@ export declare class AnalyticsService {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -226,9 +251,9 @@ export declare class AnalyticsService {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         period: string;
         periodStart: Date | null;
         periodEnd: Date | null;

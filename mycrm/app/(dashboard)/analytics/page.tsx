@@ -1,24 +1,18 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
-import {
-  BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
-} from "recharts";
+import { useEffect, useState, useCallback, useRef } from "react"; // useRef used for grid width measurement
+// Chart rendering is done via the shared AnalyticsWidgetBody component
 import {
   BarChart3, Plus, RefreshCw, Trash2, Settings2, Target, Save,
   BookOpen, ChevronDown, X, TrendingUp, TrendingDown, Minus,
   AlertCircle, Loader2, Eye, EyeOff, Filter, ChevronRight, Layers,
   Pin, PinOff, Check, Pencil, Star, StarOff, Bookmark,
-  GripVertical, Copy, Maximize2, Minimize2,
+  GripVertical, Copy, Maximize2, Minimize2, LayoutGrid, LayoutDashboard,
+  BrainCircuit, MoreHorizontal,
 } from "lucide-react";
-import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext, rectSortingStrategy, useSortable, arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { ReactGridLayout as _RGL } from "react-grid-layout/legacy";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReactGridLayout = _RGL as any;
+type RGLLayout = any[];
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +30,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useModulesStore, Field } from "@/store/modules.store";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, generateId } from "@/lib/utils";
+import {
+  AnalyticsWidgetBody, loadWidgetData as sharedLoadWidgetData,
+  CHART_COLORS as SHARED_CHART_COLORS,
+  GRID_COLS, GRID_ROW_HEIGHT, getWidgetDims, getWidgetMinDims,
+  widgetW as sharedWidgetW,
+  type AnalyticsWidget, type AnalyticsTarget as SharedAnalyticsTarget,
+} from "@/components/analytics/analytics-widget";
+import { useAuthStore } from "@/store/auth.store";
+import { usePermissionsStore } from "@/store/permissions.store";
+import { useDashboardStore } from "@/store/dashboard.store";
+import { AnalysisPanel, type AnalysisContext } from "@/components/analytics/analysis-panel";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -60,49 +65,21 @@ interface FilterGroup {
   groups: FilterGroup[];
 }
 
-type AggregationType = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
-type ChartType = "bar" | "pie" | "line" | "area" | "kpi" | "stat" | "table" | "target";
-
-type WidgetSize = "1" | "2" | "3" | "4"; // columns in a 4-col grid: 25% / 50% / 75% / 100%
-
-interface Widget {
-  id: string;
-  title: string;
-  type: ChartType;
-  moduleId: string;
-  groupByField?: string;
-  aggregation: AggregationType;
-  aggregateField?: string;
-  filterGroup?: FilterGroup;
-  targetId?: string;
-  size?: WidgetSize;
-  height?: number;
-  // runtime
-  data?: any[];
-  total?: number;
-  loading?: boolean;
-  error?: string;
-}
+// Types and constants re-used from the shared widget renderer
+type AggregationType = AnalyticsWidget["aggregation"];
+type ChartType = AnalyticsWidget["type"];
+type WidgetSize = NonNullable<AnalyticsWidget["size"]>;
+type Widget = AnalyticsWidget;
+type AnalyticsTarget = SharedAnalyticsTarget & { metricType?: string };
 
 interface AnalyticsView {
   id: string;
   name: string;
   config: any;
   isPinned: boolean;
+  createdById: string;
   createdAt: string;
   updatedAt: string;
-}
-
-interface AnalyticsTarget {
-  id: string;
-  name: string;
-  moduleId: string;
-  metricType: string;
-  aggregation: string;
-  aggregateField?: string;
-  targetValue: number;
-  currentValue?: number;
-  period: string;
 }
 
 interface SavedFilter {
@@ -116,7 +93,8 @@ interface SavedFilter {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const CHART_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899", "#f97316"];
+const CHART_COLORS = SHARED_CHART_COLORS;
+const widgetW = sharedWidgetW;
 
 const CHART_TYPE_OPTIONS: { value: ChartType; label: string; icon: string }[] = [
   { value: "bar", label: "Bar Chart", icon: "📊" },
@@ -126,7 +104,7 @@ const CHART_TYPE_OPTIONS: { value: ChartType; label: string; icon: string }[] = 
   { value: "kpi", label: "KPI Card", icon: "🔢" },
   { value: "stat", label: "Stat Card", icon: "📌" },
   { value: "table", label: "Data Table", icon: "📋" },
-  { value: "target", label: "Target Tracker", icon: "🎯" },
+  { value: "target", label: "Gauge", icon: "🎯" },
 ];
 
 const OPERATOR_LABELS: Record<FilterOperator, string> = {
@@ -161,10 +139,10 @@ function needsSecondValue(op: FilterOperator) {
 }
 
 function newGroup(): FilterGroup {
-  return { id: crypto.randomUUID(), logic: "AND", conditions: [], groups: [] };
+  return { id: generateId(), logic: "AND", conditions: [], groups: [] };
 }
 function newCondition(fieldName = ""): FilterCondition {
-  return { id: crypto.randomUUID(), field: fieldName, operator: "is", value: "" };
+  return { id: generateId(), field: fieldName, operator: "is", value: "" };
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -172,7 +150,7 @@ function newCondition(fieldName = ""): FilterCondition {
 function useToast() {
   const [toasts, setToasts] = useState<{ id: string; msg: string; type: "success" | "error" }[]>([]);
   const show = useCallback((msg: string, type: "success" | "error" = "success") => {
-    const id = crypto.randomUUID();
+    const id = generateId();
     setToasts(p => [...p, { id, msg, type }]);
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
   }, []);
@@ -525,10 +503,13 @@ interface WidgetDraft {
   type: ChartType;
   moduleId: string;
   groupByField: string;
+  secondaryGroupByField: string;
+  barMode: "stacked" | "grouped";
   aggregation: AggregationType;
   aggregateField: string;
   filterGroup: FilterGroup;
   targetId: string;
+  targetValue: string; // stored as string for the input, parsed to number on save
 }
 
 function WidgetBuilderDialog({
@@ -548,10 +529,13 @@ function WidgetBuilderDialog({
     type: initial?.type || "bar",
     moduleId: initial?.moduleId || "",
     groupByField: initial?.groupByField || "",
+    secondaryGroupByField: initial?.secondaryGroupByField || "",
+    barMode: initial?.barMode || "grouped",
     aggregation: initial?.aggregation || "COUNT",
     aggregateField: initial?.aggregateField || "",
     filterGroup: initial?.filterGroup || newGroup(),
     targetId: initial?.targetId || "",
+    targetValue: initial?.targetValue != null ? String(initial.targetValue) : "",
   });
   const [saveFilterName, setSaveFilterName] = useState("");
   const [showSaveFilter, setShowSaveFilter] = useState(false);
@@ -569,15 +553,21 @@ function WidgetBuilderDialog({
   const set = (k: keyof WidgetDraft, v: any) => setDraft((d) => ({ ...d, [k]: v }));
 
   const handleSave = () => {
+    const parsedTarget = draft.type === "target" && draft.targetValue !== ""
+      ? Number(draft.targetValue)
+      : undefined;
     onSave({
       title: draft.title || CHART_TYPE_OPTIONS.find((c) => c.value === draft.type)?.label || "Widget",
       type: draft.type,
       moduleId: draft.moduleId,
       groupByField: draft.groupByField || undefined,
+      secondaryGroupByField: draft.secondaryGroupByField || undefined,
+      barMode: draft.secondaryGroupByField ? (draft.barMode || "grouped") : undefined,
       aggregation: draft.aggregation,
       aggregateField: draft.aggregateField || undefined,
       filterGroup: draft.filterGroup,
-      targetId: draft.targetId || undefined,
+      targetId: draft.type === "target" ? undefined : (draft.targetId || undefined),
+      targetValue: parsedTarget,
     });
     onClose();
   };
@@ -611,7 +601,7 @@ function WidgetBuilderDialog({
           {/* Chart type */}
           <div className="space-y-1.5">
             <Label className="text-xs">Visualization Type</Label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {CHART_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -648,36 +638,128 @@ function WidgetBuilderDialog({
           </div>
 
           {draft.type === "target" ? (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Target</Label>
-              <Select value={draft.targetId} onValueChange={(v) => set("targetId", v)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select target" />
-                </SelectTrigger>
-                <SelectContent>
-                  {targets.filter((t) => t.moduleId === draft.moduleId || !draft.moduleId).map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            /* ── Gauge / Target widget: inline module + aggregation + target value ── */
+            <div className="space-y-4">
+              <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                Pick a field to measure, then set your target value. The gauge compares the current result against your target.
+              </p>
+              {/* Aggregation */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Measure</Label>
+                  <Select value={draft.aggregation} onValueChange={(v) => set("aggregation", v as AggregationType)}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="COUNT">Count records</SelectItem>
+                      <SelectItem value="SUM">Sum of field</SelectItem>
+                      <SelectItem value="AVG">Average of field</SelectItem>
+                      <SelectItem value="MIN">Minimum of field</SelectItem>
+                      <SelectItem value="MAX">Maximum of field</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {draft.aggregation !== "COUNT" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Field</Label>
+                    <Select value={draft.aggregateField} onValueChange={(v) => set("aggregateField", v)} disabled={!draft.moduleId}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Select field" /></SelectTrigger>
+                      <SelectContent>
+                        {numericFields.map((f) => <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              {/* Target value */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Target Value <span className="text-gray-400 font-normal">(what you want to reach)</span></Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={draft.targetValue}
+                  onChange={(e) => set("targetValue", e.target.value)}
+                  placeholder="e.g. 500"
+                  className="h-9"
+                />
+              </div>
+              {/* Optional filters */}
+              {draft.moduleId && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Filters <span className="text-gray-400 font-normal">(optional)</span></Label>
+                  <FilterGroupEditor
+                    group={draft.filterGroup}
+                    fields={fields}
+                    onChange={(g) => set("filterGroup", g)}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <>
-              {/* Group By */}
+              {/* Group By + Secondary Group By */}
               {["bar", "pie", "line", "area", "table"].includes(draft.type) && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Group By Field</Label>
-                  <Select value={draft.groupByField || "__none__"} onValueChange={(v) => set("groupByField", v === "__none__" ? "" : v)} disabled={!draft.moduleId}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Select field" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— No grouping (total count) —</SelectItem>
-                      {groupByFields.map((f) => (
-                        <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Group By Field</Label>
+                    <Select value={draft.groupByField || "__none__"} onValueChange={(v) => { set("groupByField", v === "__none__" ? "" : v); if (v === "__none__") { set("secondaryGroupByField", ""); set("barMode", "grouped"); } }} disabled={!draft.moduleId}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Select field" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— No grouping (total count) —</SelectItem>
+                        {groupByFields.map((f) => <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Secondary group by — only for bar charts when primary is set */}
+                  {draft.groupByField && draft.type === "bar" && (
+                    <div className="pl-3 border-l-2 border-blue-100 space-y-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">
+                          Secondary Group By
+                          <span className="ml-1.5 text-gray-400 font-normal">— split bars by a second field</span>
+                        </Label>
+                        <Select value={draft.secondaryGroupByField || "__none__"} onValueChange={(v) => { set("secondaryGroupByField", v === "__none__" ? "" : v); if (v === "__none__") set("barMode", "grouped"); }} disabled={!draft.moduleId}>
+                          <SelectTrigger className="h-9"><SelectValue placeholder="None (single-series)" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— None (single series) —</SelectItem>
+                            {groupByFields.filter(f => f.name !== draft.groupByField).map((f) => (
+                              <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {draft.secondaryGroupByField && (
+                          <p className="text-[11px] text-blue-600">
+                            Example: group by <strong>{draft.groupByField}</strong>, split each bar by <strong>{draft.secondaryGroupByField}</strong> — bars will be color-coded per {draft.secondaryGroupByField} value
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Bar display mode — only when secondary is set */}
+                      {draft.secondaryGroupByField && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Bar Presentation</Label>
+                          <div className="flex gap-2">
+                            {([
+                              { value: "grouped", label: "Clustered", desc: "Side by side", icon: "▐▐" },
+                              { value: "stacked", label: "Stacked",   desc: "On top of each other", icon: "▬" },
+                            ] as const).map(opt => (
+                              <button key={opt.value} type="button" onClick={() => set("barMode", opt.value)}
+                                className={cn(
+                                  "flex-1 p-2.5 rounded-lg border text-xs font-medium transition text-left",
+                                  draft.barMode === opt.value
+                                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                                    : "border-gray-200 hover:border-gray-300 text-gray-600"
+                                )}>
+                                <div className="text-lg mb-0.5 tracking-widest">{opt.icon}</div>
+                                <div className="font-semibold">{opt.label}</div>
+                                <div className="text-[10px] text-gray-400 font-normal">{opt.desc}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -746,7 +828,7 @@ function WidgetBuilderDialog({
                       <p className="text-xs font-semibold text-gray-500 px-1 pb-1">Load a saved filter preset:</p>
                       {savedFilters.map(sf => (
                         <button key={sf.id} onClick={() => {
-                          const loaded: FilterGroup = { id: crypto.randomUUID(), logic: sf.logic, conditions: sf.conditions.map(c => ({ ...c, id: crypto.randomUUID() })), groups: [] };
+                          const loaded: FilterGroup = { id: generateId(), logic: sf.logic, conditions: sf.conditions.map(c => ({ ...c, id: generateId() })), groups: [] };
                           set("filterGroup", loaded);
                           setShowLoadFilter(false);
                         }} className="w-full text-left px-2 py-1.5 rounded hover:bg-white text-sm flex items-center gap-2">
@@ -771,7 +853,13 @@ function WidgetBuilderDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!draft.moduleId && draft.type !== "target"}>
+          <Button
+            onClick={handleSave}
+            disabled={
+              !draft.moduleId ||
+              (draft.type === "target" && (!draft.targetValue || isNaN(Number(draft.targetValue))))
+            }
+          >
             {initial ? "Update Widget" : "Add Widget"}
           </Button>
         </DialogFooter>
@@ -943,193 +1031,27 @@ function TargetManagerDialog({
 
 // ── Widget Renderers ───────────────────────────────────────────────────────
 
-function KpiWidget({ total, compact }: { total: number; compact?: boolean }) {
-  if (compact) {
-    return (
-      <div className="flex flex-col items-center justify-center py-5">
-        <p className="text-3xl font-bold text-blue-600">{total.toLocaleString()}</p>
-        <p className="text-gray-400 mt-1 text-xs">Total</p>
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col items-center justify-center py-8">
-      <p className="text-5xl font-bold text-blue-600">{total.toLocaleString()}</p>
-      <p className="text-gray-500 mt-2 text-sm">Total records</p>
-    </div>
-  );
-}
+// KpiWidget, StatWidget, TargetWidget, TableWidget are now in @/components/analytics/analytics-widget
 
-function StatWidget({ data, total }: { data: any[]; total: number }) {
-  const top = data[0];
-  return (
-    <div className="py-4 space-y-4">
-      <div className="flex items-end gap-3">
-        <span className="text-4xl font-bold text-gray-900">{total.toLocaleString()}</span>
-        <span className="text-sm text-gray-500 mb-1">total</span>
-      </div>
-      {top && (
-        <div className="text-xs text-gray-500">
-          Top: <span className="font-medium text-gray-700">{top.name}</span> ({top.value})
-        </div>
-      )}
-      <div className="space-y-1.5">
-        {data.slice(0, 5).map((d, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${total ? (d.value / total) * 100 : 0}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-            </div>
-            <span className="text-xs text-gray-600 w-24 truncate">{d.name}</span>
-            <span className="text-xs font-medium text-gray-700 w-8 text-right">{d.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// widgetW and GRID_COLS imported from shared analytics-widget module
+// ── Grid Cells Overlay (soft shadow cells shown when reorderMode is active) ──
 
-function TargetWidget({ target }: { target?: AnalyticsTarget }) {
-  if (!target) return <div className="text-center py-8 text-gray-400 text-sm">Target not found</div>;
-  const current = target.currentValue ?? 0;
-  const pct = Math.round((current / target.targetValue) * 100);
-  const color = pct >= 100 ? "#10b981" : pct >= 70 ? "#f59e0b" : "#3b82f6";
-
-  return (
-    <div className="py-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-3xl font-bold text-gray-900">{current.toLocaleString()}</p>
-          <p className="text-xs text-gray-500 mt-0.5">of {target.targetValue.toLocaleString()} target</p>
-        </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold" style={{ color }}>{pct}%</p>
-          <p className="text-xs text-gray-500">{target.period}</p>
-        </div>
-      </div>
-      <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: color }} />
-      </div>
-      <div className="flex justify-between text-xs text-gray-500">
-        <span>0</span>
-        <span className="font-medium" style={{ color }}>
-          {pct >= 100 ? "✓ Target achieved!" : `${target.targetValue - current} remaining`}
-        </span>
-        <span>{target.targetValue.toLocaleString()}</span>
-      </div>
-    </div>
-  );
-}
-
-function TableWidget({ data }: { data: any[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-gray-100">
-            <th className="py-2 px-3 text-left text-gray-500 font-medium">Value</th>
-            <th className="py-2 px-3 text-right text-gray-500 font-medium">Count</th>
-            <th className="py-2 px-3 text-right text-gray-500 font-medium">%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, i) => {
-            const total = data.reduce((s, r) => s + r.value, 0);
-            const pct = total > 0 ? ((row.value / total) * 100).toFixed(1) : "0.0";
-            return (
-              <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                <td className="py-2 px-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                    <span className="text-gray-700">{row.name || "—"}</span>
-                  </div>
-                </td>
-                <td className="py-2 px-3 text-right font-medium text-gray-700">{row.value.toLocaleString()}</td>
-                <td className="py-2 px-3 text-right text-gray-500">{pct}%</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── Resize Handle ─────────────────────────────────────────────────────────
-
-const CHART_MIN_H = 150;
-const CHART_MAX_H = 700;
-const CHART_SNAP  = 25;
-
-function ResizeHandle({
-  currentHeight,
-  onHeightChange,
-}: {
-  currentHeight: number;
-  onHeightChange: (h: number) => void;
-}) {
-  const startRef = useRef<{ y: number; h: number } | null>(null);
-  const [isResizing, setIsResizing] = useState(false);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startRef.current = { y: e.clientY, h: currentHeight };
-    setIsResizing(true);
-
-    const onMove = (e: MouseEvent) => {
-      if (!startRef.current) return;
-      const raw = startRef.current.h + (e.clientY - startRef.current.y);
-      const snapped = Math.round(Math.max(CHART_MIN_H, Math.min(CHART_MAX_H, raw)) / CHART_SNAP) * CHART_SNAP;
-      onHeightChange(snapped);
-    };
-
-    const onUp = () => {
-      startRef.current = null;
-      setIsResizing(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-
+function GridCellsOverlay({ cols, rowHeight, rows }: { cols: number; rowHeight: number; rows: number }) {
   return (
     <div
-      onMouseDown={handleMouseDown}
-      title="Drag to resize height"
-      className={cn(
-        "absolute inset-x-0 bottom-0 h-4 flex items-center justify-center cursor-ns-resize select-none transition-opacity rounded-b-lg",
-        isResizing ? "opacity-100 bg-blue-50/60" : "opacity-0 group-hover:opacity-100"
-      )}
+      style={{
+        position: "absolute", inset: 0, zIndex: 0,
+        display: "grid",
+        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+        gridTemplateRows: `repeat(${rows}, ${rowHeight}px)`,
+        gap: "10px",
+        pointerEvents: "none",
+        overflow: "hidden",
+      }}
     >
-      <div className={cn(
-        "w-10 h-1 rounded-full transition-colors",
-        isResizing ? "bg-blue-400" : "bg-gray-300"
-      )} />
-    </div>
-  );
-}
-
-// ── Sortable Wrapper ───────────────────────────────────────────────────────
-
-function SortableWidgetWrapper({
-  id, children,
-}: {
-  id: string;
-  children: (dragHandleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    position: "relative",
-    zIndex: isDragging ? 999 : undefined,
-  };
-  return (
-    <div ref={setNodeRef} style={style}>
-      {children({ ...attributes, ...listeners })}
+      {Array.from({ length: cols * rows }, (_, i) => (
+        <div key={i} className="rgl-cell" />
+      ))}
     </div>
   );
 }
@@ -1137,7 +1059,7 @@ function SortableWidgetWrapper({
 // ── Widget Card ────────────────────────────────────────────────────────────
 
 function WidgetCard({
-  widget, targets, onEdit, onRemove, onRefresh, onClone, onResize, onHeightChange, dragHandleProps,
+  widget, targets, onEdit, onRemove, onRefresh, onClone, reorderMode, colorIndex,
 }: {
   widget: Widget;
   targets: AnalyticsTarget[];
@@ -1145,137 +1067,140 @@ function WidgetCard({
   onRemove: () => void;
   onRefresh: () => void;
   onClone: () => void;
-  onResize: () => void;
-  onHeightChange: (h: number) => void;
-  dragHandleProps?: React.HTMLAttributes<HTMLElement>;
+  reorderMode?: boolean;
+  colorIndex?: number;
 }) {
-  const data = widget.data || [];
-  const total = widget.total ?? data.reduce((s: number, d: any) => s + (d.value || 0), 0);
-  const target = targets.find((t) => t.id === widget.targetId);
-  const chartHeight = widget.height || 260;
+  const modules = useModulesStore(state => state.modules);
+  const [drillSegment, setDrillSegment] = useState<string | null>(null);
+  const [drillRecords, setDrillRecords] = useState<any[]>([]);
+  const [drillTotal, setDrillTotal] = useState(0);
+  const [drillLoading, setDrillLoading] = useState(false);
 
-  const renderContent = () => {
-    if (widget.loading) {
-      return <div className="flex items-center justify-center h-40"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>;
-    }
-    if (widget.error) {
-      return <div className="flex items-center justify-center h-40 text-red-500 text-sm gap-2"><AlertCircle className="w-4 h-4" />{widget.error}</div>;
-    }
-    if (data.length === 0 && widget.type !== "kpi" && widget.type !== "target") {
-      return <div className="flex items-center justify-center h-40 text-gray-400 text-sm">No data</div>;
-    }
+  const handleSegmentClick = widget.groupByField ? (segName: string) => {
+    setDrillSegment(segName);
+    setDrillLoading(true);
+    setDrillRecords([]);
+    const fg = JSON.stringify({
+      conditions: [{ field: widget.groupByField, operator: "is", value: segName }],
+      logic: "AND",
+    });
+    api.get(`/modules/${widget.moduleId}/records?filterGroup=${encodeURIComponent(fg)}&limit=50`)
+      .then(r => { setDrillRecords(r.data?.data ?? []); setDrillTotal(r.data?.total ?? 0); })
+      .catch(() => setDrillRecords([]))
+      .finally(() => setDrillLoading(false));
+  } : undefined;
 
-    switch (widget.type) {
-      case "kpi":   return <KpiWidget total={total} compact={widget.size === "1"} />;
-      case "stat":  return <StatWidget data={data} total={total} />;
-      case "target": return <TargetWidget target={target} />;
-      case "table": return <TableWidget data={data} />;
-      case "pie":
-        return (
-          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
-            <PieChart>
-              <Pie data={data} cx="50%" cy="50%" outerRadius={90} dataKey="value"
-                label={({ name, percent }: any) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`} labelLine={false}>
-                {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-              </Pie>
-              <Tooltip /><Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        );
-      case "line":
-        return (
-          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
-            <LineChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        );
-      case "area":
-        return (
-          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
-            <AreaChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-              <defs>
-                <linearGradient id={`areaGrad-${widget.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Area type="monotone" dataKey="value" stroke="#3b82f6" fill={`url(#areaGrad-${widget.id})`} strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        );
-      default:
-        return (
-          <ResponsiveContainer key={`${widget.id}-${widget.size}`} width="100%" height={chartHeight}>
-            <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        );
-    }
-  };
+  const mod = modules.find(m => m.id === widget.moduleId);
+  const drillFields = (mod?.fields ?? [])
+    .filter((f: Field) => !["FILE","IMAGE","SIGNATURE","INLINE_SUBFORM","LOOKUP","RELATION"].includes(f.type))
+    .slice(0, 6);
 
   return (
-    <Card className="group relative overflow-hidden">
-      <CardHeader className="flex flex-row items-start justify-between pb-2 pt-4 px-5">
-        <div>
-          <CardTitle className="text-sm font-semibold text-gray-800">{widget.title}</CardTitle>
-          {widget.type !== "target" && (
-            <p className="text-xs text-gray-400 mt-0.5">
-              {widget.aggregation.toLowerCase()} · {widget.groupByField || "all records"}
-            </p>
-          )}
+    <>
+      <Card className="group relative overflow-hidden h-full flex flex-col">
+        <CardHeader className="flex flex-row items-start justify-between pb-2 pt-3 px-5 shrink-0">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-sm font-semibold text-gray-800 truncate">{widget.title}</CardTitle>
+            {widget.type !== "target" && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {widget.aggregation.toLowerCase()}{widget.groupByField ? ` · ${widget.groupByField}` : ""}
+              </p>
+            )}
+          </div>
+          {/* no-drag wrapper — clicks here never initiate a grid drag */}
+          <div className="no-drag opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={onEdit}>
+                  <Settings2 className="w-3.5 h-3.5 mr-2" /> Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onClone}>
+                  <Copy className="w-3.5 h-3.5 mr-2" /> Clone
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onRefresh}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" /> Refresh
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onRemove} className="text-red-600 focus:text-red-600">
+                  <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </CardHeader>
+        <CardContent className="flex-1 min-h-0 min-w-0 overflow-hidden px-4 pb-3">
+          <AnalyticsWidgetBody
+            widget={widget}
+            targets={targets}
+            colSpan={widget.w ?? GRID_COLS / 2}
+            rowSpan={widget.h ?? getWidgetDims(widget.type).h}
+            colorIndex={colorIndex}
+            onSegmentClick={handleSegmentClick}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Drill-down popup */}
+      {drillSegment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDrillSegment(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+              <div>
+                <p className="text-xs text-gray-400">{widget.title}</p>
+                <h3 className="font-semibold text-gray-900">
+                  {drillSegment}
+                  {!drillLoading && <span className="ml-2 text-sm font-normal text-gray-500">({drillTotal} record{drillTotal !== 1 ? "s" : ""})</span>}
+                </h3>
+              </div>
+              <button onClick={() => setDrillSegment(null)} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-500 hover:text-gray-700">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto min-h-0">
+              {drillLoading ? (
+                <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+              ) : drillRecords.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-gray-400 text-sm">No records found</div>
+              ) : (
+                <table className="w-full text-sm border-collapse">
+                  <thead className="sticky top-0 bg-gray-50 z-10">
+                    <tr>
+                      {drillFields.map((f: Field) => (
+                        <th key={f.id} className="text-left px-4 py-2 text-xs text-gray-500 font-medium border-b border-gray-100 whitespace-nowrap">{f.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drillRecords.map((rec: any, ri: number) => (
+                      <tr key={rec.id ?? ri} className="border-b border-gray-50 hover:bg-blue-50/40 transition-colors">
+                        {drillFields.map((f: Field) => {
+                          const val = rec.data?.[f.name] ?? rec[f.name];
+                          return (
+                            <td key={f.id} className="px-4 py-2 text-gray-700 max-w-[200px] truncate">
+                              {val === null || val === undefined ? <span className="text-gray-300">—</span> : String(val)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {!drillLoading && drillTotal > 50 && (
+              <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100 shrink-0">
+                Showing 50 of {drillTotal} — open the module to see all
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            {...dragHandleProps}
-            className="cursor-grab active:cursor-grabbing p-1.5 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
-            title="Drag to reorder"
-          >
-            <GripVertical className="w-3.5 h-3.5" />
-          </button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClone} title="Clone widget">
-            <Copy className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7 relative"
-            onClick={onResize}
-            title={`Width: ${["25%","50%","75%","100%"][Number(widget.size||"2")-1]} — click to cycle`}
-          >
-            <span className="text-[10px] font-bold text-gray-500 leading-none">
-              {widget.size === "1" ? "¼" : widget.size === "3" ? "¾" : widget.size === "4" ? "■" : "½"}
-            </span>
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRefresh}>
-            <RefreshCw className="w-3.5 h-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
-            <Settings2 className="w-3.5 h-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-600" onClick={onRemove}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="px-5 pb-4">
-        {renderContent()}
-      </CardContent>
-      <ResizeHandle currentHeight={chartHeight} onHeightChange={onHeightChange} />
-    </Card>
+      )}
+    </>
   );
 }
 
@@ -1284,15 +1209,27 @@ function WidgetCard({
 export default function AnalyticsPage() {
   const { modules, fetchModules } = useModulesStore();
   const { toasts, show: showToast } = useToast();
+  const { user } = useAuthStore();
+  const { isAdmin } = usePermissionsStore();
+  const { dashboards, loadDashboards, addAnalyticsWidget } = useDashboardStore();
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
+  // Grid width — measured via ResizeObserver so column widths are exact (no drag offset)
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const [gridWidth, setGridWidth] = useState(1200);
+  useEffect(() => {
+    const el = gridContainerRef.current;
+    if (!el) return;
+    setGridWidth(el.clientWidth || 1200);
+    const ro = new ResizeObserver(() => setGridWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [views, setViews] = useState<AnalyticsView[]>([]);
   const [targets, setTargets] = useState<AnalyticsTarget[]>([]);
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [reorderMode, setReorderMode] = useState(false);
 
   // Active view tracking
   const [activeView, setActiveView] = useState<AnalyticsView | null>(null);
@@ -1303,12 +1240,15 @@ export default function AnalyticsPage() {
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
   const [showTargetManager, setShowTargetManager] = useState(false);
   const [showSavedFilters, setShowSavedFilters] = useState(false);
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  const [analyzeContext, setAnalyzeContext] = useState<AnalysisContext | null>(null);
   const [savingView, setSavingView] = useState(false);
   const [savingChanges, setSavingChanges] = useState(false);
   const [viewName, setViewName] = useState("");
   const [showSaveView, setShowSaveView] = useState(false);
   const [renamingView, setRenamingView] = useState<AnalyticsView | null>(null);
   const [renameName, setRenameName] = useState("");
+  const [addToDashboardView, setAddToDashboardView] = useState<AnalyticsView | null>(null);
 
   useEffect(() => {
     fetchModules();
@@ -1351,34 +1291,20 @@ export default function AnalyticsPage() {
 
   const loadWidgetData = useCallback(async (widget: Widget): Promise<Widget> => {
     if (widget.type === "target") {
+      // Inline target (new style): delegate to shared loader which fetches the aggregate
+      if (widget.targetValue !== undefined && widget.moduleId) {
+        return sharedLoadWidgetData(widget, targets);
+      }
+      // Legacy target by ID: call compute endpoint then update targets state
       const t = targets.find((x) => x.id === widget.targetId);
-      if (!t) return widget;
+      if (!t) return { ...widget, loading: false };
       try {
         const { data } = await api.post(`/analytics/targets/${t.id}/compute`);
         setTargets((prev) => prev.map((x) => x.id === t.id ? { ...x, currentValue: data.currentValue } : x));
       } catch {}
       return { ...widget, loading: false };
     }
-
-    try {
-      const body: any = {
-        aggregation: widget.aggregation,
-        aggregateField: widget.aggregateField,
-        filterGroup: widget.filterGroup,
-      };
-      if (widget.groupByField) body.groupByField = widget.groupByField;
-
-      const { data } = await api.post(`/analytics/data/${widget.moduleId}`, body);
-      return {
-        ...widget,
-        data: Array.isArray(data) ? data : (data.data || []),
-        total: Array.isArray(data) ? data.reduce((s: number, d: any) => s + d.value, 0) : (data.total ?? data.value ?? 0),
-        loading: false,
-        error: undefined,
-      };
-    } catch {
-      return { ...widget, loading: false, error: "Failed to load data" };
-    }
+    return sharedLoadWidgetData(widget, targets);
   }, [targets]);
 
   const markDirty = () => {
@@ -1387,8 +1313,15 @@ export default function AnalyticsPage() {
 
   const addWidget = async (draft: Omit<Widget, "id">) => {
     const id = `w-${Date.now()}`;
-    const defaultSize: WidgetSize = draft.type === "kpi" ? "1" : draft.type === "table" ? "4" : "2";
-    const widget: Widget = { ...draft, id, size: draft.size || defaultSize, loading: true };
+    const dims = getWidgetDims(draft.type);
+    // Place new widget at the bottom; vertical compaction will fill any available gap
+    const maxY = widgets.reduce((m, w) => Math.max(m, (w.y ?? 0) + (w.h ?? dims.h)), 0);
+    const widget: Widget = {
+      ...draft, id, loading: true,
+      x: 0, y: maxY,
+      w: draft.w ?? dims.w,
+      h: draft.h ?? dims.h,
+    };
     setWidgets((prev) => [...prev, widget]);
     const loaded = await loadWidgetData(widget);
     setWidgets((prev) => prev.map((w) => w.id === id ? loaded : w));
@@ -1426,33 +1359,21 @@ export default function AnalyticsPage() {
     showToast("Widget cloned");
   };
 
-  const resizeWidget = (id: string) => {
-    const cycle: WidgetSize[] = ["1", "2", "4"];
-    setWidgets((prev) =>
-      prev.map((w) => {
-        if (w.id !== id) return w;
-        const idx = cycle.indexOf((w.size as WidgetSize) || "2");
-        return { ...w, size: cycle[(idx + 1) % cycle.length] };
-      })
-    );
-    markDirty();
+  const applyLayout = (layout: RGLLayout) => {
+    setWidgets(prev => prev.map(w => {
+      const l = layout.find((n: any) => n.i === w.id);
+      return l ? { ...w, x: l.x, y: l.y, w: l.w, h: l.h } : w;
+    }));
   };
-
-  const resizeWidgetHeight = (id: string, height: number) => {
-    setWidgets((prev) => prev.map((w) => w.id === id ? { ...w, height } : w));
-    if (activeView) setHasChanges(true);
+  // During drag/resize: update local positions so the UI stays consistent
+  const handleLayoutChange = (layout: RGLLayout) => {
+    if (reorderMode) applyLayout(layout);
   };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      setWidgets((prev) => {
-        const oldIdx = prev.findIndex((w) => w.id === active.id);
-        const newIdx = prev.findIndex((w) => w.id === over.id);
-        return arrayMove(prev, oldIdx, newIdx);
-      });
-      markDirty();
-    }
+  // On drag/resize stop: persist positions to widget state + mark view dirty
+  const handleLayoutStop = (layout: RGLLayout) => {
+    if (!reorderMode) return;
+    applyLayout(layout);
+    markDirty(); // "Save Changes" button will persist to the view
   };
 
   const cloneView = async (view: AnalyticsView) => {
@@ -1470,13 +1391,25 @@ export default function AnalyticsPage() {
 
   const widgetsToConfig = () =>
     widgets.map((w) => {
-      const { data, total, loading, error, ...rest } = w;
-      return rest;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { data, total, loading, error, secondaryKeys, isMultiLevel, height, size, ...rest } = w;
+      return rest; // saves: id, title, type, moduleId, x, y, w, h, aggregation, groupByField, etc.
     });
 
   // Load a saved view onto the canvas
   const loadView = async (view: AnalyticsView, savePreference = true) => {
-    const widgetsFromView: Widget[] = (view.config.widgets || []).map((w: any) => ({ ...w, loading: true }));
+    // Auto-assign x,y,h for widgets saved before react-grid-layout was added
+    let cx = 0, cy = 0, rowH = 0;
+    const widgetsFromView: Widget[] = (view.config.widgets || []).map((w: any) => {
+      const dims = getWidgetDims(w.type);
+      const wCols = w.w ?? dims.w;
+      const wRows = w.h ?? dims.h;
+      if (w.x !== undefined && w.y !== undefined) return { ...w, loading: true };
+      if (cx + wCols > GRID_COLS) { cx = 0; cy += rowH; rowH = 0; }
+      const positioned = { ...w, loading: true, x: cx, y: cy, w: wCols, h: wRows };
+      cx += wCols; rowH = Math.max(rowH, wRows);
+      return positioned;
+    });
     setWidgets(widgetsFromView);
     setActiveView(view);
     setHasChanges(false);
@@ -1554,6 +1487,11 @@ export default function AnalyticsPage() {
     }
   };
 
+  const canManageView = (view: AnalyticsView) => {
+    const isSuperAdmin = (user as any)?.role === "SUPER_ADMIN";
+    return isSuperAdmin || isAdmin || view.createdById === (user as any)?.id;
+  };
+
   const togglePin = async (view: AnalyticsView) => {
     try {
       await api.patch(`/analytics/views/${view.id}/toggle-pin`);
@@ -1586,12 +1524,12 @@ export default function AnalyticsPage() {
   const unpinnedViews = views.filter(v => !v.isPinned);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Analytics</h1>
             {activeView && (
               <Badge variant="secondary" className="text-xs font-medium gap-1">
                 {activeView.isPinned && <Pin className="w-2.5 h-2.5" />}
@@ -1622,13 +1560,12 @@ export default function AnalyticsPage() {
           {/* Saved Filters */}
           <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowSavedFilters(true)}>
             <Bookmark className="w-4 h-4" />
-            Saved Filters
-            {savedFilters.length > 0 && <span className="text-xs text-gray-400">({savedFilters.length})</span>}
+            <span className="hidden sm:inline">Saved Filters</span>
+            {savedFilters.length > 0 && <span className="text-xs text-gray-400 hidden sm:inline">({savedFilters.length})</span>}
           </Button>
 
-          {/* Views Dropdown */}
-          {views.length > 0 && (
-            <DropdownMenu>
+          {/* Views Dropdown — always visible so users can see all saved views */}
+          <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
                   <BookOpen className="w-4 h-4" />
@@ -1637,37 +1574,59 @@ export default function AnalyticsPage() {
                   <ChevronDown className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                {pinnedViews.length > 0 && (
+              <DropdownMenuContent align="end" className="w-72 max-h-96 overflow-y-auto">
+                {views.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-sm text-gray-400">
+                    No saved views yet.{" "}
+                    {widgets.length > 0 && (
+                      <button className="text-blue-600 hover:underline" onClick={() => setShowSaveView(true)}>
+                        Save current canvas
+                      </button>
+                    )}
+                  </div>
+                ) : (
                   <>
-                    <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Pinned</div>
-                    {pinnedViews.map((v) => (
-                      <ViewMenuItem key={v.id} view={v} isActive={activeView?.id === v.id}
-                        onLoad={() => loadView(v)} onDelete={() => deleteView(v.id)}
-                        onTogglePin={() => togglePin(v)} onRename={() => { setRenamingView(v); setRenameName(v.name); }}
-                        onClone={() => cloneView(v)} />
-                    ))}
-                    {unpinnedViews.length > 0 && <DropdownMenuSeparator />}
-                  </>
-                )}
-                {unpinnedViews.length > 0 && (
-                  <>
-                    {pinnedViews.length > 0 && <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">All Views</div>}
-                    {unpinnedViews.map((v) => (
-                      <ViewMenuItem key={v.id} view={v} isActive={activeView?.id === v.id}
-                        onLoad={() => loadView(v)} onDelete={() => deleteView(v.id)}
-                        onTogglePin={() => togglePin(v)} onRename={() => { setRenamingView(v); setRenameName(v.name); }}
-                        onClone={() => cloneView(v)} />
-                    ))}
+                    {pinnedViews.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Pinned</div>
+                        {pinnedViews.map((v) => (
+                          <ViewMenuItem key={v.id} view={v} isActive={activeView?.id === v.id}
+                            canManage={canManageView(v)}
+                            onLoad={() => loadView(v)} onDelete={() => deleteView(v.id)}
+                            onTogglePin={() => togglePin(v)} onRename={() => { setRenamingView(v); setRenameName(v.name); }}
+                            onClone={() => cloneView(v)}                            onAddToDashboard={() => { setAddToDashboardView(v); loadDashboards(); }} />
+                        ))}
+                        {unpinnedViews.length > 0 && <DropdownMenuSeparator />}
+                      </>
+                    )}
+                    {unpinnedViews.length > 0 && (
+                      <>
+                        {pinnedViews.length > 0 && (
+                          <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">All Views</div>
+                        )}
+                        {unpinnedViews.map((v) => (
+                          <ViewMenuItem key={v.id} view={v} isActive={activeView?.id === v.id}
+                            canManage={canManageView(v)}
+                            onLoad={() => loadView(v)} onDelete={() => deleteView(v.id)}
+                            onTogglePin={() => togglePin(v)} onRename={() => { setRenamingView(v); setRenameName(v.name); }}
+                            onClone={() => cloneView(v)}                            onAddToDashboard={() => { setAddToDashboardView(v); loadDashboards(); }} />
+                        ))}
+                      </>
+                    )}
                   </>
                 )}
                 <DropdownMenuSeparator />
+                {widgets.length > 0 && (
+                  <DropdownMenuItem className="gap-2 text-blue-600 cursor-pointer font-medium" onClick={() => setShowSaveView(true)}>
+                    <Save className="w-3.5 h-3.5" />
+                    {activeView ? "Save as New View" : "Save Current View"}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem className="gap-2 text-gray-500 cursor-pointer" onClick={() => { setActiveView(null); setHasChanges(false); setWidgets([]); api.delete("/user-preferences/analytics_active_view").catch(() => {}); }}>
                   <X className="w-3.5 h-3.5" /> Clear canvas
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
 
           {/* Save View (as new or update) */}
           {widgets.length > 0 && (
@@ -1677,12 +1636,46 @@ export default function AnalyticsPage() {
             </Button>
           )}
 
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowTargetManager(true)}>
-            <Target className="w-4 h-4" /> Targets
+          {/* Reorder mode toggle */}
+          {widgets.length > 0 && !reorderMode && gridWidth >= 640 && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setReorderMode(true)}>
+              <LayoutGrid className="w-4 h-4" /><span className="hidden sm:inline">Reorder</span>
+            </Button>
+          )}
+          {reorderMode && (
+            <>
+              <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700" onClick={() => { saveChanges(); setReorderMode(false); }}>
+                <Save className="w-4 h-4" /> Save Layout
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setReorderMode(false)}>
+                <X className="w-4 h-4" /> Exit Reorder
+              </Button>
+            </>
+          )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300 hidden sm:inline-flex"
+            onClick={() => {
+              const ctx: AnalysisContext = {
+                type: "visualization",
+                title: activeView?.name ?? "Data Visualization",
+                contextSummary: widgets.length === 0
+                  ? "No widgets have been added to this view yet."
+                  : `View: ${activeView?.name ?? "Untitled"}\n\nWidgets (${widgets.length}):\n${widgets.map(w =>
+                      `- ${w.title || w.type} (${w.type}): module=${w.module ?? "n/a"}, field=${w.field ?? "n/a"}`
+                    ).join("\n")}`,
+              };
+              setAnalyzeContext(ctx);
+              setAnalyzeOpen(true);
+            }}
+          >
+            <BrainCircuit className="w-4 h-4" /> Analyze
           </Button>
 
           <Button size="sm" className="gap-2" onClick={() => setShowBuilder(true)}>
-            <Plus className="w-4 h-4" /> Add Widget
+            <Plus className="w-4 h-4" /><span className="hidden sm:inline">Add Widget</span>
           </Button>
         </div>
       </div>
@@ -1719,6 +1712,61 @@ export default function AnalyticsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Add to Dashboard Dialog */}
+      <Dialog open={!!addToDashboardView} onOpenChange={() => setAddToDashboardView(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutDashboard className="w-4 h-4 text-blue-500" />
+              Add to Dashboard
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-500 -mt-1">
+            Select a dashboard to add &quot;{addToDashboardView?.name}&quot; as a widget.
+          </p>
+          <div className="space-y-1.5 py-1 max-h-56 overflow-y-auto">
+            {dashboards.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4">No dashboards yet</p>
+            )}
+            {dashboards.map(d => {
+              const alreadyAdded = (d.config?.widgets ?? []).some(
+                (w: any) => w.type === "analytics_view" && w.analyticsViewId === addToDashboardView?.id
+              );
+              return (
+                <button
+                  key={d.id}
+                  disabled={alreadyAdded}
+                  onClick={async () => {
+                    if (!addToDashboardView) return;
+                    await addAnalyticsWidget(d.id, addToDashboardView.id, addToDashboardView.name);
+                    setAddToDashboardView(null);
+                    showToast(`Added to "${d.name}"`);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-xl border transition",
+                    alreadyAdded
+                      ? "opacity-50 cursor-not-allowed border-gray-100 bg-gray-50"
+                      : "border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                  )}
+                >
+                  <LayoutDashboard className="w-4 h-4 text-blue-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{d.name}</p>
+                    {d.isDefault && <p className="text-[10px] text-blue-500">Default dashboard</p>}
+                  </div>
+                  {alreadyAdded
+                    ? <span className="text-[10px] text-gray-400 shrink-0">Already added</span>
+                    : <Plus className="w-4 h-4 text-blue-500 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddToDashboardView(null)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Save View Dialog */}
       <Dialog open={showSaveView} onOpenChange={setShowSaveView}>
         <DialogContent className="max-w-sm">
@@ -1743,73 +1791,127 @@ export default function AnalyticsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Widgets */}
-      {widgets.length === 0 ? (
-        <div className="text-center py-24">
-          <BarChart3 className="w-16 h-16 text-gray-200 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No widgets yet</h3>
-          <p className="text-gray-500 mb-6 max-w-md mx-auto text-sm">
-            {views.length > 0
-              ? "Load a saved view from the Views menu, or add a new widget."
-              : "Add analytics widgets to visualize your module data with charts, KPI cards, and target trackers."}
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            {views.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <BookOpen className="w-4 h-4" /> Load a View <ChevronDown className="w-3 h-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  {views.map(v => (
-                    <DropdownMenuItem key={v.id} onClick={() => loadView(v)} className="gap-2 cursor-pointer">
-                      {v.isPinned && <Pin className="w-3 h-3 text-blue-500" />}
-                      {v.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <Button onClick={() => setShowBuilder(true)} className="gap-2">
-              <Plus className="w-4 h-4" /> Add Your First Widget
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
-            <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(4,1fr)", gridAutoFlow: "dense" }}>
-              {widgets.map((widget) => (
-                <div
-                  key={widget.id}
-                  className="min-w-0"
-                  style={{ gridColumn: `span ${widget.size || (widget.type === "kpi" ? "1" : "2")} / span ${widget.size || (widget.type === "kpi" ? "1" : "2")}` }}
-                >
-                  <SortableWidgetWrapper id={widget.id}>
-                    {(dragHandleProps) => (
-                      <WidgetCard
-                        widget={widget}
-                        targets={targets}
-                        onEdit={() => { setEditingWidget(widget); setShowBuilder(true); }}
-                        onRemove={() => removeWidget(widget.id)}
-                        onRefresh={() => refreshWidget(widget.id)}
-                        onClone={() => cloneWidget(widget.id)}
-                        onResize={() => resizeWidget(widget.id)}
-                        onHeightChange={(h) => resizeWidgetHeight(widget.id, h)}
-                        dragHandleProps={dragHandleProps}
-                      />
-                    )}
-                  </SortableWidgetWrapper>
-                </div>
-              ))}
+      {/* Widgets — gridContainerRef is always mounted so ResizeObserver measures correctly */}
+      <div ref={gridContainerRef} className={`relative w-full transition-all duration-200${reorderMode && widgets.length > 0 ? " rgl-edit-mode" : ""}`}>
+        {widgets.length === 0 ? (
+          <div className="text-center py-24">
+            <BarChart3 className="w-16 h-16 text-gray-200 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No widgets yet</h3>
+            <p className="text-gray-500 mb-6 max-w-md mx-auto text-sm">
+              {views.length > 0
+                ? "Load a saved view from the Views menu, or add a new widget."
+                : "Add analytics widgets to visualize your module data with charts, KPI cards, and target trackers."}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              {views.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      <BookOpen className="w-4 h-4" /> Load a View <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {views.map(v => (
+                      <DropdownMenuItem key={v.id} onClick={() => loadView(v)} className="gap-2 cursor-pointer">
+                        {v.isPinned && <Pin className="w-3 h-3 text-blue-500" />}
+                        {v.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              <Button onClick={() => setShowBuilder(true)} className="gap-2">
+                <Plus className="w-4 h-4" /> Add Your First Widget
+              </Button>
             </div>
-          </SortableContext>
-        </DndContext>
-      )}
+          </div>
+        ) : gridWidth < 640 ? (
+          /* ── Mobile: stacked single-column ── */
+          <div className="space-y-4">
+            {widgets.map((widget, idx) => {
+              const mobileH = widget.type === "kpi" ? 120
+                : widget.type === "target" ? 220
+                : widget.type === "table" ? 300
+                : 260;
+              return (
+                <div key={widget.id} style={{ height: mobileH }}>
+                  <WidgetCard
+                    widget={widget}
+                    targets={targets}
+                    reorderMode={false}
+                    colorIndex={idx}
+                    onEdit={() => { setEditingWidget(widget); setShowBuilder(true); }}
+                    onRemove={() => removeWidget(widget.id)}
+                    onRefresh={() => refreshWidget(widget.id)}
+                    onClone={() => cloneWidget(widget.id)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <>
+            {reorderMode && (
+              <GridCellsOverlay
+                cols={GRID_COLS}
+                rowHeight={GRID_ROW_HEIGHT}
+                rows={Math.max(8, widgets.reduce((m, w) => Math.max(m, (w.y ?? 0) + (w.h ?? 4)), 0) + 2)}
+              />
+            )}
+            <ReactGridLayout
+            className="layout"
+            width={gridWidth}
+            layout={widgets.map(w => {
+              const dims = getWidgetDims(w.type);
+              const min  = getWidgetMinDims(w.type);
+              return {
+                i: w.id,
+                x: w.x ?? 0,
+                y: w.y ?? 0,
+                w: w.w ?? dims.w,
+                h: w.h ?? dims.h,
+                minW: min.minW,
+                minH: min.minH,
+                maxW: GRID_COLS,
+              };
+            }) as any}
+            cols={GRID_COLS}
+            rowHeight={GRID_ROW_HEIGHT}
+            margin={[10, 10]}
+            containerPadding={[0, 0]}
+            compactType="vertical"
+            preventCollision={false}
+            isDraggable={reorderMode}
+            isResizable={reorderMode}
+            isBounded={false}
+            draggableCancel=".no-drag"
+            resizeHandles={["se", "s", "e", "n", "w", "ne", "nw", "sw"] as any}
+            onLayoutChange={handleLayoutChange as any}
+            onDragStop={handleLayoutStop as any}
+            onResizeStop={handleLayoutStop as any}
+          >
+            {widgets.map((widget, idx) => (
+              <div key={widget.id} style={{ cursor: reorderMode ? 'grab' : 'default' }}>
+                <WidgetCard
+                  widget={widget}
+                  targets={targets}
+                  reorderMode={reorderMode}
+                  colorIndex={idx}
+                  onEdit={() => { setEditingWidget(widget); setShowBuilder(true); }}
+                  onRemove={() => removeWidget(widget.id)}
+                  onRefresh={() => refreshWidget(widget.id)}
+                  onClone={() => cloneWidget(widget.id)}
+                />
+              </div>
+            ))}
+            </ReactGridLayout>
+          </>
+        )}
+      </div>
 
       {/* Widget Builder */}
       <WidgetBuilderDialog
+        key={editingWidget?.id ?? "new"}
         open={showBuilder}
         onClose={() => { setShowBuilder(false); setEditingWidget(null); }}
         onSave={editingWidget ? (draft) => updateWidget(editingWidget.id, draft) : addWidget}
@@ -1821,14 +1923,6 @@ export default function AnalyticsPage() {
       />
 
       {/* Target Manager */}
-      <TargetManagerDialog
-        open={showTargetManager}
-        onClose={() => setShowTargetManager(false)}
-        modules={modules}
-        targets={targets}
-        onRefresh={fetchTargets}
-      />
-
       {/* Saved Filters */}
       <SavedFiltersDialog
         open={showSavedFilters}
@@ -1841,6 +1935,12 @@ export default function AnalyticsPage() {
       />
 
       <ToastList toasts={toasts} />
+
+      <AnalysisPanel
+        open={analyzeOpen}
+        onClose={() => setAnalyzeOpen(false)}
+        context={analyzeContext}
+      />
     </div>
   );
 }
@@ -1848,15 +1948,17 @@ export default function AnalyticsPage() {
 // ── View Menu Item ─────────────────────────────────────────────────────────
 
 function ViewMenuItem({
-  view, isActive, onLoad, onDelete, onTogglePin, onRename, onClone,
+  view, isActive, canManage, onLoad, onDelete, onTogglePin, onRename, onClone, onAddToDashboard,
 }: {
   view: AnalyticsView;
   isActive: boolean;
+  canManage: boolean;
   onLoad: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
   onRename: () => void;
   onClone: () => void;
+  onAddToDashboard: () => void;
 }) {
   return (
     <div className={cn(
@@ -1869,18 +1971,28 @@ function ViewMenuItem({
         {isActive && <Check className="w-3 h-3 text-blue-600 flex-shrink-0 ml-auto" />}
       </button>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-        <button onClick={onTogglePin} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-blue-600" title={view.isPinned ? "Unpin" : "Pin"}>
+        {/* Pin to top of views list */}
+        <button onClick={onTogglePin} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-blue-600" title={view.isPinned ? "Unpin from top" : "Pin to top"}>
           {view.isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+        </button>
+        {/* Add to Dashboard */}
+        <button onClick={e => { e.stopPropagation(); onAddToDashboard(); }}
+          className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-green-600" title="Add to Dashboard">
+          <LayoutDashboard className="w-3 h-3" />
         </button>
         <button onClick={onClone} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600" title="Duplicate view">
           <Copy className="w-3 h-3" />
         </button>
-        <button onClick={onRename} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600" title="Rename">
-          <Pencil className="w-3 h-3" />
-        </button>
-        <button onClick={onDelete} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600" title="Delete">
-          <Trash2 className="w-3 h-3" />
-        </button>
+        {canManage && (
+          <button onClick={onRename} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600" title="Rename">
+            <Pencil className="w-3 h-3" />
+          </button>
+        )}
+        {canManage && (
+          <button onClick={onDelete} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600" title="Delete">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
       </div>
     </div>
   );

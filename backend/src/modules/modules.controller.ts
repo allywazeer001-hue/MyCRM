@@ -20,7 +20,8 @@ export class ModulesController {
 
   @Get()
   findAll(@CurrentUser() user: any) {
-    if (user.role === 'SUPER_ADMIN') return this.modulesService.findAllPlatform();
+    // Every user — including SUPER_ADMIN — sees only their own org's modules.
+    // Platform-wide module listing lives in the /platform admin routes only.
     return this.modulesService.findAll(user.organizationId);
   }
 

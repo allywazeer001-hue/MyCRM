@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent, useRef } from "react";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { usePortalAuthStore } from "@/store/portal-auth.store";
 import { portalApi } from "@/lib/portal-api";
@@ -18,6 +18,22 @@ export default function PortalProfilePage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarData, setAvatarData] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setError("Image must be under 2MB"); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setAvatarPreview(result);
+      setAvatarData(result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Portal custom fields
   const [portalSections, setPortalSections] = useState<PortalSection[]>([]);
@@ -78,8 +94,10 @@ export default function PortalProfilePage() {
         dto.currentPassword = form.currentPassword;
         dto.newPassword = form.newPassword;
       }
+      if (avatarData) dto.profilePicture = avatarData;
       const { data } = await portalApi.patch("/portal/me", dto);
       setUser(data);
+      setAvatarData(null);
       setSuccess("Profile updated successfully");
       setForm((f) => ({ ...f, currentPassword: "", newPassword: "", confirmPassword: "" }));
     } catch (err: any) {
@@ -99,13 +117,33 @@ export default function PortalProfilePage() {
 
         {/* Avatar */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center gap-5">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5">
             <div className="relative">
-              <div className="w-20 h-20 rounded-full bg-indigo-600 flex items-center justify-center text-2xl font-bold text-white">
-                {user?.firstName?.[0]}{user?.lastName?.[0]}
-              </div>
-              <button className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50">
-                <Camera className="w-3 h-3 text-gray-500" />
+              {(avatarPreview || (user as any)?.profilePicture) ? (
+                <img
+                  src={avatarPreview || (user as any)?.profilePicture}
+                  alt="Profile"
+                  className="w-20 h-20 rounded-full object-cover border-2 border-indigo-100"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-indigo-600 flex items-center justify-center text-2xl font-bold text-white">
+                  {user?.firstName?.[0]}{user?.lastName?.[0]}
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-indigo-600 border-2 border-white shadow-sm flex items-center justify-center hover:bg-indigo-700 transition-colors"
+                title="Change photo"
+              >
+                <Camera className="w-3.5 h-3.5 text-white" />
               </button>
             </div>
             <div>
@@ -134,7 +172,7 @@ export default function PortalProfilePage() {
           )}
 
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-gray-700">First name</label>
                 <input
@@ -238,12 +276,12 @@ export default function PortalProfilePage() {
             </div>
             <div className="divide-y divide-gray-50">
               {[...portalSections.flatMap(s => s.fields), ...orphanFields].map(field => (
-                <div key={field.id} className="px-5 py-3.5 flex items-start gap-4">
-                  <div className="w-44 shrink-0">
+                <div key={field.id} className="px-5 py-3.5 flex flex-col sm:flex-row items-start gap-2 sm:gap-4">
+                  <div className="w-full sm:w-44 shrink-0">
                     <p className="text-sm font-medium text-gray-600">{field.label}</p>
                     {field.isReadOnly && <span className="text-xs text-amber-500">read-only</span>}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 w-full min-w-0">
                     {field.helpText && <p className="text-xs text-gray-400 mb-1">{field.helpText}</p>}
                     <PortalFieldRenderer
                       field={field}

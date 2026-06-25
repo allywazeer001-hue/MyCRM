@@ -8,20 +8,30 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FormsService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const workflows_service_1 = require("../workflows/workflows.service");
+const google_sheets_service_1 = require("../calendar-sync/google-sheets.service");
 const crypto_1 = require("crypto");
 let FormsService = class FormsService {
-    constructor(prisma, workflows) {
+    constructor(prisma, workflows, googleSheets) {
         this.prisma = prisma;
         this.workflows = workflows;
+        this.googleSheets = googleSheets;
     }
-    async findAll(orgId) {
+    async findAll(orgId, userId, userRole) {
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
         return this.prisma.form.findMany({
-            where: { organizationId: orgId, isActive: true },
+            where: {
+                organizationId: orgId,
+                isActive: true,
+                ...(isAdmin ? {} : { createdById: userId }),
+            },
             include: {
                 module: { select: { id: true, name: true, slug: true, icon: true } },
                 createdBy: { select: { id: true, firstName: true, lastName: true } },
@@ -49,10 +59,16 @@ let FormsService = class FormsService {
         return form;
     }
     async create(orgId, userId, data) {
-        const slug = data.slug
-            || data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        let slug = data.slug
+            || data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+            || 'form';
+        const slugExists = await this.prisma.form.findFirst({ where: { slug, organizationId: orgId, isActive: true } });
+        if (slugExists)
+            slug = `${slug}-${Date.now().toString(36)}`;
+        const moduleId = data.moduleId || null;
+        const folderId = data.folderId || null;
         return this.prisma.form.create({
-            data: { ...data, slug, organizationId: orgId, createdById: userId },
+            data: { ...data, moduleId, folderId, slug, organizationId: orgId, createdById: userId },
             include: {
                 module: { select: { id: true, name: true, slug: true, icon: true } },
                 createdBy: { select: { id: true, firstName: true, lastName: true } },
@@ -284,7 +300,31 @@ let FormsService = class FormsService {
                 console.error('Failed to create module record from form submission:', err);
             }
         }
+        const gsSettings = form.settings?.googleSheet;
+        if (this.googleSheets && gsSettings?.syncEnabled && gsSettings?.spreadsheetId) {
+            this.syncToGoogleSheets(form, gsSettings, data, submission.createdAt).catch(() => { });
+        }
         return submission;
+    }
+    async syncToGoogleSheets(form, gsSettings, data, submittedAt) {
+        const formFields = await this.prisma.formField.findMany({
+            where: { formId: form.id },
+            orderBy: { order: 'asc' },
+        });
+        const fieldIds = formFields.map(ff => ff.fieldId).filter(Boolean);
+        const fields = await this.prisma.field.findMany({
+            where: { id: { in: fieldIds } },
+            select: { id: true, name: true, label: true },
+        });
+        const fieldMap = new Map(fields.map(f => [f.id, f]));
+        const mappedFields = formFields.map(ff => {
+            const field = fieldMap.get(ff.fieldId);
+            return {
+                label: ff.customLabel || field?.label || field?.name || ff.fieldId,
+                name: field?.name || ff.fieldId,
+            };
+        });
+        await this.googleSheets.appendSubmission(form.createdById, gsSettings.spreadsheetId, gsSettings.tabName || 'Form Responses', mappedFields, data, submittedAt);
     }
     async getSubmissions(formId, orgId) {
         const form = await this.prisma.form.findFirst({ where: { id: formId, organizationId: orgId } });
@@ -294,6 +334,143 @@ let FormsService = class FormsService {
             where: { formId },
             orderBy: { createdAt: 'desc' },
         });
+    }
+    async getFolders(orgId, userId, userRole, deptId) {
+        const all = await this.prisma.formFolder.findMany({
+            where: { organizationId: orgId, isActive: true },
+            include: { _count: { select: { forms: true } } },
+            orderBy: { createdAt: 'desc' },
+        });
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        return all.filter(f => {
+            if (isAdmin || f.createdById === userId)
+                return true;
+            const users = f.sharedUsers;
+            const depts = f.sharedDepts;
+            const roles = f.sharedRoles;
+            return (users.includes(userId) ||
+                (deptId && depts.includes(deptId)) ||
+                roles.includes(userRole));
+        });
+    }
+    async createFolder(orgId, userId, data) {
+        return this.prisma.formFolder.create({
+            data: { ...data, organizationId: orgId, createdById: userId },
+            include: { _count: { select: { forms: true } } },
+        });
+    }
+    async updateFolder(id, orgId, userId, userRole, data) {
+        const folder = await this.prisma.formFolder.findFirst({ where: { id, organizationId: orgId } });
+        if (!folder)
+            throw new common_1.NotFoundException('Folder not found');
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        if (!isAdmin && folder.createdById !== userId)
+            throw new common_1.ForbiddenException();
+        return this.prisma.formFolder.update({
+            where: { id },
+            data,
+            include: { _count: { select: { forms: true } } },
+        });
+    }
+    async deleteFolder(id, orgId, userId, userRole) {
+        const folder = await this.prisma.formFolder.findFirst({ where: { id, organizationId: orgId } });
+        if (!folder)
+            throw new common_1.NotFoundException('Folder not found');
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        if (!isAdmin && folder.createdById !== userId)
+            throw new common_1.ForbiddenException();
+        await this.prisma.form.updateMany({ where: { folderId: id }, data: { folderId: null } });
+        return this.prisma.formFolder.update({ where: { id }, data: { isActive: false } });
+    }
+    async getFolderForms(folderId, orgId) {
+        return this.prisma.form.findMany({
+            where: { folderId, organizationId: orgId, isActive: true },
+            include: { createdBy: { select: { id: true, firstName: true, lastName: true } }, _count: { select: { submissions: true } } },
+            orderBy: { updatedAt: 'desc' },
+        });
+    }
+    async getSharedForms(orgId, userId, userRole, deptId) {
+        const all = await this.prisma.form.findMany({
+            where: { organizationId: orgId, isActive: true, NOT: { createdById: userId } },
+            include: {
+                createdBy: { select: { id: true, firstName: true, lastName: true } },
+                _count: { select: { submissions: true } },
+            },
+            orderBy: { updatedAt: 'desc' },
+        });
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        if (isAdmin)
+            return all;
+        return all.filter(f => {
+            const su = f.sharedUsers || [];
+            const sd = f.sharedDepts || [];
+            const sr = f.sharedRoles || [];
+            return (su.includes(userId) ||
+                (deptId && sd.includes(deptId)) ||
+                sr.includes(userRole));
+        });
+    }
+    async getSharedFolders(orgId, userId, userRole, deptId) {
+        const all = await this.prisma.formFolder.findMany({
+            where: { organizationId: orgId, isActive: true, NOT: { createdById: userId } },
+            include: {
+                createdBy: { select: { id: true, firstName: true, lastName: true } },
+                _count: { select: { forms: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        if (isAdmin)
+            return all;
+        return all.filter(f => {
+            const su = f.sharedUsers || [];
+            const sd = f.sharedDepts || [];
+            const sr = f.sharedRoles || [];
+            return (su.includes(userId) ||
+                (deptId && sd.includes(deptId)) ||
+                sr.includes(userRole));
+        });
+    }
+    async updateFormSharing(formId, orgId, userId, userRole, data) {
+        const form = await this.prisma.form.findFirst({ where: { id: formId, organizationId: orgId } });
+        if (!form)
+            throw new common_1.NotFoundException('Form not found');
+        const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
+        if (!isAdmin && form.createdById !== userId)
+            throw new common_1.ForbiddenException();
+        const currentSettings = form.settings || {};
+        const newSettings = {
+            ...currentSettings,
+            editableByUsers: data.editableByUsers ?? currentSettings.editableByUsers ?? [],
+            editableByDepts: data.editableByDepts ?? currentSettings.editableByDepts ?? [],
+            editableByRoles: data.editableByRoles ?? currentSettings.editableByRoles ?? [],
+        };
+        return this.prisma.form.update({
+            where: { id: formId },
+            data: {
+                sharedUsers: data.sharedUsers !== undefined ? data.sharedUsers : form.sharedUsers,
+                sharedDepts: data.sharedDepts !== undefined ? data.sharedDepts : form.sharedDepts,
+                sharedRoles: data.sharedRoles !== undefined ? data.sharedRoles : form.sharedRoles,
+                settings: newSettings,
+            },
+        });
+    }
+    async getFormSharing(formId, orgId) {
+        const form = await this.prisma.form.findFirst({
+            where: { id: formId, organizationId: orgId },
+            select: { id: true, sharedUsers: true, sharedDepts: true, sharedRoles: true, settings: true, createdById: true },
+        });
+        if (!form)
+            throw new common_1.NotFoundException('Form not found');
+        const settings = form.settings || {};
+        return {
+            sharedUsers: form.sharedUsers || [],
+            sharedDepts: form.sharedDepts || [],
+            sharedRoles: form.sharedRoles || [],
+            editableByUsers: settings.editableByUsers || [],
+            editableByDepts: settings.editableByDepts || [],
+            editableByRoles: settings.editableByRoles || [],
+        };
     }
     async generateAutoNumber(field, moduleId, orgId) {
         const settings = field.settings || {};
@@ -310,7 +487,9 @@ let FormsService = class FormsService {
 exports.FormsService = FormsService;
 exports.FormsService = FormsService = __decorate([
     (0, common_1.Injectable)(),
+    __param(2, (0, common_1.Optional)()),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        workflows_service_1.WorkflowsService])
+        workflows_service_1.WorkflowsService,
+        google_sheets_service_1.GoogleSheetsService])
 ], FormsService);
 //# sourceMappingURL=forms.service.js.map

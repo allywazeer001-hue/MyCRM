@@ -1,10 +1,12 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowsService } from '../workflows/workflows.service';
+import { GoogleSheetsService } from '../calendar-sync/google-sheets.service';
 export declare class FormsService {
     private prisma;
     private workflows;
-    constructor(prisma: PrismaService, workflows: WorkflowsService);
-    findAll(orgId: string): Promise<({
+    private googleSheets;
+    constructor(prisma: PrismaService, workflows: WorkflowsService, googleSheets: GoogleSheetsService);
+    findAll(orgId: string, userId: string, userRole: string): Promise<({
         _count: {
             fields: number;
             sections: number;
@@ -28,12 +30,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     })[]>;
     findOne(id: string, orgId: string): Promise<{
         permissions: {
@@ -70,6 +76,8 @@ export declare class FormsService {
             fieldId: string;
             formId: string;
             sectionId: string | null;
+            conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+            urlParamKey: string | null;
             customLabel: string | null;
             customPlaceholder: string | null;
         })[];
@@ -100,12 +108,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     create(orgId: string, userId: string, data: any): Promise<{
         module: {
@@ -127,12 +139,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     update(id: string, orgId: string, data: any): Promise<{
         id: string;
@@ -142,12 +158,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     remove(id: string, orgId: string): Promise<{
         id: string;
@@ -157,12 +177,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     addSection(formId: string, orgId: string, data: any): Promise<{
         id: string;
@@ -199,6 +223,8 @@ export declare class FormsService {
         fieldId: string;
         formId: string;
         sectionId: string | null;
+        conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+        urlParamKey: string | null;
         customLabel: string | null;
         customPlaceholder: string | null;
     }>;
@@ -213,6 +239,8 @@ export declare class FormsService {
         fieldId: string;
         formId: string;
         sectionId: string | null;
+        conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+        urlParamKey: string | null;
         customLabel: string | null;
         customPlaceholder: string | null;
     }>;
@@ -227,6 +255,8 @@ export declare class FormsService {
         fieldId: string;
         formId: string;
         sectionId: string | null;
+        conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+        urlParamKey: string | null;
         customLabel: string | null;
         customPlaceholder: string | null;
     }>;
@@ -280,8 +310,8 @@ export declare class FormsService {
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
         moduleId: string;
-        label: string;
         type: import(".prisma/client").$Enums.FieldType;
+        label: string;
         isRequired: boolean;
         isUnique: boolean;
         isReadonly: boolean;
@@ -293,6 +323,7 @@ export declare class FormsService {
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
+        formulaExpression: string | null;
     })[]>;
     generateToken(formId: string, orgId: string): Promise<{
         id: string;
@@ -302,12 +333,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     revokeToken(formId: string, orgId: string): Promise<{
         id: string;
@@ -317,12 +352,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     getPublicForm(token: string): Promise<({
         fields: ({
@@ -345,6 +384,8 @@ export declare class FormsService {
             fieldId: string;
             formId: string;
             sectionId: string | null;
+            conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+            urlParamKey: string | null;
             customLabel: string | null;
             customPlaceholder: string | null;
         })[];
@@ -370,12 +411,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }) | {
         resolvedFields: {
             moduleField: {
@@ -397,8 +442,8 @@ export declare class FormsService {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -410,6 +455,7 @@ export declare class FormsService {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             };
             section: {
                 id: string;
@@ -429,6 +475,8 @@ export declare class FormsService {
             fieldId: string;
             formId: string;
             sectionId: string | null;
+            conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+            urlParamKey: string | null;
             customLabel: string | null;
             customPlaceholder: string | null;
         }[];
@@ -452,6 +500,8 @@ export declare class FormsService {
             fieldId: string;
             formId: string;
             sectionId: string | null;
+            conditionalRequired: import("@prisma/client/runtime/library").JsonValue | null;
+            urlParamKey: string | null;
             customLabel: string | null;
             customPlaceholder: string | null;
         })[];
@@ -476,12 +526,16 @@ export declare class FormsService {
         updatedAt: Date;
         name: string;
         slug: string;
-        settings: import("@prisma/client/runtime/library").JsonValue;
         description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
         moduleId: string | null;
         type: string;
         createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
         token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
     }>;
     submitPublicForm(token: string, data: any, ipAddress?: string, userAgent?: string): Promise<{
         id: string;
@@ -491,6 +545,7 @@ export declare class FormsService {
         userAgent: string | null;
         formId: string;
     }>;
+    private syncToGoogleSheets;
     getSubmissions(formId: string, orgId: string): Promise<{
         id: string;
         createdAt: Date;
@@ -499,5 +554,186 @@ export declare class FormsService {
         userAgent: string | null;
         formId: string;
     }[]>;
+    getFolders(orgId: string, userId: string, userRole: string, deptId: string | null): Promise<({
+        _count: {
+            forms: number;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        color: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    })[]>;
+    createFolder(orgId: string, userId: string, data: any): Promise<{
+        _count: {
+            forms: number;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        color: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    updateFolder(id: string, orgId: string, userId: string, userRole: string, data: any): Promise<{
+        _count: {
+            forms: number;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        color: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    deleteFolder(id: string, orgId: string, userId: string, userRole: string): Promise<{
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        color: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    getFolderForms(folderId: string, orgId: string): Promise<({
+        _count: {
+            submissions: number;
+        };
+        createdBy: {
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
+        moduleId: string | null;
+        type: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    })[]>;
+    getSharedForms(orgId: string, userId: string, userRole: string, deptId: string | null): Promise<({
+        _count: {
+            submissions: number;
+        };
+        createdBy: {
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
+        moduleId: string | null;
+        type: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    })[]>;
+    getSharedFolders(orgId: string, userId: string, userRole: string, deptId: string | null): Promise<({
+        _count: {
+            forms: number;
+        };
+        createdBy: {
+            firstName: string;
+            lastName: string;
+            id: string;
+        };
+    } & {
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        color: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    })[]>;
+    updateFormSharing(formId: string, orgId: string, userId: string, userRole: string, data: {
+        sharedUsers?: string[];
+        sharedDepts?: string[];
+        sharedRoles?: string[];
+        editableByUsers?: string[];
+        editableByDepts?: string[];
+        editableByRoles?: string[];
+    }): Promise<{
+        id: string;
+        isActive: boolean;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        slug: string;
+        description: string | null;
+        settings: import("@prisma/client/runtime/library").JsonValue;
+        moduleId: string | null;
+        type: string;
+        createdById: string;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+        token: string | null;
+        folderId: string | null;
+        sharedDepts: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    getFormSharing(formId: string, orgId: string): Promise<{
+        sharedUsers: any;
+        sharedDepts: any;
+        sharedRoles: any;
+        editableByUsers: any;
+        editableByDepts: any;
+        editableByRoles: any;
+    }>;
     private generateAutoNumber;
 }

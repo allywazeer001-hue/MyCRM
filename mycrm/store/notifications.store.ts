@@ -29,9 +29,20 @@ interface NotificationsState {
 // Module-level singleton — sockets are not serializable and must live outside Zustand state
 let _socket: Socket | null = null;
 
-const SOCKET_URL =
-  (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1")
-    .replace(/\/api\/v1\/?$/, "");
+// WebSocket URL: use NEXT_PUBLIC_WS_URL if set (production), otherwise derive
+// dynamically from the browser's hostname so LAN access works automatically.
+// e.g. browser at 192.168.1.55:3000 → WebSocket to 192.168.1.55:4000
+function resolveSocketUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_URL;
+  // If explicitly set to something other than localhost, use it (production)
+  if (explicit && !explicit.includes("localhost")) return explicit;
+  // In browser: derive from current hostname + backend port
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:4000`;
+  }
+  return explicit || "http://localhost:4000";
+}
+const SOCKET_URL = resolveSocketUrl();
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
   notifications: [],

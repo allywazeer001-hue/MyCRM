@@ -80,8 +80,8 @@ export declare class PortalController {
             type: string;
             title: string;
             body: string;
-            targetTypes: import("@prisma/client/runtime/library").JsonValue;
             isPublished: boolean;
+            targetTypes: import("@prisma/client/runtime/library").JsonValue;
             publishedAt: Date;
             scheduledAt: Date | null;
         }[];
@@ -90,6 +90,7 @@ export declare class PortalController {
     getRecord(user: any): Promise<{
         record: {
             id: string;
+            lockedAt: Date | null;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
@@ -97,6 +98,9 @@ export declare class PortalController {
             moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
+            isArchived: boolean;
+            archivedAt: Date | null;
+            isLocked: boolean;
             createdById: string;
             updatedById: string | null;
         };
@@ -120,8 +124,8 @@ export declare class PortalController {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -133,6 +137,7 @@ export declare class PortalController {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             })[];
         } & {
             id: string;
@@ -142,8 +147,8 @@ export declare class PortalController {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;
@@ -167,8 +172,8 @@ export declare class PortalController {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -180,6 +185,7 @@ export declare class PortalController {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
         mappings: {
             id: string;
@@ -251,8 +257,8 @@ export declare class PortalController {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }[]>;
@@ -272,6 +278,7 @@ export declare class PortalController {
                 helpText: string | null;
                 defaultValue: string | null;
                 options: import("@prisma/client/runtime/library").JsonValue;
+                content: string | null;
                 sectionId: string | null;
                 portalModuleConfigId: string | null;
                 isEditable: boolean;
@@ -283,6 +290,7 @@ export declare class PortalController {
                 mappedCrmFieldName: string | null;
                 mappedCrmModuleSlug: string | null;
                 formula: string | null;
+                colSpan: number;
                 portalPageId: string | null;
             }[];
         } & {
@@ -293,14 +301,15 @@ export declare class PortalController {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -337,14 +346,15 @@ export declare class PortalController {
             updatedAt: Date;
             icon: string | null;
             order: number;
-            label: string;
             type: string;
+            label: string;
             portalModuleConfigId: string | null;
             isVisible: boolean;
             columnIndex: number;
             isAdminOnly: boolean;
             portalPageId: string | null;
             isCollapsible: boolean;
+            fieldColumns: number;
             crmModuleSlug: string | null;
             crmRelationField: string | null;
             crmSectionType: string | null;
@@ -352,6 +362,7 @@ export declare class PortalController {
         orphanFields: any[];
         record: {
             id: string;
+            lockedAt: Date | null;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
@@ -359,6 +370,9 @@ export declare class PortalController {
             moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
+            isArchived: boolean;
+            archivedAt: Date | null;
+            isLocked: boolean;
             createdById: string;
             updatedById: string | null;
         };
@@ -380,10 +394,10 @@ export declare class PortalController {
         createdAt: Date;
         originalName: string;
         mimeType: string;
+        filePath: string;
         fieldKey: string;
         fileName: string;
         fileSize: number;
-        filePath: string;
     }[]>;
     uploadDocument(user: any, file: any, dto: any): Promise<{
         id: string;
@@ -395,11 +409,11 @@ export declare class PortalController {
         recordId: string | null;
         originalName: string;
         mimeType: string;
+        filePath: string;
         portalUserId: string;
         fieldKey: string | null;
         fileName: string;
         fileSize: number;
-        filePath: string;
     }>;
     deleteDocument(user: any, id: string): Promise<{
         success: boolean;

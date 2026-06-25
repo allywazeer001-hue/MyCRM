@@ -15,6 +15,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PortalPadminController = void 0;
 const common_1 = require("@nestjs/common");
 const portal_crm_admin_guard_1 = require("./portal-crm-admin.guard");
+const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
+const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const portal_field_service_1 = require("./portal-field.service");
 const portal_section_service_1 = require("./portal-section.service");
 const portal_document_service_1 = require("./portal-document.service");
@@ -143,8 +145,26 @@ let PortalPadminController = class PortalPadminController {
     listDocuments(user, userId) {
         return this.documentService.listOrgDocuments(user.organizationId, userId);
     }
-    listUsers(user) {
-        return this.portalService.listUsers(user.organizationId, 1, 200);
+    listUsers(user, page = 1, limit = 200, search, status) {
+        return this.portalService.listUsers(user.organizationId, +page, +limit, search, status);
+    }
+    async getUserCounts(user) {
+        return this.portalService.getUserStatusCounts(user.organizationId);
+    }
+    async softDeleteUser(id, user) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Only Super Admin can delete portal users');
+        return this.portalService.softDelete(id, user.organizationId);
+    }
+    async restoreUser(id, user) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Only Super Admin can restore portal users');
+        return this.portalService.restore(id, user.organizationId);
+    }
+    async permanentDeleteUser(id, user) {
+        if (user.role !== 'SUPER_ADMIN')
+            throw new common_1.ForbiddenException('Only Super Admin can permanently delete portal users');
+        return this.portalService.permanentDelete(id, user.organizationId);
     }
     toggleAdmin(user, id, dto) {
         return this.portalService.setPortalAdminFlag(user.organizationId, id, dto.isPortalAdmin);
@@ -489,10 +509,49 @@ __decorate([
 __decorate([
     (0, common_1.Get)('users'),
     __param(0, CurrentPortalUser()),
+    __param(1, (0, common_1.Query)('page')),
+    __param(2, (0, common_1.Query)('limit')),
+    __param(3, (0, common_1.Query)('search')),
+    __param(4, (0, common_1.Query)('status')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, Object, Object, String, String]),
     __metadata("design:returntype", void 0)
 ], PortalPadminController.prototype, "listUsers", null);
+__decorate([
+    (0, common_1.Get)('users/counts'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], PortalPadminController.prototype, "getUserCounts", null);
+__decorate([
+    (0, common_1.Delete)('users/:id'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], PortalPadminController.prototype, "softDeleteUser", null);
+__decorate([
+    (0, common_1.Post)('users/:id/restore'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], PortalPadminController.prototype, "restoreUser", null);
+__decorate([
+    (0, common_1.Delete)('users/:id/permanent'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], PortalPadminController.prototype, "permanentDeleteUser", null);
 __decorate([
     (0, common_1.Patch)('users/:id/admin'),
     __param(0, CurrentPortalUser()),

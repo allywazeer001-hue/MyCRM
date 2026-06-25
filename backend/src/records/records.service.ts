@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowsService } from '../workflows/workflows.service';
+import { ProcessService } from '../process/process.service';
+import { RelationResolverService } from './relation-resolver.service';
 
 @Injectable()
 export class RecordsService {
   constructor(
     private prisma: PrismaService,
     private workflows: WorkflowsService,
+    private readonly processService: ProcessService,
+    private readonly resolver: RelationResolverService,
   ) {}
 
   async create(moduleId: string, orgId: string, userId: string, data: Record<string, any>) {
@@ -37,6 +41,7 @@ export class RecordsService {
 
     // Fire RECORD_CREATED workflows asynchronously (don't block the response)
     this.workflows.executeForRecord('RECORD_CREATED', moduleId, orgId, record).catch(() => {});
+    this.processService.triggerForRecord(record.id, moduleId, "status", (enrichedData as any).status || "", userId, orgId).catch(() => {});
 
     return record;
   }
@@ -55,17 +60,22 @@ export class RecordsService {
   }
 
   async findAll(moduleId: string, orgId: string, query: any) {
-    const { page = 1, limit = 25, search, filterGroup, sortField, sortDir } = query;
+    const { page = 1, limit = 25, search, filterGroup, sortField, sortDir, showArchived } = query;
     const where: any = { moduleId, organizationId: orgId, isDeleted: false };
+    if (!showArchived || showArchived === 'false') where.isArchived = false;
 
     const hasFilter = !!(filterGroup || search);
+
+    // When sorting by a data (JSON) field we must fetch all records then sort in memory.
+    const needsInMemorySort = !!(sortField && sortField !== 'createdAt');
+    const needsFullFetch    = !!(hasFilter || needsInMemorySort);
 
     let records = await this.prisma.record.findMany({
       where,
       include: { createdBy: { select: { id: true, firstName: true, lastName: true, email: true } } },
-      orderBy: { createdAt: sortDir === 'asc' ? 'asc' : 'desc' },
-      take: hasFilter ? 5000 : Number(limit),
-      skip: hasFilter ? 0 : (Number(page) - 1) * Number(limit),
+      orderBy: { createdAt: (!sortField || sortField === 'createdAt') ? (sortDir === 'asc' ? 'asc' : 'desc') : 'desc' },
+      take: needsFullFetch ? 5000 : Number(limit),
+      skip: needsFullFetch ? 0 : (Number(page) - 1) * Number(limit),
     });
 
     if (search) {
@@ -80,14 +90,28 @@ export class RecordsService {
       } catch {}
     }
 
-    const total = hasFilter ? records.length : await this.prisma.record.count({ where });
+    // In-memory sort by JSON data field
+    if (sortField && sortField !== 'createdAt') {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      records.sort((a, b) => {
+        const av = (a.data as any)?.[sortField] ?? '';
+        const bv = (b.data as any)?.[sortField] ?? '';
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+        return cmp * dir;
+      });
+    }
 
-    const paged = hasFilter
+    const total = needsFullFetch ? records.length : await this.prisma.record.count({ where });
+
+    const paged = needsFullFetch
       ? records.slice((Number(page) - 1) * Number(limit), Number(page) * Number(limit))
       : records;
 
+    const moduleFields = await this.prisma.field.findMany({ where: { moduleId, isActive: true }, include: { options: true } });
+    const resolvedData = await this.resolver.resolveRecords(paged, moduleFields);
+
     return {
-      data: paged,
+      data: resolvedData,
       meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
     };
   }
@@ -148,13 +172,13 @@ export class RecordsService {
       },
     });
     if (!record) throw new NotFoundException('Record not found');
-    return record;
+    const moduleFields = record.module?.fields ?? await this.prisma.field.findMany({ where: { moduleId: record.moduleId, isActive: true }, include: { options: true } });
+    return this.resolver.resolveRecord(record, moduleFields);
   }
 
-  async update(id: string, orgId: string, userId: string, data: Record<string, any>) {
-    const record = await this.prisma.record.findFirst({
-      where: { id, organizationId: orgId, isDeleted: false },
-    });
+  async update(id: string, orgId: string | null, userId: string, data: Record<string, any>) {
+    const where: any = orgId ? { id, organizationId: orgId, isDeleted: false } : { id, isDeleted: false };
+    const record = await this.prisma.record.findFirst({ where });
     if (!record) throw new NotFoundException('Record not found');
 
     const existingData = (record.data as Record<string, any>) || {};
@@ -165,17 +189,23 @@ export class RecordsService {
       data: { data: mergedData, updatedById: userId },
     });
 
+    // Capture old values only for the fields that changed (for activity log)
+    const oldValues: Record<string, any> = {};
+    for (const key of Object.keys(data)) oldValues[key] = existingData[key] ?? null;
+
+    // Use record's actual org for audit log (orgId may be null for SUPER_ADMIN cross-org access)
+    const auditOrgId = orgId ?? record.organizationId;
     await this.prisma.auditLog.create({
       data: {
-        userId, organizationId: orgId,
+        userId, organizationId: auditOrgId,
         action: 'RECORD_UPDATED', entityType: 'Record', entityId: id,
-        metadata: { changes: data },
+        metadata: { oldValues, newValues: data },
       },
     });
 
     // Fire RECORD_UPDATED workflows asynchronously
     this.workflows.executeForRecord(
-      'RECORD_UPDATED', record.moduleId, orgId,
+      'RECORD_UPDATED', record.moduleId, auditOrgId,
       { ...updated, data: mergedData },
       existingData,
     ).catch(() => {});
@@ -183,12 +213,13 @@ export class RecordsService {
     return updated;
   }
 
-  async softDelete(id: string, orgId: string, userId: string) {
-    const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId } });
+  async softDelete(id: string, orgId: string | null, userId: string) {
+    const where: any = orgId ? { id, organizationId: orgId } : { id };
+    const record = await this.prisma.record.findFirst({ where });
     if (!record) throw new NotFoundException('Record not found');
     await this.prisma.record.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } });
     await this.prisma.auditLog.create({
-      data: { userId, organizationId: orgId, action: 'RECORD_DELETED', entityType: 'Record', entityId: id, metadata: {} },
+      data: { userId, organizationId: orgId ?? record.organizationId, action: 'RECORD_DELETED', entityType: 'Record', entityId: id, metadata: {} },
     });
     return { success: true };
   }
@@ -230,6 +261,117 @@ export class RecordsService {
       data: { recordId, userId, content },
       include: { user: { select: { id: true, firstName: true, lastName: true } } },
     });
+  }
+
+  // ── Activity log ────────────────────────────────────────────────────────────
+
+  async getActivity(recordId: string, orgId: string) {
+    const [auditLogs, comments] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: { entityId: recordId, organizationId: orgId },
+        include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.comment.findMany({
+        where: { recordId },
+        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const entries = [
+      ...auditLogs.map((log: any) => ({
+        id: log.id, type: 'audit' as const,
+        action: log.action, user: log.user,
+        metadata: log.metadata, createdAt: log.createdAt,
+      })),
+      ...comments.map((c: any) => ({
+        id: c.id, type: 'comment' as const,
+        action: 'COMMENT_ADDED', user: c.user,
+        metadata: { content: c.content }, createdAt: c.createdAt,
+      })),
+    ];
+
+    return entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  // ── Duplicate record ────────────────────────────────────────────────────────
+
+  async duplicate(id: string, orgId: string, userId: string) {
+    const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+    if (!record) throw new NotFoundException('Record not found');
+
+    const mod = await this.prisma.dynamicModule.findFirst({
+      where: { id: record.moduleId },
+      include: { fields: { where: { isActive: true } } },
+    });
+
+    const sourceData = (record.data as Record<string, any>) || {};
+    const duplicateData: Record<string, any> = {};
+    const skipTypes = new Set(['AUTO_NUMBER', 'FORMULA', 'INLINE_SUBFORM']);
+
+    for (const [key, value] of Object.entries(sourceData)) {
+      const field = mod?.fields.find((f: any) => f.name === key);
+      if (field && skipTypes.has(field.type)) continue;
+      duplicateData[key] = value;
+    }
+
+    for (const field of mod?.fields ?? []) {
+      if ((field as any).type === 'AUTO_NUMBER') {
+        duplicateData[(field as any).name] = await this.generateAutoNumber(field as any, record.moduleId, orgId);
+      }
+    }
+
+    const newRecord = await this.prisma.record.create({
+      data: { moduleId: record.moduleId, organizationId: orgId, createdById: userId, data: duplicateData },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId, organizationId: orgId,
+        action: 'RECORD_CREATED', entityType: 'Record', entityId: newRecord.id,
+        metadata: { moduleId: record.moduleId, duplicatedFrom: id },
+      },
+    });
+
+    return newRecord;
+  }
+
+  // ── Archive / Lock ───────────────────────────────────────────────────────────
+
+  async setArchived(id: string, orgId: string, userId: string, archived: boolean) {
+    const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+    if (!record) throw new NotFoundException('Record not found');
+    await (this.prisma.record as any).update({
+      where: { id },
+      data: { isArchived: archived, archivedAt: archived ? new Date() : null },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        userId, organizationId: orgId,
+        action: archived ? 'RECORD_ARCHIVED' : 'RECORD_UNARCHIVED',
+        entityType: 'Record', entityId: id, metadata: {},
+      },
+    });
+    return { success: true, isArchived: archived };
+  }
+
+  async setLocked(id: string, orgId: string, userId: string, locked: boolean) {
+    const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
+    if (!record) throw new NotFoundException('Record not found');
+    await (this.prisma.record as any).update({
+      where: { id },
+      data: { isLocked: locked, lockedAt: locked ? new Date() : null },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        userId, organizationId: orgId,
+        action: locked ? 'RECORD_LOCKED' : 'RECORD_UNLOCKED',
+        entityType: 'Record', entityId: id, metadata: {},
+      },
+    });
+    return { success: true, isLocked: locked };
   }
 
   async exportCsv(moduleId: string, orgId: string, filterGroup?: string): Promise<string> {

@@ -1,94 +1,57 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { PermissionCheckService } from '../permissions/permission-check.service';
 export declare class DashboardsService {
     private prisma;
-    constructor(prisma: PrismaService);
-    create(orgId: string, userId: string, data: any): Promise<{
+    private perm;
+    constructor(prisma: PrismaService, perm: PermissionCheckService);
+    private pickWritable;
+    findAll(userId: string, orgId: string): Promise<any[]>;
+    findOne(id: string, userId: string, orgId: string): Promise<{
         id: string;
         organizationId: string;
         createdAt: Date;
         updatedAt: Date;
         name: string;
         description: string | null;
-        createdById: string;
-        isDefault: boolean;
-        isPublic: boolean;
-    }>;
-    findAll(orgId: string): Promise<({
-        widgets: {
-            id: string;
-            createdAt: Date;
-            order: number;
-            moduleId: string | null;
-            type: import(".prisma/client").$Enums.WidgetType;
-            config: import("@prisma/client/runtime/library").JsonValue;
-            title: string;
-            dashboardId: string;
-            filters: import("@prisma/client/runtime/library").JsonValue;
-            position: import("@prisma/client/runtime/library").JsonValue;
-        }[];
-    } & {
-        id: string;
-        organizationId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
-        description: string | null;
-        createdById: string;
-        isDefault: boolean;
-        isPublic: boolean;
-    })[]>;
-    findOne(id: string, orgId: string): Promise<{
-        widgets: {
-            id: string;
-            createdAt: Date;
-            order: number;
-            moduleId: string | null;
-            type: import(".prisma/client").$Enums.WidgetType;
-            config: import("@prisma/client/runtime/library").JsonValue;
-            title: string;
-            dashboardId: string;
-            filters: import("@prisma/client/runtime/library").JsonValue;
-            position: import("@prisma/client/runtime/library").JsonValue;
-        }[];
-    } & {
-        id: string;
-        organizationId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
-        description: string | null;
-        createdById: string;
-        isDefault: boolean;
-        isPublic: boolean;
-    }>;
-    addWidget(dashboardId: string, orgId: string, data: any): Promise<{
-        id: string;
-        createdAt: Date;
-        order: number;
-        moduleId: string | null;
-        type: import(".prisma/client").$Enums.WidgetType;
         config: import("@prisma/client/runtime/library").JsonValue;
-        title: string;
-        dashboardId: string;
-        filters: import("@prisma/client/runtime/library").JsonValue;
-        position: import("@prisma/client/runtime/library").JsonValue;
+        createdById: string;
+        isPublic: boolean;
+        isDefault: boolean;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepartments: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
     }>;
-    removeWidget(widgetId: string): Promise<{
+    create(userId: string, orgId: string, data: any): Promise<{
         id: string;
+        organizationId: string;
         createdAt: Date;
-        order: number;
-        moduleId: string | null;
-        type: import(".prisma/client").$Enums.WidgetType;
-        config: import("@prisma/client/runtime/library").JsonValue;
-        title: string;
-        dashboardId: string;
-        filters: import("@prisma/client/runtime/library").JsonValue;
-        position: import("@prisma/client/runtime/library").JsonValue;
-    }>;
-    getAnalytics(moduleId: string, orgId: string, query: any): Promise<{
+        updatedAt: Date;
         name: string;
-        value: number;
-    }[] | {
-        total: number;
+        description: string | null;
+        config: import("@prisma/client/runtime/library").JsonValue;
+        createdById: string;
+        isPublic: boolean;
+        isDefault: boolean;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepartments: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    update(id: string, userId: string, orgId: string, data: any): Promise<{
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        description: string | null;
+        config: import("@prisma/client/runtime/library").JsonValue;
+        createdById: string;
+        isPublic: boolean;
+        isDefault: boolean;
+        sharedRoles: import("@prisma/client/runtime/library").JsonValue;
+        sharedDepartments: import("@prisma/client/runtime/library").JsonValue;
+        sharedUsers: import("@prisma/client/runtime/library").JsonValue;
+    }>;
+    remove(id: string, userId: string, orgId: string): Promise<{
+        ok: boolean;
     }>;
 }

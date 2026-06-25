@@ -1,12 +1,14 @@
 "use client";
-import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useState, FormEvent, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { usePortalAuthStore } from "@/store/portal-auth.store";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 
-export default function PortalLoginPage() {
+function PortalLoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirect = searchParams.get("redirect") || "/portal/dashboard";
   const { login, isLoading } = usePortalAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,7 +23,7 @@ export default function PortalLoginPage() {
       if (result.requiresPasswordChange) {
         router.replace("/portal/activate");
       } else {
-        router.replace("/portal/dashboard");
+        router.replace(redirect);
       }
     } catch (err: any) {
       const msg = err?.response?.data?.message;
@@ -40,13 +42,13 @@ export default function PortalLoginPage() {
       <div className="relative w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center mb-4">
-            <span className="text-2xl font-bold text-white">P</span>
+            <span className="text-xl font-black text-white tracking-tight">CORE</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="text-indigo-300 text-sm mt-1">Sign in to your portal account</p>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-8 shadow-2xl">
+        <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-5 sm:p-8 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="bg-red-500/20 border border-red-400/30 text-red-200 text-sm px-4 py-3 rounded-xl">
@@ -106,14 +108,19 @@ export default function PortalLoginPage() {
             </button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-indigo-300">
-            Don&apos;t have an account?{" "}
-            <Link href="/portal/register" className="text-white hover:underline font-medium">
-              Register
-            </Link>
+          <p className="mt-6 text-center text-xs text-indigo-400">
+            Access is by invitation only. Contact your administrator.
           </p>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PortalLoginPage() {
+  return (
+    <Suspense>
+      <PortalLoginForm />
+    </Suspense>
   );
 }

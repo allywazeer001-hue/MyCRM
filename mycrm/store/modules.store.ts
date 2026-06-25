@@ -38,24 +38,33 @@ interface ModulesState {
   modules: DynamicModule[];
   activeModule: DynamicModule | null;
   isLoading: boolean;
+  currentOrgId: string | null;
   fetchModules: () => Promise<void>;
   fetchModule: (id: string) => Promise<void>;
   createModule: (data: Partial<DynamicModule>) => Promise<DynamicModule>;
   updateModule: (id: string, data: Partial<DynamicModule>) => Promise<void>;
   deleteModule: (id: string) => Promise<void>;
   setActiveModule: (module: DynamicModule | null) => void;
+  clearForOrgChange: () => void;
 }
 
-export const useModulesStore = create<ModulesState>((set, get) => ({
+export const useModulesStore = create<ModulesState>((set) => ({
   modules: [],
   activeModule: null,
   isLoading: false,
+  currentOrgId: null,
+
+  // Called immediately when the authenticated org changes — prevents stale
+  // modules from a previous org appearing in the sidebar during the new fetch.
+  clearForOrgChange: () => set({ modules: [], activeModule: null, isLoading: true, currentOrgId: null }),
 
   fetchModules: async () => {
     set({ isLoading: true });
     try {
       const { data } = await api.get("/modules");
-      set({ modules: data, isLoading: false });
+      // Track which org this data belongs to (first module's organizationId or null)
+      const fetchedOrgId = (data as any[])[0]?.organizationId ?? null;
+      set({ modules: data, isLoading: false, currentOrgId: fetchedOrgId });
     } catch {
       set({ isLoading: false });
     }

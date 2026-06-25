@@ -1,186 +1,346 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Settings, ChevronRight, Database,
-  Workflow, BarChart3, Bell, Users, Building2, Plus,
-  ChevronLeft, FileText, FileBarChart2,
+  Settings, ChevronRight, Database, Workflow, BarChart3,
+  Users, Building2, Plus, ChevronLeft, FileBarChart2, X,
+  Globe, Palette, LayoutGrid, Home,
+  ChevronDown, ClipboardCheck, Inbox, Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useModulesStore } from "@/store/modules.store";
 import { useAuthStore } from "@/store/auth.store";
 import { usePermissionsStore } from "@/store/permissions.store";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ModuleIcon } from "@/components/ui/module-icon";
+
+// ── Nav definitions ───────────────────────────────────────────────────────────
 
 const coreNavItems = [
-  { href: "/dashboard",            label: "Dashboard",          icon: LayoutDashboard, permKey: "canDashboard" as const },
-  { href: "/analytics",            label: "Data Visualization", icon: BarChart3,        permKey: "canAnalytics" as const },
-  { href: "/workflows",            label: "Workflows",          icon: Workflow,          permKey: "canWorkflow"  as const },
-  { href: "/forms",                label: "Forms",              icon: FileText,          permKey: "canForms"     as const },
-  { href: "/apps/report-builder",  label: "Reports",            icon: FileBarChart2,     permKey: null },
-  { href: "/notifications",        label: "Notifications",      icon: Bell,              permKey: null },
+  { href: "/workspace",          label: "Workspace",          icon: LayoutGrid,    permKey: null },
+  { href: "/workspace/requests", label: "Requests",           icon: Inbox,         permKey: null },
+  { href: "/dashboard",          label: "Dashboard",          icon: Home,          permKey: "canDashboard" as const },
+  { href: "/analytics",          label: "Data Visualization", icon: BarChart3,     permKey: "canAnalytics" as const },
+  { href: "/workflows",          label: "Workflows",          icon: Workflow,      permKey: "canWorkflow"  as const },
+  { href: "/apps/report-builder",label: "Reports",            icon: FileBarChart2, permKey: null },
+  { href: "/tracker",            label: "Tracker",            icon: ClipboardCheck,permKey: null },
 ];
 
 const adminNavItems = [
-  { href: "/studio",    label: "Module Studio", icon: Database },
-  { href: "/users",     label: "Users",         icon: Users },
-  { href: "/settings",  label: "Settings",      icon: Settings },
+  { href: "/studio",            label: "Module Studio", icon: Database   },
+  { href: "/users",             label: "Users",         icon: Users      },
+  { href: "/admin/departments", label: "Units",         icon: Building2  },
+  { href: "/customization",     label: "Customization", icon: Settings2  },
+  { href: "/settings",          label: "Settings",      icon: Settings   },
 ];
 
-const MODULE_ICONS: Record<string, string> = {
-  default: "📦",
-  patients: "🏥",
-  employees: "👥",
-  projects: "📋",
-  assets: "🔧",
-  inventory: "📦",
-  donors: "💝",
-  cases: "📁",
+const platformNavItems = [
+  { href: "/platform",   label: "Organizations", icon: Globe    },
+  { href: "/land-admin", label: "Landing Page",  icon: Palette  },
+];
+
+// href → package key required to show this item
+const ROUTE_PACKAGE: Record<string, string> = {
+  "/analytics":           "ANALYTICS",
+  "/workflows":           "WORKFLOWS",
+  "/forms":               "FORMS",
+  "/apps/report-builder": "REPORTS",
 };
 
-export function Sidebar() {
-  const pathname = usePathname();
-  const { modules } = useModulesStore();
-  const { user } = useAuthStore();
+// ── Logo mark ─────────────────────────────────────────────────────────────────
+
+function LogoMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+      <rect x="2"  y="2"  width="12" height="12" rx="3" fill="currentColor" opacity="0.9" />
+      <rect x="18" y="2"  width="12" height="12" rx="3" fill="currentColor" opacity="0.7" />
+      <rect x="2"  y="18" width="12" height="12" rx="3" fill="currentColor" opacity="0.7" />
+      <rect x="18" y="18" width="12" height="12" rx="3" fill="currentColor" opacity="0.5" />
+    </svg>
+  );
+}
+
+// ── Nav link ──────────────────────────────────────────────────────────────────
+
+function NavLink({
+  href, label, icon: Icon, active, collapsed, onClick,
+}: {
+  href: string; label: string; icon: React.ElementType;
+  active: boolean; collapsed: boolean; onClick?: () => void;
+}) {
+  return (
+    <Link href={href} onClick={onClick}>
+      <div
+        title={collapsed ? label : undefined}
+        className={cn(
+          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none",
+          active
+            ? "bg-blue-50 text-blue-700"
+            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+        )}
+      >
+        {active && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-blue-600 rounded-r-full" />
+        )}
+        <span className="cb-nav-icon shrink-0">
+          <Icon className={cn(
+            "w-[18px] h-[18px] transition-colors duration-150",
+            active ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"
+          )} />
+        </span>
+        {!collapsed && <span className="truncate">{label}</span>}
+      </div>
+    </Link>
+  );
+}
+
+// ── Nav group (collapsible section) ──────────────────────────────────────────
+
+function NavGroup({
+  label, children, collapsed, defaultOpen = true,
+}: {
+  label: string; children: React.ReactNode; collapsed: boolean; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  if (collapsed) return <div className="pt-2">{children}</div>;
+
+  return (
+    <div className="pt-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 transition-all duration-150"
+      >
+        <span>{label}</span>
+        <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", open && "rotate-180")} />
+      </button>
+      <div
+        className={cn(
+          "overflow-hidden transition-all duration-200 ease-in-out",
+          open ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Sidebar props ─────────────────────────────────────────────────────────────
+
+export interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+// ── Sidebar content ───────────────────────────────────────────────────────────
+
+function SidebarContent({
+  collapsed, setCollapsed, onLinkClick, showCloseButton, onClose,
+}: {
+  collapsed: boolean; setCollapsed: (v: boolean) => void;
+  onLinkClick?: () => void; showCloseButton?: boolean; onClose?: () => void;
+}) {
+  const pathname         = usePathname();
+  const { modules }      = useModulesStore();
+  const { user }         = useAuthStore();
   const { system, canView } = usePermissionsStore();
-  const [collapsed, setCollapsed] = useState(false);
-  const [modulesExpanded, setModulesExpanded] = useState(true);
 
   const isSuperAdmin = (user as any)?.role === "SUPER_ADMIN";
-  const isAdmin = isSuperAdmin || user?.role === "ADMIN";
+  const isAdmin      = isSuperAdmin || user?.role === "ADMIN";
 
-  const visibleCoreNavItems = isSuperAdmin
+  const orgPackages: string[] | null = (user?.organization as any)?.settings?.packages ?? null;
+  const hasPackage = (href: string) =>
+    isSuperAdmin || !orgPackages || !ROUTE_PACKAGE[href] || orgPackages.includes(ROUTE_PACKAGE[href]);
+
+  const visibleCoreItems = (isSuperAdmin || isAdmin
     ? coreNavItems
-    : isAdmin
-      ? coreNavItems
-      : coreNavItems.filter(item => !item.permKey || system[item.permKey]);
+    : coreNavItems.filter(item => !item.permKey || system[item.permKey])
+  ).filter(item => hasPackage(item.href));
 
-  const visibleModules = isSuperAdmin
+  const visibleModules = isSuperAdmin || isAdmin
     ? modules
-    : isAdmin
-      ? modules
-      : modules.filter(mod => canView(mod.slug));
+    : modules.filter(mod => canView(mod.slug));
 
   const isActive = (href: string) => {
-    if (href === "/settings") return pathname === "/settings" || pathname.startsWith("/settings/") || pathname.startsWith("/admin/");
+    if (href === "/settings")
+      return pathname === "/settings" || pathname.startsWith("/settings/") || pathname.startsWith("/admin/");
+    if (href === "/workspace")
+      return pathname === "/workspace";
     return pathname === href || pathname.startsWith(href + "/");
   };
 
   return (
-    <aside
-      className={cn(
-        "flex flex-col bg-white border-r border-gray-200 transition-all duration-300 shrink-0",
-        collapsed ? "w-16" : "w-60"
+    <>
+      {/* Super-admin gradient accent */}
+      {isSuperAdmin && (
+        <div className="h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 shrink-0" />
       )}
-    >
-      {/* Logo */}
-      <div className={cn("flex items-center h-14 px-4 border-b border-gray-100", collapsed ? "justify-center" : "justify-between")}>
+
+      {/* Header */}
+      <div className={cn(
+        "flex items-center h-12 px-3 border-b border-slate-100 shrink-0",
+        collapsed ? "justify-center" : "justify-between"
+      )}>
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
-              <Building2 className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-gray-900 text-sm">Enterprise CRM</span>
+          <div className="flex flex-col gap-0.5">
+            <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+              <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shrink-0 text-white shadow-sm">
+                <LogoMark size={14} />
+              </div>
+              <span className="font-bold text-slate-900 text-sm tracking-tight">Cloudbox</span>
+            </Link>
+            {isSuperAdmin && (
+              <span className="ml-9 text-[10px] font-bold text-purple-600 uppercase tracking-wider">
+                Super Admin
+              </span>
+            )}
           </div>
         )}
         {collapsed && (
-          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Building2 className="w-4 h-4 text-white" />
-          </div>
+          <Link href="/" title="Home" className="hover:opacity-80 transition-opacity">
+            <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center text-white shadow-sm">
+              <LogoMark size={14} />
+            </div>
+          </Link>
         )}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-gray-400 hover:text-gray-600 p-1 rounded hidden md:flex"
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
+
+        {!showCloseButton && (
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all duration-150 hidden lg:flex"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed
+              ? <ChevronRight className="w-3.5 h-3.5" />
+              : <ChevronLeft  className="w-3.5 h-3.5" />}
+          </button>
+        )}
+        {showCloseButton && (
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-all"
+            title="Close menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
+      {/* Navigation */}
       <ScrollArea className="flex-1">
         <nav className="p-2 space-y-0.5">
-          {/* Core Nav */}
-          {visibleCoreNavItems.map((item) => (
-            <Link key={item.href} href={item.href}>
-              <div className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
-                isActive(item.href)
-                  ? "bg-blue-50 text-blue-700 font-medium"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              )}>
-                <item.icon className="w-4 h-4 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </div>
-            </Link>
+
+          {/* Core nav — no group header */}
+          {visibleCoreItems.map(item => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={item.icon}
+              active={isActive(item.href)}
+              collapsed={collapsed}
+              onClick={onLinkClick}
+            />
           ))}
 
-          {/* Modules Section */}
-          {!collapsed && (
-            <div className="pt-3 pb-1">
-              <button
-                onClick={() => setModulesExpanded(!modulesExpanded)}
-                className="flex items-center justify-between w-full px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600"
-              >
-                <span>Modules</span>
-                <ChevronRight className={cn("w-3 h-3 transition-transform", modulesExpanded && "rotate-90")} />
-              </button>
-            </div>
-          )}
-
-          {modulesExpanded && (
-            <>
-              {visibleModules.map((mod) => (
-                <Link key={mod.id} href={`/m/${mod.slug}`}>
-                  <div className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
-                    isActive(`/m/${mod.slug}`)
-                      ? "bg-blue-50 text-blue-700 font-medium"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  )}>
-                    <span className="text-base shrink-0">
-                      {mod.icon || MODULE_ICONS[mod.slug] || MODULE_ICONS.default}
-                    </span>
-                    {!collapsed && <span className="truncate">{mod.name}</span>}
-                  </div>
-                </Link>
-              ))}
-
-              {!collapsed && (
-                <Link href="/studio/new">
-                  <div className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-50 cursor-pointer transition-colors">
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span>New Module</span>
-                  </div>
-                </Link>
-              )}
-            </>
-          )}
-
-          {/* Admin Section — only visible to admins */}
-          {isAdmin && (
-            <>
-              {!collapsed && (
-                <div className="pt-3 pb-1">
-                  <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin</p>
+          {/* Modules */}
+          <NavGroup label="Modules" collapsed={collapsed}>
+            {visibleModules.map(mod => (
+              <NavLink
+                key={mod.id}
+                href={`/m/${mod.slug}`}
+                label={mod.name}
+                icon={(props: any) => <ModuleIcon icon={mod.icon} slug={mod.slug} className={props?.className} />}
+                active={isActive(`/m/${mod.slug}`)}
+                collapsed={collapsed}
+                onClick={onLinkClick}
+              />
+            ))}
+            {!collapsed && (
+              <Link href="/studio/new" onClick={onLinkClick}>
+                <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer transition-all duration-150">
+                  <Plus className="w-[18px] h-[18px] shrink-0" />
+                  <span>New Module</span>
                 </div>
-              )}
-              {adminNavItems.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <div className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
-                    isActive(item.href)
-                      ? "bg-blue-50 text-blue-700 font-medium"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  )}>
-                    <item.icon className="w-4 h-4 shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
-                  </div>
-                </Link>
+              </Link>
+            )}
+          </NavGroup>
+
+          {/* Administration */}
+          {isAdmin && (
+            <NavGroup label="Administration" collapsed={collapsed} defaultOpen={false}>
+              {adminNavItems.map(item => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isActive(item.href)}
+                  collapsed={collapsed}
+                  onClick={onLinkClick}
+                />
               ))}
-            </>
+            </NavGroup>
+          )}
+
+          {/* Platform — Super Admin only */}
+          {isSuperAdmin && (
+            <NavGroup label="Platform" collapsed={collapsed} defaultOpen={false}>
+              {platformNavItems.map(item => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isActive(item.href)}
+                  collapsed={collapsed}
+                  onClick={onLinkClick}
+                />
+              ))}
+            </NavGroup>
           )}
         </nav>
       </ScrollArea>
-    </aside>
+    </>
+  );
+}
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+
+export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <>
+      {/* Desktop sidebar — always in flow, collapsible */}
+      <aside
+        className={cn(
+          "hidden lg:flex flex-col bg-white border-r border-slate-200 shrink-0",
+          "transition-all duration-300 ease-in-out",
+          collapsed ? "w-16" : "w-60"
+        )}
+      >
+        <SidebarContent collapsed={collapsed} setCollapsed={setCollapsed} />
+      </aside>
+
+      {/* Mobile sidebar — fixed overlay, slides in/out */}
+      <aside
+        className={cn(
+          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-slate-200",
+          "w-72 transition-transform duration-300 ease-in-out",
+          mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+        )}
+      >
+        <SidebarContent
+          collapsed={false}
+          setCollapsed={() => {}}
+          showCloseButton
+          onClose={onMobileClose}
+          onLinkClick={onMobileClose}
+        />
+      </aside>
+    </>
   );
 }

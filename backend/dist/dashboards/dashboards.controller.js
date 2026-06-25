@@ -22,24 +22,23 @@ let DashboardsController = class DashboardsController {
     constructor(svc) {
         this.svc = svc;
     }
-    create(body, user) { return this.svc.create(user.organizationId, user.id, body); }
-    findAll(user) { return this.svc.findAll(user.organizationId); }
-    findOne(id, user) { return this.svc.findOne(id, user.organizationId); }
-    addWidget(id, body, user) { return this.svc.addWidget(id, user.organizationId, body); }
-    removeWidget(widgetId) { return this.svc.removeWidget(widgetId); }
-    getAnalytics(moduleId, query, user) {
-        return this.svc.getAnalytics(moduleId, user.organizationId, query);
+    findAll(user) {
+        return this.svc.findAll(user.id, user.organizationId);
+    }
+    findOne(id, user) {
+        return this.svc.findOne(id, user.id, user.organizationId);
+    }
+    create(body, user) {
+        return this.svc.create(user.id, user.organizationId, body);
+    }
+    update(id, body, user) {
+        return this.svc.update(id, user.id, user.organizationId, body);
+    }
+    remove(id, user) {
+        return this.svc.remove(id, user.id, user.organizationId);
     }
 };
 exports.DashboardsController = DashboardsController;
-__decorate([
-    (0, common_1.Post)(),
-    __param(0, (0, common_1.Body)()),
-    __param(1, (0, current_user_decorator_1.CurrentUser)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
-    __metadata("design:returntype", void 0)
-], DashboardsController.prototype, "create", null);
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
@@ -56,30 +55,30 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], DashboardsController.prototype, "findOne", null);
 __decorate([
-    (0, common_1.Post)(':id/widgets'),
+    (0, common_1.Post)(),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], DashboardsController.prototype, "create", null);
+__decorate([
+    (0, common_1.Patch)(':id'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", void 0)
-], DashboardsController.prototype, "addWidget", null);
+], DashboardsController.prototype, "update", null);
 __decorate([
-    (0, common_1.Delete)('widgets/:widgetId'),
-    __param(0, (0, common_1.Param)('widgetId')),
+    (0, common_1.Delete)(':id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
-], DashboardsController.prototype, "removeWidget", null);
-__decorate([
-    (0, common_1.Get)('analytics/:moduleId'),
-    __param(0, (0, common_1.Param)('moduleId')),
-    __param(1, (0, common_1.Query)()),
-    __param(2, (0, current_user_decorator_1.CurrentUser)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object, Object]),
-    __metadata("design:returntype", void 0)
-], DashboardsController.prototype, "getAnalytics", null);
+], DashboardsController.prototype, "remove", null);
 exports.DashboardsController = DashboardsController = __decorate([
     (0, swagger_1.ApiTags)('dashboards'),
     (0, swagger_1.ApiBearerAuth)(),

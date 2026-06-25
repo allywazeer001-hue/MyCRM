@@ -46,6 +46,7 @@ export declare class PortalService {
     getRecordData(portalUserId: string): Promise<{
         record: {
             id: string;
+            lockedAt: Date | null;
             organizationId: string;
             createdAt: Date;
             updatedAt: Date;
@@ -53,6 +54,9 @@ export declare class PortalService {
             moduleId: string;
             isDeleted: boolean;
             deletedAt: Date | null;
+            isArchived: boolean;
+            archivedAt: Date | null;
+            isLocked: boolean;
             createdById: string;
             updatedById: string | null;
         };
@@ -76,8 +80,8 @@ export declare class PortalService {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -89,6 +93,7 @@ export declare class PortalService {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             })[];
         } & {
             id: string;
@@ -98,8 +103,8 @@ export declare class PortalService {
             updatedAt: Date;
             name: string;
             slug: string;
-            settings: import("@prisma/client/runtime/library").JsonValue;
             description: string | null;
+            settings: import("@prisma/client/runtime/library").JsonValue;
             icon: string | null;
             color: string | null;
             order: number;
@@ -123,8 +128,8 @@ export declare class PortalService {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -136,6 +141,7 @@ export declare class PortalService {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         })[];
         mappings: {
             id: string;
@@ -205,8 +211,8 @@ export declare class PortalService {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }[]>;
@@ -248,14 +254,14 @@ export declare class PortalService {
             type: string;
             title: string;
             body: string;
-            targetTypes: import("@prisma/client/runtime/library").JsonValue;
             isPublished: boolean;
+            targetTypes: import("@prisma/client/runtime/library").JsonValue;
             publishedAt: Date;
             scheduledAt: Date | null;
         }[];
         recordSummary: any;
     }>;
-    listUsers(organizationId: string, page?: number, limit?: number): Promise<{
+    listUsers(organizationId: string, page?: number, limit?: number, search?: string, status?: string): Promise<{
         users: {
             email: string;
             firstName: string;
@@ -265,8 +271,8 @@ export declare class PortalService {
             createdAt: Date;
             moduleId: string;
             type: string;
-            recordId: string;
             accountStatus: string;
+            recordId: string;
             isFirstLogin: boolean;
             isEmailVerified: boolean;
             isPortalAdmin: boolean;
@@ -275,6 +281,12 @@ export declare class PortalService {
         total: number;
         page: number;
         limit: number;
+    }>;
+    getUserStatusCounts(orgId: string): Promise<{
+        active: number;
+        suspended: number;
+        deleted: number;
+        total: number;
     }>;
     updateAccountStatus(organizationId: string, userId: string, status: string): Promise<{
         email: string;
@@ -304,8 +316,8 @@ export declare class PortalService {
         }[];
         moduleId: string;
         type: string;
-        recordId: string;
         accountStatus: string;
+        recordId: string;
         isFirstLogin: boolean;
         isEmailVerified: boolean;
     }>;
@@ -313,6 +325,60 @@ export declare class PortalService {
         email: string;
         id: string;
         isPortalAdmin: boolean;
+    }>;
+    softDelete(userId: string, orgId: string): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        phone: string | null;
+        isActive: boolean;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string | null;
+        profilePicture: string | null;
+        type: string;
+        accountStatus: string;
+        recordId: string | null;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
+        resetToken: string | null;
+        resetTokenExpiry: Date | null;
+        isPortalAdmin: boolean;
+        customData: import("@prisma/client/runtime/library").JsonValue;
+        portalRole: string;
+    }>;
+    restore(userId: string, orgId: string): Promise<{
+        email: string;
+        password: string;
+        firstName: string;
+        lastName: string;
+        id: string;
+        phone: string | null;
+        isActive: boolean;
+        lastLoginAt: Date | null;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string | null;
+        profilePicture: string | null;
+        type: string;
+        accountStatus: string;
+        recordId: string | null;
+        isFirstLogin: boolean;
+        isEmailVerified: boolean;
+        resetToken: string | null;
+        resetTokenExpiry: Date | null;
+        isPortalAdmin: boolean;
+        customData: import("@prisma/client/runtime/library").JsonValue;
+        portalRole: string;
+    }>;
+    permanentDelete(userId: string, orgId: string): Promise<{
+        success: boolean;
+        message: string;
     }>;
     setPortalRole(organizationId: string, userId: string, portalRole: string): Promise<{
         email: string;

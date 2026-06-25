@@ -13,6 +13,13 @@ export class FieldsService {
     const order = (maxOrder._max.order ?? -1) + 1;
 
     const { options, ...fieldData } = data;
+    // Serialize object fields to JSON strings for LongText columns
+    const JSON_FIELDS = ['settings', 'validation', 'conditionalLogic'];
+    for (const key of JSON_FIELDS) {
+      if (key in fieldData && typeof fieldData[key] === 'object' && fieldData[key] !== null) {
+        fieldData[key] = JSON.stringify(fieldData[key]);
+      }
+    }
     const field = await this.prisma.field.create({
       data: { ...fieldData, moduleId, order },
     });
@@ -45,6 +52,14 @@ export class FieldsService {
 
     // options handling: replaceExisting controls whether to replace or append
     const { options, replaceExisting, ...fieldData } = data;
+
+    // Serialize object fields to JSON strings for LongText columns
+    const JSON_FIELDS = ['settings', 'validation', 'conditionalLogic'];
+    for (const key of JSON_FIELDS) {
+      if (key in fieldData && typeof fieldData[key] === 'object' && fieldData[key] !== null) {
+        fieldData[key] = JSON.stringify(fieldData[key]);
+      }
+    }
     if (options !== undefined) {
       if (replaceExisting !== false) {
         // Default: replace all options

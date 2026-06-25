@@ -7,8 +7,11 @@ import {
   List, Loader2, AlertCircle, Columns3, X,
   ChevronDown, Check, LayoutGrid, Download, Save, BookOpen,
   SlidersHorizontal, Upload, FileText, CheckCircle2, Pin, PinOff,
-  Pencil, Mail, Zap, GripVertical
+  Pencil, Mail, Zap, GripVertical, BrainCircuit, Archive, Lock,
+  ChevronLeft, ChevronRight, CalendarDays, AlignLeft, Images,
 } from "lucide-react";
+import { AnalysisPanel, type AnalysisContext } from "@/components/analytics/analysis-panel";
+import { ModuleSummaryBar } from "@/components/modules/module-summary-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -28,8 +31,9 @@ import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { useModulesStore, Field } from "@/store/modules.store";
 import { useViewStore } from "@/store/view.store";
 import { api } from "@/lib/api";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate, cn, generateId } from "@/lib/utils";
 import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
+import { useBlueprintRuntimeStore } from "@/store/blueprint-runtime.store";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +43,8 @@ interface CrmRecord {
   createdAt: string;
   updatedAt: string;
   createdBy?: { firstName: string; lastName: string };
+  isArchived?: boolean;
+  isLocked?: boolean;
 }
 
 interface PaginatedResult {
@@ -121,7 +127,7 @@ function noValue(op: FilterOperator) {
 }
 
 function newCond(): FilterCondition {
-  return { id: crypto.randomUUID(), field: "", operator: "contains", value: "" };
+  return { id: generateId(), field: "", operator: "contains", value: "" };
 }
 
 // ── Filter condition row ──────────────────────────────────────────────────
@@ -305,21 +311,51 @@ function FilterPanel({
 
 // ── Field Value Renderer ───────────────────────────────────────────────────
 
-function FieldValue({ value, field }: { value: any; field?: Field }) {
+function FieldValue({ value, field, recordData, fieldName }: { value: any; field?: Field; recordData?: Record<string, any>; fieldName?: string }) {
+  // Resolve __label for list/relation fields stored as raw IDs
+  const storedLabel: string | undefined =
+    recordData && fieldName ? (recordData[fieldName + "__label"] as string | undefined) : undefined;
+
   if (value === null || value === undefined || value === "") {
     return <span className="text-gray-300">—</span>;
   }
   if (field?.type === "BOOLEAN") {
     return <Badge variant={value ? "success" : "secondary"} className="text-xs">{value ? "Yes" : "No"}</Badge>;
   }
+  if (field?.type === "GLOBAL_LIST" || field?.type === "DEPENDENT_GLOBAL_LIST" || field?.type === "GLOBAL_RELATION") {
+    const displayLabel = (storedLabel && storedLabel !== "") ? storedLabel : String(value);
+    return <span className="text-sm text-gray-700 truncate max-w-[200px] block">{displayLabel}</span>;
+  }
   if (field?.type === "STATUS" || field?.type === "DROPDOWN") {
     const opt = field.options?.find(o => o.value === value);
-    const label = opt?.label || value;
+    const label = (storedLabel && storedLabel !== "") ? storedLabel : (opt?.label || value);
     const colors: Record<string, string> = {
       active: "success", inactive: "secondary", pending: "warning",
       completed: "success", cancelled: "destructive",
     };
     return <Badge variant={(colors[String(value).toLowerCase()] as any) || "secondary"} className="text-xs">{label}</Badge>;
+  }
+  if (field?.type === "USER_SELECT") {
+    const display = (storedLabel && storedLabel !== "") ? storedLabel : String(value);
+    const initial = display[0]?.toUpperCase() ?? "?";
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
+          {initial}
+        </span>
+        <span className="text-sm text-gray-700 truncate max-w-[160px]">{display}</span>
+      </div>
+    );
+  }
+  if (field?.type === "RADIO") {
+    const opt = field.options?.find(o => o.value === value);
+    const label = opt?.label ?? String(value);
+    return (
+      <span className="inline-flex items-center gap-1 text-sm text-gray-700">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+        {label}
+      </span>
+    );
   }
   if (field?.type === "EMAIL") return <a href={`mailto:${value}`} className="text-blue-600 hover:underline text-sm">{value}</a>;
   if (field?.type === "URL") return <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm truncate max-w-[200px] block">{value}</a>;
@@ -375,17 +411,49 @@ function FieldValue({ value, field }: { value: any; field?: Field }) {
   return <span className="text-sm text-gray-700 truncate max-w-[200px] block">{String(value)}</span>;
 }
 
-// ── Column Picker ──────────────────────────────────────────────────────────
+// ── Column Picker (show/hide + drag-to-reorder) ────────────────────────────
 
-function ColumnPicker({ fields, visibleIds, onChange }: { fields: Field[]; visibleIds: string[]; onChange: (ids: string[]) => void }) {
+function ColumnPicker({ fields, visibleIds, onChange }: {
+  fields: Field[];
+  visibleIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  // Work from the ordered visibleIds list, append hidden fields at end for display
+  const eligible = fields.filter(f => !["FILE", "IMAGE", "SIGNATURE"].includes(f.type));
+  // Display order: visible first (in their saved order), then hidden
+  const ordered = [
+    ...visibleIds.map(id => eligible.find(f => f.id === id)).filter(Boolean) as Field[],
+    ...eligible.filter(f => !visibleIds.includes(f.id)),
+  ];
+
+  const dragRef = useRef<string | null>(null);
+
   const toggle = (id: string) => {
     if (visibleIds.includes(id)) {
       if (visibleIds.length <= 1) return;
       onChange(visibleIds.filter(x => x !== id));
     } else {
+      // Append at end of visible list
       onChange([...visibleIds, id]);
     }
   };
+
+  const onDragStart = (id: string) => { dragRef.current = id; };
+
+  const onDrop = (targetId: string) => {
+    if (!dragRef.current || dragRef.current === targetId) return;
+    // Reorder within visibleIds; if the dragged item is hidden, add it before target
+    const allIds = ordered.map(f => f.id);
+    const from = allIds.indexOf(dragRef.current);
+    const to   = allIds.indexOf(targetId);
+    const next = [...allIds];
+    next.splice(from, 1);
+    next.splice(to, 0, dragRef.current);
+    // Only keep the ones that were visible, in new order
+    onChange(next.filter(id => visibleIds.includes(id)));
+    dragRef.current = null;
+  };
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -394,18 +462,58 @@ function ColumnPicker({ fields, visibleIds, onChange }: { fields: Field[]; visib
           Columns
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-56 p-2" align="end">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-2 pb-2">Show / Hide</p>
-        {fields.filter(f => !["FILE", "IMAGE", "SIGNATURE"].includes(f.type)).map(f => (
-          <button key={f.id} onClick={() => toggle(f.id)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-50 text-sm">
-            <div className={cn("w-4 h-4 rounded border flex items-center justify-center flex-shrink-0",
-              visibleIds.includes(f.id) ? "bg-blue-600 border-blue-600" : "border-gray-300")}>
-              {visibleIds.includes(f.id) && <Check className="w-3 h-3 text-white" />}
-            </div>
-            <span className="text-gray-700 truncate">{f.label}</span>
+      <PopoverContent className="w-60 p-0" align="end">
+        <div className="px-3 py-2 border-b border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Columns</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Drag to reorder · Click to show/hide</p>
+        </div>
+        <div className="p-1.5 max-h-80 overflow-y-auto">
+          {ordered.map(f => {
+            const isVisible = visibleIds.includes(f.id);
+            return (
+              <div
+                key={f.id}
+                draggable
+                onDragStart={() => onDragStart(f.id)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => onDrop(f.id)}
+                className={cn(
+                  "flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-grab active:cursor-grabbing transition-colors",
+                  isVisible ? "hover:bg-gray-50" : "opacity-50 hover:bg-gray-50 hover:opacity-70"
+                )}
+              >
+                <GripVertical className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => toggle(f.id)}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
+                  <div className={cn(
+                    "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors",
+                    isVisible ? "bg-blue-600 border-blue-600" : "border-gray-300"
+                  )}>
+                    {isVisible && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className={cn("truncate", isVisible ? "text-gray-700" : "text-gray-400")}>{f.label}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between">
+          <button
+            className="text-xs text-blue-600 hover:underline"
+            onClick={() => onChange(eligible.map(f => f.id))}
+          >
+            Show all
           </button>
-        ))}
+          <button
+            className="text-xs text-gray-400 hover:text-gray-600 hover:underline"
+            onClick={() => onChange(eligible.slice(0, 1).map(f => f.id))}
+          >
+            Reset
+          </button>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -415,10 +523,17 @@ function ColumnPicker({ fields, visibleIds, onChange }: { fields: Field[]; visib
 
 function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleField: Field | undefined; slug: string }) {
   const router = useRouter();
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  // dragHappenedRef: prevents click-navigation firing immediately after a drag ends
+  const dragHappenedRef = useRef(false);
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({
     id: record.id,
     data: { record },
   });
+
+  useEffect(() => {
+    if (isDragging) dragHappenedRef.current = true;
+  }, [isDragging]);
+
   const style = transform
     ? { transform: `translate3d(${transform.x}px,${transform.y}px,0)`, opacity: isDragging ? 0.3 : 1 }
     : undefined;
@@ -427,10 +542,14 @@ function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleFiel
       ref={setNodeRef}
       style={style}
       className="p-3 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:border-blue-200 cursor-pointer transition-all space-y-1.5"
-      onClick={() => !isDragging && router.push(`/m/${slug}/${record.id}`)}
+      onClick={() => {
+        if (dragHappenedRef.current) { dragHappenedRef.current = false; return; }
+        router.push(`/m/${slug}/${record.id}`);
+      }}
     >
       <div className="flex items-start gap-1.5">
         <div
+          ref={setActivatorNodeRef}
           {...listeners}
           {...attributes}
           className="mt-0.5 shrink-0 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors touch-none"
@@ -484,6 +603,567 @@ function KanbanColumn({ col, records, titleField, slug }: {
   );
 }
 
+// ── Inline Cell Editor ────────────────────────────────────────────────────
+
+const INLINE_EDITABLE_TYPES = new Set([
+  "TEXT", "EMAIL", "URL", "PHONE", "TEXTAREA",
+  "NUMBER", "DECIMAL", "CURRENCY",
+  "DATE", "DATETIME",
+  "BOOLEAN", "STATUS", "DROPDOWN", "RADIO",
+]);
+
+function InlineEditor({ field, value, onChange, onCommit, onCancel }: {
+  field: Field;
+  value: any;
+  onChange: (v: any) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select?.();
+    }
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") { e.preventDefault(); onCommit(); }
+    if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+  };
+
+  const cellClass = "border border-blue-400 rounded px-2 py-0.5 text-sm w-full outline-none focus:ring-1 focus:ring-blue-500 bg-white min-w-[80px]";
+
+  if (field.type === "BOOLEAN") {
+    return (
+      <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+        <Switch checked={!!value} onCheckedChange={v => { onChange(v); setTimeout(onCommit, 0); }} />
+        <span className="text-xs text-gray-500">{value ? "Yes" : "No"}</span>
+      </div>
+    );
+  }
+
+  if (field.type === "STATUS" || field.type === "DROPDOWN" || field.type === "RADIO") {
+    return (
+      <div onClick={e => e.stopPropagation()}>
+        <Select value={value || ""} onValueChange={v => { onChange(v); setTimeout(onCommit, 0); }}>
+          <SelectTrigger className="h-7 text-xs min-w-[120px] border-blue-400 focus:ring-blue-500" autoFocus>
+            <SelectValue placeholder="Select…" />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options || []).map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (field.type === "DATE") {
+    return (
+      <input ref={inputRef} type="date" value={value || ""} className={cellClass}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onCommit} onKeyDown={handleKeyDown}
+        onClick={e => e.stopPropagation()} />
+    );
+  }
+
+  if (field.type === "DATETIME") {
+    return (
+      <input ref={inputRef} type="datetime-local" value={value || ""} className={cellClass}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onCommit} onKeyDown={handleKeyDown}
+        onClick={e => e.stopPropagation()} />
+    );
+  }
+
+  if (field.type === "NUMBER" || field.type === "DECIMAL" || field.type === "CURRENCY") {
+    return (
+      <input ref={inputRef} type="number" value={value ?? ""} className={cellClass}
+        onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        onBlur={onCommit} onKeyDown={handleKeyDown}
+        onClick={e => e.stopPropagation()} />
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type={field.type === "EMAIL" ? "email" : field.type === "URL" ? "url" : "text"}
+      value={value ?? ""}
+      className={cellClass}
+      onChange={e => onChange(e.target.value)}
+      onBlur={onCommit} onKeyDown={handleKeyDown}
+      onClick={e => e.stopPropagation()} />
+  );
+}
+
+// ── Gallery View ────────────────────────────────────────────────────────────
+
+function GalleryView({
+  records, mod, slug, cardConfig, onCustomize,
+}: {
+  records: CrmRecord[];
+  mod: any;
+  slug: string;
+  cardConfig: { imageField: string; titleField: string; secondaryFields: string[] };
+  onCustomize: () => void;
+}) {
+  const router = useRouter();
+  const fields: Field[] = mod?.fields || [];
+  const imgField = fields.find(f => cardConfig.imageField ? f.name === cardConfig.imageField : ["IMAGE", "FILE"].includes(f.type));
+  const titleFld = fields.find(f => cardConfig.titleField ? f.name === cardConfig.titleField : ["TEXT", "EMAIL", "URL"].includes(f.type));
+  const secFields = cardConfig.secondaryFields.length
+    ? fields.filter(f => cardConfig.secondaryFields.includes(f.name))
+    : fields.filter(f => !["IMAGE", "FILE", "SIGNATURE", "INLINE_SUBFORM", "AUTO_NUMBER"].includes(f.type)).slice(0, 3);
+
+  const STATUS_COLORS: Record<string, string> = {
+    active: "bg-green-100 text-green-700", inactive: "bg-gray-100 text-gray-500",
+    pending: "bg-amber-100 text-amber-700", closed: "bg-red-100 text-red-600",
+    approved: "bg-blue-100 text-blue-700", rejected: "bg-red-100 text-red-600",
+  };
+
+  if (records.length === 0) {
+    return (
+      <div className="text-center py-20 text-gray-400">
+        <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <span className="text-3xl">{mod?.icon || "📦"}</span>
+        </div>
+        <p className="text-sm">No records to display.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-end mb-3">
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={onCustomize}>
+          <SlidersHorizontal className="w-3 h-3" /> Customize Card
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {records.map(record => {
+          const imgVal = imgField ? record.data[imgField.name] : null;
+          const titleVal = titleFld ? String(record.data[titleFld.name] ?? "—") : record.id.slice(0, 8);
+          return (
+            <div
+              key={record.id}
+              onClick={() => router.push(`/m/${slug}/${record.id}`)}
+              className="rounded-xl border border-gray-200 bg-white overflow-hidden cursor-pointer hover:shadow-lg transition-all group"
+            >
+              {imgVal ? (
+                <div className="h-40 overflow-hidden bg-gray-100">
+                  <img src={imgVal} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                </div>
+              ) : (
+                <div className="h-40 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+                  <span className="text-5xl opacity-60">{mod?.icon || "📦"}</span>
+                </div>
+              )}
+              <div className="p-3">
+                <p className="text-sm font-semibold text-gray-900 truncate mb-1.5">{titleVal}</p>
+                {secFields.map(f => {
+                  const v = record.data[f.name];
+                  if (v == null || v === "") return null;
+                  const strV = String(v);
+                  const colorClass = STATUS_COLORS[strV.toLowerCase()];
+                  return (
+                    <div key={f.id} className="flex items-center gap-1 mt-0.5 min-w-0">
+                      <span className="text-xs text-gray-400 shrink-0">{f.label}:</span>
+                      {colorClass ? (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${colorClass}`}>{strV}</span>
+                      ) : (
+                        <span className="text-xs text-gray-600 truncate">{strV}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Gallery Customize Panel ───────────────────────────────────────────────────
+
+function GalleryCustomizePanel({
+  open, fields, cardConfig, onClose, onChange,
+}: {
+  open: boolean;
+  fields: Field[];
+  cardConfig: { imageField: string; titleField: string; secondaryFields: string[] };
+  onClose: () => void;
+  onChange: (cfg: { imageField: string; titleField: string; secondaryFields: string[] }) => void;
+}) {
+  if (!open) return null;
+  const imgFields = fields.filter(f => ["IMAGE", "FILE"].includes(f.type));
+  const textFields = fields.filter(f => !["INLINE_SUBFORM", "SIGNATURE"].includes(f.type));
+  const secFields = fields.filter(f => !["IMAGE", "FILE", "INLINE_SUBFORM", "SIGNATURE"].includes(f.type));
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
+      <div className="w-80 h-full bg-white border-l border-gray-200 shadow-xl overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">Customize Card</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-5">
+          <div>
+            <Label className="text-xs font-medium text-gray-700">Cover Image Field</Label>
+            <Select value={cardConfig.imageField || "__none__"} onValueChange={v => onChange({ ...cardConfig, imageField: v === "__none__" ? "" : v })}>
+              <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Auto-detect" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__" className="text-xs">Auto-detect</SelectItem>
+                {imgFields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs font-medium text-gray-700">Title Field</Label>
+            <Select value={cardConfig.titleField || "__none__"} onValueChange={v => onChange({ ...cardConfig, titleField: v === "__none__" ? "" : v })}>
+              <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Auto-detect" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__" className="text-xs">Auto-detect</SelectItem>
+                {textFields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs font-medium text-gray-700">Secondary Fields (up to 3)</Label>
+              {cardConfig.secondaryFields.length > 0 && (
+                <button onClick={() => onChange({ ...cardConfig, secondaryFields: [] })} className="text-xs text-gray-400 hover:text-red-500">Clear</button>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {secFields.map(f => {
+                const isSelected = cardConfig.secondaryFields.includes(f.name);
+                return (
+                  <label key={f.name} className="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" checked={isSelected} className="w-3.5 h-3.5 accent-blue-600"
+                      onChange={e => {
+                        const cur = cardConfig.secondaryFields;
+                        if (e.target.checked) {
+                          if (cur.length >= 3) return;
+                          onChange({ ...cardConfig, secondaryFields: [...cur, f.name] });
+                        } else {
+                          onChange({ ...cardConfig, secondaryFields: cur.filter(n => n !== f.name) });
+                        }
+                      }} />
+                    <span className="text-xs text-gray-700 group-hover:text-gray-900">{f.label}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{f.type.toLowerCase()}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── List View ─────────────────────────────────────────────────────────────────
+
+function ListView({ records, mod, slug }: {
+  records: CrmRecord[];
+  mod: any;
+  slug: string;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const fields: Field[] = mod?.fields || [];
+  const statusField = fields.find(f => ["STATUS", "DROPDOWN"].includes(f.type));
+  const titleField = fields.find(f => ["TEXT", "EMAIL"].includes(f.type));
+  const selectedRecord = records.find(r => r.id === selectedId);
+  const router = useRouter();
+
+  const STATUS_COLORS: Record<string, string> = {
+    active: "bg-green-100 text-green-700 border-green-200",
+    inactive: "bg-gray-100 text-gray-500 border-gray-200",
+    pending: "bg-amber-100 text-amber-700 border-amber-200",
+    closed: "bg-red-100 text-red-600 border-red-200",
+    approved: "bg-blue-100 text-blue-700 border-blue-200",
+  };
+
+  const detailFields = fields.filter(f =>
+    !["FILE", "IMAGE", "SIGNATURE", "INLINE_SUBFORM"].includes(f.type)
+  );
+
+  return (
+    <div className={cn("relative transition-all duration-200", selectedRecord ? "mr-[400px]" : "")}>
+      {records.length === 0 ? (
+        <div className="text-center py-16 text-gray-400 text-sm">No records found.</div>
+      ) : (
+        <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white">
+          {records.map((record, idx) => {
+            const titleVal = titleField ? String(record.data[titleField.name] ?? "—") : `Record ${idx + 1}`;
+            const statusVal = statusField ? String(record.data[statusField.name] ?? "") : "";
+            const statusColor = STATUS_COLORS[statusVal.toLowerCase()] || "bg-gray-100 text-gray-600 border-gray-200";
+            const isSelected = selectedId === record.id;
+            return (
+              <button
+                key={record.id}
+                onClick={() => setSelectedId(isSelected ? null : record.id)}
+                className={cn(
+                  "w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors",
+                  isSelected && "bg-blue-50 hover:bg-blue-50"
+                )}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn(
+                    "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-sm",
+                    isSelected ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-500"
+                  )}>
+                    {mod?.icon ? <span>{mod.icon}</span> : <span className="font-bold text-xs">{idx + 1}</span>}
+                  </div>
+                  <span className="text-sm font-medium text-gray-800 truncate">{titleVal}</span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 ml-3">
+                  {statusVal && (
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", statusColor)}>
+                      {statusVal}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-300">{new Date(record.createdAt).toLocaleDateString()}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Detail Slide-over */}
+      {selectedRecord && (
+        <>
+          <div className="fixed inset-y-0 right-0 w-[400px] bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col">
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-semibold text-gray-800 truncate max-w-[260px]">
+                {titleField ? String(selectedRecord.data[titleField.name] ?? "Record") : "Record Details"}
+              </h3>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => router.push(`/m/${slug}/${selectedRecord.id}`)}>
+                  <Eye className="w-3 h-3" /> Open
+                </Button>
+                <button onClick={() => setSelectedId(null)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {detailFields.map(field => {
+                const val = selectedRecord.data[field.name];
+                if (val == null || val === "") return null;
+                return (
+                  <div key={field.id}>
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-0.5">{field.label}</p>
+                    <FieldValue value={val} field={field} recordData={selectedRecord.data} fieldName={field.name} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t border-gray-100 p-3 shrink-0">
+              <p className="text-xs text-gray-400 text-center">
+                Created {new Date(selectedRecord.createdAt).toLocaleDateString()}
+                {selectedRecord.createdBy && ` · ${selectedRecord.createdBy.firstName} ${selectedRecord.createdBy.lastName}`}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Calendar View ─────────────────────────────────────────────────────────────
+
+function CalendarView({ records, mod, onRecordMove }: {
+  records: CrmRecord[];
+  mod: any;
+  onRecordMove: (recordId: string, newDate: string, fieldName: string) => void;
+}) {
+  const router = useRouter();
+  const fields: Field[] = mod?.fields || [];
+  const dateField = fields.find(f => ["DATE", "DATETIME"].includes(f.type));
+  const titleField = fields.find(f => ["TEXT", "EMAIL"].includes(f.type));
+  const [calView, setCalView] = useState<"month" | "week">("month");
+
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth()); // 0-indexed
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  if (!dateField) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+        <span className="text-5xl mb-4">📅</span>
+        <p className="text-sm font-medium text-gray-600">No date field in this module</p>
+        <p className="text-xs mt-1">Add a Date or DateTime field to use Calendar view.</p>
+      </div>
+    );
+  }
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  const recordsByDate: Record<string, CrmRecord[]> = {};
+  records.forEach(rec => {
+    const raw = rec.data[dateField.name];
+    if (!raw) return;
+    const dateStr = String(raw).slice(0, 10);
+    if (!recordsByDate[dateStr]) recordsByDate[dateStr] = [];
+    recordsByDate[dateStr].push(rec);
+  });
+
+  const prevMonth = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
+  const nextMonth = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
+
+  const cells: Array<{ day: number | null; dateStr: string | null }> = [];
+  for (let i = 0; i < firstDayOfWeek; i++) cells.push({ day: null, dateStr: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    cells.push({ day: d, dateStr });
+  }
+
+  const selectedRecords = selectedDay ? (recordsByDate[selectedDay] || []) : [];
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  return (
+    <div className="select-none">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <button onClick={prevMonth} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+            <ChevronLeft className="w-4 h-4 text-gray-600" />
+          </button>
+          <h2 className="text-base font-semibold text-gray-900">{MONTHS[month]} {year}</h2>
+          <button onClick={nextMonth} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+            <ChevronRight className="w-4 h-4 text-gray-600" />
+          </button>
+          <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); }}
+            className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded border border-blue-200 hover:bg-blue-50 transition-colors">
+            Today
+          </button>
+        </div>
+        <div className="flex items-center gap-1 text-xs text-gray-500">
+          <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+          {dateField.label} field
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+        {/* Day headers */}
+        <div className="grid grid-cols-7 border-b border-gray-100 bg-gray-50">
+          {DAYS.map(d => (
+            <div key={d} className="py-2 text-center text-xs font-semibold text-gray-500">{d}</div>
+          ))}
+        </div>
+
+        {/* Calendar cells */}
+        <div className="grid grid-cols-7">
+          {cells.map((cell, i) => {
+            if (!cell.day || !cell.dateStr) {
+              return <div key={i} className="min-h-[100px] border-b border-r border-gray-100 bg-gray-50/50" />;
+            }
+            const dayRecords = recordsByDate[cell.dateStr] || [];
+            const isToday = cell.dateStr === todayStr;
+            const isSelected = cell.dateStr === selectedDay;
+            const isDropTarget = dragOver === cell.dateStr;
+
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "min-h-[100px] border-b border-r border-gray-100 p-1.5 transition-colors",
+                  isDropTarget && "bg-blue-50",
+                  isSelected && !isDropTarget && "bg-amber-50",
+                  !isDropTarget && !isSelected && "hover:bg-gray-50"
+                )}
+                onClick={() => setSelectedDay(isSelected ? null : cell.dateStr!)}
+                onDragOver={e => { e.preventDefault(); setDragOver(cell.dateStr!); }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={e => {
+                  e.preventDefault();
+                  const recordId = e.dataTransfer.getData("text/plain");
+                  if (recordId && cell.dateStr) {
+                    onRecordMove(recordId, cell.dateStr, dateField.name);
+                  }
+                  setDragOver(null);
+                }}
+              >
+                <div className={cn(
+                  "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium mb-1 ml-auto",
+                  isToday ? "bg-blue-600 text-white" : "text-gray-700"
+                )}>
+                  {cell.day}
+                </div>
+                <div className="space-y-0.5">
+                  {dayRecords.slice(0, 3).map(rec => {
+                    const title = titleField ? String(rec.data[titleField.name] ?? "—").slice(0, 20) : "Record";
+                    return (
+                      <div
+                        key={rec.id}
+                        draggable
+                        onDragStart={e => { e.dataTransfer.setData("text/plain", rec.id); e.stopPropagation(); }}
+                        onClick={e => { e.stopPropagation(); router.push(`/m/${mod?.slug}/${rec.id}`); }}
+                        className="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800 cursor-grab active:cursor-grabbing hover:bg-blue-200 truncate transition-colors"
+                        title={title}
+                      >
+                        {title}
+                      </div>
+                    );
+                  })}
+                  {dayRecords.length > 3 && (
+                    <div className="text-xs text-gray-400 px-1">+{dayRecords.length - 3} more</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected day panel */}
+      {selectedDay && (
+        <div className="mt-4 border border-gray-200 rounded-xl bg-white p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800">
+              {new Date(selectedDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            </h3>
+            <span className="text-xs text-gray-400">{selectedRecords.length} record{selectedRecords.length !== 1 ? "s" : ""}</span>
+          </div>
+          {selectedRecords.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2">No records on this day.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {selectedRecords.map(rec => {
+                const title = titleField ? String(rec.data[titleField.name] ?? "—") : "Record";
+                return (
+                  <button key={rec.id}
+                    onClick={() => router.push(`/m/${mod?.slug}/${rec.id}`)}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 text-left transition-colors">
+                    <span className="text-sm">{mod?.icon || "📦"}</span>
+                    <span className="text-sm text-gray-800 font-medium truncate">{title}</span>
+                    <Eye className="w-3.5 h-3.5 text-gray-400 ml-auto shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KanbanView({ records, mod, slug, onRecordMove }: {
   records: CrmRecord[];
   mod: any;
@@ -528,7 +1208,7 @@ function KanbanView({ records, mod, slug, onRecordMove }: {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-4 overflow-x-auto pb-4 pt-1" style={{ minHeight: "60vh" }}>
+      <div className="flex gap-4 overflow-x-auto pb-4 pt-1 -mx-1 px-1" style={{ minHeight: "60vh" }}>
         {columns.map(col => {
           const colRecords = records.filter(r => {
             const v = r.data[statusField.name];
@@ -713,7 +1393,7 @@ function ImportDialog({ mod, open, onClose, onSuccess }: {
 
   const downloadTemplate = () => {
     const token = localStorage.getItem("access_token");
-    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+    const base = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
     fetch(`${base}/modules/${mod.id}/records/import/template`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.blob()).then(blob => {
@@ -1174,10 +1854,13 @@ export default function ModuleRecordsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [massUpdateOpen, setMassUpdateOpen] = useState(false);
-  const storeView = useViewStore(state => (state.moduleViews[slug] as "table" | "kanban") ?? "table");
+  type ViewMode = "table" | "kanban" | "gallery" | "list" | "calendar";
+  const storeView = useViewStore(state => (state.moduleViews[slug] as ViewMode) ?? "table");
   const setModuleView = useViewStore(state => state.setModuleView);
-  const [view, setViewLocal] = useState<"table" | "kanban">(storeView);
-  const setView = useCallback((v: "table" | "kanban") => { setViewLocal(v); setModuleView(slug, v); }, [slug, setModuleView]);
+  const [view, setViewLocal] = useState<ViewMode>(storeView);
+  const setView = useCallback((v: ViewMode) => { setViewLocal(v); setModuleView(slug, v); }, [slug, setModuleView]);
+  const [galleryCardConfig, setGalleryCardConfig] = useState({ imageField: "", titleField: "", secondaryFields: [] as string[] });
+  const [showGalleryCustomize, setShowGalleryCustomize] = useState(false);
   const [visibleFieldIds, setVisibleFieldIds] = useState<string[]>([]);
   const columnSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modIdRef = useRef<string | null>(null);
@@ -1205,7 +1888,20 @@ export default function ModuleRecordsPage() {
   // Import
   const [importOpen, setImportOpen] = useState(false);
 
-  const limit = 25;
+  // Sort
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir,   setSortDir]   = useState<"asc" | "desc">("asc");
+
+  // Archive visibility
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Inline cell editing
+  const [editingCell, setEditingCell] = useState<{ recordId: string; fieldKey: string } | null>(null);
+  const [editValue,   setEditValue]   = useState<any>(null);
+  const [cellSaving,  setCellSaving]  = useState(false);
+
+  // Pagination
+  const [limit, setLimit] = useState(25);
 
   const fetchMod = useCallback(async () => {
     try {
@@ -1242,12 +1938,19 @@ export default function ModuleRecordsPage() {
     return { logic, conditions: valid, groups: [] };
   }, []);
 
-  const fetchRecords = useCallback(async (moduleId: string, currentPage: number, conds: FilterCondition[], logic: "AND" | "OR") => {
+  const fetchRecords = useCallback(async (
+    moduleId: string, currentPage: number,
+    conds: FilterCondition[], logic: "AND" | "OR",
+    sf: string | null = null, sd: "asc" | "desc" = "asc",
+    lim?: number,
+  ) => {
     try {
       const fg = buildFilterGroup(conds, logic);
-      const params: any = { page: currentPage, limit };
+      const params: any = { page: currentPage, limit: lim ?? limit };
       if (search) params.search = search;
       if (fg) params.filterGroup = JSON.stringify(fg);
+      if (sf) { params.sortField = sf; params.sortDir = sd; }
+      if (showArchived) params.showArchived = 'true';
 
       const { data } = await api.get(`/modules/${moduleId}/records`, { params });
       setResult(data);
@@ -1256,7 +1959,7 @@ export default function ModuleRecordsPage() {
     } finally {
       setLoading(false);
     }
-  }, [limit, search, buildFilterGroup]);
+  }, [limit, search, showArchived, buildFilterGroup]);
 
   const fetchAllRecords = useCallback(async (moduleId: string) => {
     try {
@@ -1288,6 +1991,20 @@ export default function ModuleRecordsPage() {
   };
 
   const handleKanbanMove = useCallback(async (recordId: string, newValue: string, fieldName: string) => {
+    // Blueprint validation: check if this stage transition is allowed
+    if (mod?.id) {
+      const rec = allRecords.find(r => r.id === recordId);
+      const fromStage = rec?.data?.[fieldName] ?? "";
+      if (fromStage !== newValue) {
+        const { validateKanbanMove } = useBlueprintRuntimeStore.getState();
+        const { allowed, reason } = await validateKanbanMove(mod.id, fromStage, newValue);
+        if (!allowed) {
+          showToast(reason || "This transition is not allowed by the blueprint", "error");
+          return;
+        }
+      }
+    }
+
     // Optimistic update in BOTH kanban (allRecords) and table (result) data sources
     const applyUpdate = (r: CrmRecord) =>
       r.id === recordId ? { ...r, data: { ...r.data, [fieldName]: newValue } } : r;
@@ -1302,7 +2019,7 @@ export default function ModuleRecordsPage() {
       setResult(null);
       showToast("Failed to move record", "error");
     }
-  }, [mod, fetchAllRecords]);
+  }, [mod, allRecords, fetchAllRecords]);
 
   const applyFilters = () => {
     setAppliedConditions([...conditions]);
@@ -1323,7 +2040,15 @@ export default function ModuleRecordsPage() {
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
     setLoading(true);
-    if (mod) fetchRecords(mod.id, newPage, appliedConditions, appliedLogic);
+    if (mod) fetchRecords(mod.id, newPage, appliedConditions, appliedLogic, sortField, sortDir);
+  };
+
+  const handleSort = (fieldName: string) => {
+    const nextDir = sortField === fieldName && sortDir === "asc" ? "desc" : "asc";
+    setSortField(fieldName);
+    setSortDir(nextDir);
+    setLoading(true);
+    if (mod) fetchRecords(mod.id, page, appliedConditions, appliedLogic, fieldName, nextDir);
   };
 
   const handleDelete = async (id: string) => {
@@ -1380,7 +2105,7 @@ export default function ModuleRecordsPage() {
     const params = new URLSearchParams();
     if (fg) params.set("filterGroup", JSON.stringify(fg));
     const token = localStorage.getItem("access_token");
-    const url = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1"}/modules/${mod.id}/records/export/csv?${params}`;
+    const url = `${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/modules/${mod.id}/records/export/csv?${params}`;
     const a = document.createElement("a");
     a.href = url;
     a.download = `${mod.slug}-export.csv`;
@@ -1411,8 +2136,59 @@ export default function ModuleRecordsPage() {
   const [savingView, setSavingView] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [toastType, setToastType] = useState<"success" | "error">("success");
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  const [analyzeContext, setAnalyzeContext] = useState<AnalysisContext | null>(null);
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToastMsg(msg); setToastType(type); setTimeout(() => setToastMsg(""), 3000);
+  };
+
+  // ── Inline cell editing ───────────────────────────────────────────────────
+
+  const handleCellEdit = (recordId: string, fieldKey: string, currentValue: any) => {
+    setEditingCell({ recordId, fieldKey });
+    setEditValue(currentValue ?? "");
+  };
+
+  const handleCellCancel = () => {
+    setEditingCell(null);
+    setEditValue(null);
+  };
+
+  const handleCellSave = async () => {
+    if (!editingCell || !mod) return;
+    const { recordId, fieldKey } = editingCell;
+    const prevRecord = result?.data.find(r => r.id === recordId);
+    const prevValue = prevRecord?.data[fieldKey];
+    // No change — just close editor
+    if (editValue === prevValue || (editValue === "" && (prevValue === null || prevValue === undefined))) {
+      setEditingCell(null);
+      return;
+    }
+    setCellSaving(true);
+    const applyUpdate = (r: CrmRecord) =>
+      r.id === recordId ? { ...r, data: { ...r.data, [fieldKey]: editValue } } : r;
+    setResult(prev => prev ? { ...prev, data: prev.data.map(applyUpdate) } : prev);
+    setAllRecords(prev => prev.map(applyUpdate));
+    setEditingCell(null);
+    try {
+      await api.patch(`/modules/${mod.id}/records/${recordId}`, { [fieldKey]: editValue });
+      showToast("Saved");
+    } catch (err: any) {
+      const revert = (r: CrmRecord) =>
+        r.id === recordId ? { ...r, data: { ...r.data, [fieldKey]: prevValue } } : r;
+      setResult(prev => prev ? { ...prev, data: prev.data.map(revert) } : prev);
+      setAllRecords(prev => prev.map(revert));
+      showToast(err?.response?.data?.message ?? "Failed to save", "error");
+    } finally {
+      setCellSaving(false);
+    }
+  };
+
+  const handleLimitChange = (newLimit: number) => {
+    setLimit(newLimit);
+    setPage(1);
+    setLoading(true);
+    if (mod) fetchRecords(mod.id, 1, appliedConditions, appliedLogic, sortField, sortDir, newLimit);
   };
 
   const handleSaveView = async () => {
@@ -1471,10 +2247,10 @@ export default function ModuleRecordsPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <span className="text-2xl">{mod?.icon || "📦"}</span>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">{mod?.name || "Loading..."}</h1>
             <p className="text-gray-500 text-sm">
               {result ? `${result.meta.total.toLocaleString()} record${result.meta.total !== 1 ? "s" : ""}` : ""}
@@ -1483,7 +2259,7 @@ export default function ModuleRecordsPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {selected.length > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
               <Check className="w-3.5 h-3.5" />
@@ -1494,6 +2270,27 @@ export default function ModuleRecordsPage() {
             </div>
           )}
           <Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="w-4 h-4" /></Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300"
+            onClick={() => {
+              const records = result?.data ?? [];
+              const fields = visibleFields ?? [];
+              const ctx: AnalysisContext = {
+                type: "module",
+                title: mod?.name ?? "Module",
+                contextSummary: `Module: ${mod?.name}\nTotal records: ${result?.meta?.total ?? 0}\n\nFields: ${fields.map((f: any) => f.label || f.name).join(", ")}\n\nSample data (first 20 records):\n${records.slice(0, 20).map((r: any, i: number) => {
+                  const vals = fields.slice(0, 5).map((f: any) => `${f.label || f.name}: ${r[f.name] ?? "—"}`).join(", ");
+                  return `${i + 1}. ${vals}`;
+                }).join("\n")}`,
+              };
+              setAnalyzeContext(ctx);
+              setAnalyzeOpen(true);
+            }}
+          >
+            <BrainCircuit className="w-4 h-4" /> Analyze
+          </Button>
           {mod && (
             <PermissionGate slug={slug ?? ""} action="canCreate">
               <Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />New Record</Button></Link>
@@ -1501,6 +2298,18 @@ export default function ModuleRecordsPage() {
           )}
         </div>
       </div>
+
+      {/* Module Summary */}
+      {mod && (
+        <ModuleSummaryBar
+          modId={mod.id}
+          fields={mod.fields || []}
+          records={result?.data ?? []}
+          total={result?.meta?.total ?? 0}
+          summaryStats={(mod as any)?.settings?.summaryStats}
+          summaryEnabled={(mod as any)?.settings?.summaryEnabled !== false}
+        />
+      )}
 
       {/* Pinned views quick-access */}
       {savedViews.filter(v => v.isPinned).length > 0 && (
@@ -1534,7 +2343,7 @@ export default function ModuleRecordsPage() {
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative max-w-sm flex-1">
+        <div className="relative w-full max-w-xs sm:max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input placeholder={`Search ${mod?.name?.toLowerCase() || "records"}...`}
             value={search} onChange={e => setSearch(e.target.value)}
@@ -1615,30 +2424,55 @@ export default function ModuleRecordsPage() {
           </DropdownMenu>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <PermissionGate slug={slug ?? ""} action="canImport">
             <Button variant="outline" size="sm" className="gap-2" onClick={() => setImportOpen(true)}>
-              <Upload className="w-4 h-4" /> Import
+              <Upload className="w-4 h-4" /><span className="hidden sm:inline">Import</span>
             </Button>
           </PermissionGate>
           <PermissionGate slug={slug ?? ""} action="canExport">
             <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
-              <Download className="w-4 h-4" /> Export CSV
+              <Download className="w-4 h-4" /><span className="hidden sm:inline">Export CSV</span>
             </Button>
           </PermissionGate>
 
           {view === "table" && mod?.fields && (
             <ColumnPicker fields={mod.fields} visibleIds={visibleFieldIds} onChange={handleColumnChange} />
           )}
+          <button
+            onClick={() => {
+              const next = !showArchived;
+              setShowArchived(next);
+              setPage(1);
+              setLoading(true);
+              if (mod) fetchRecords(mod.id, 1, appliedConditions, appliedLogic, sortField, sortDir, limit);
+            }}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition-colors",
+              showArchived
+                ? "bg-amber-50 border-amber-300 text-amber-700"
+                : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+            )}
+            title={showArchived ? "Hide archived records" : "Show archived records"}
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{showArchived ? "Archived" : "Archived"}</span>
+          </button>
 
           <div className="flex rounded-md border border-gray-200 overflow-hidden">
-            {(["table", "kanban"] as const).map((v, i) => (
+            {([
+              { v: "table" as ViewMode,    icon: <List className="w-3.5 h-3.5" />,        label: "Table" },
+              { v: "kanban" as ViewMode,   icon: <LayoutGrid className="w-3.5 h-3.5" />,  label: "Kanban" },
+              { v: "gallery" as ViewMode,  icon: <Images className="w-3.5 h-3.5" />,      label: "Gallery" },
+              { v: "list" as ViewMode,     icon: <AlignLeft className="w-3.5 h-3.5" />,   label: "List" },
+              { v: "calendar" as ViewMode, icon: <CalendarDays className="w-3.5 h-3.5" />,label: "Calendar" },
+            ]).map(({ v, icon, label }, i) => (
               <button key={v} onClick={() => setView(v)}
                 className={cn("px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-medium transition-colors",
                   i > 0 && "border-l border-gray-200",
                   view === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
-                {v === "table" ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
-                {v.charAt(0).toUpperCase() + v.slice(1)}
+                {icon}
+                <span className="hidden lg:inline">{label}</span>
               </button>
             ))}
           </div>
@@ -1676,7 +2510,7 @@ export default function ModuleRecordsPage() {
 
       {/* Active filter badges */}
       {activeFilterCount > 0 && !filterOpen && (
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center overflow-x-auto -mx-3 px-3">
           <span className="text-xs text-gray-500">Active filters:</span>
           {appliedConditions.filter(c => c.field).map(c => {
             const f = (mod?.fields || []).find((f: Field) => f.name === c.field);
@@ -1704,7 +2538,39 @@ export default function ModuleRecordsPage() {
           <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
         </div>
       ) : view === "kanban" ? (
-        <KanbanView records={allRecords} mod={mod} slug={slug} onRecordMove={handleKanbanMove} />
+        <div className="overflow-hidden">
+          <KanbanView records={allRecords} mod={mod} slug={slug} onRecordMove={handleKanbanMove} />
+        </div>
+      ) : view === "gallery" ? (
+        <>
+          <GalleryView
+            records={result?.data ?? []}
+            mod={mod}
+            slug={slug}
+            cardConfig={galleryCardConfig}
+            onCustomize={() => setShowGalleryCustomize(true)}
+          />
+          <GalleryCustomizePanel
+            open={showGalleryCustomize}
+            fields={mod?.fields ?? []}
+            cardConfig={galleryCardConfig}
+            onClose={() => setShowGalleryCustomize(false)}
+            onChange={setGalleryCardConfig}
+          />
+        </>
+      ) : view === "list" ? (
+        <ListView records={result?.data ?? []} mod={mod} slug={slug} />
+      ) : view === "calendar" ? (
+        <CalendarView
+          records={allRecords}
+          mod={mod}
+          onRecordMove={async (recordId, newDate, fieldName) => {
+            try {
+              await api.patch(`/modules/${mod?.id}/records/${recordId}`, { [fieldName]: newDate });
+              fetchRecords();
+            } catch {}
+          }}
+        />
       ) : (
         <>
           <Card>
@@ -1724,39 +2590,145 @@ export default function ModuleRecordsPage() {
                   }
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                  {/* ── Table info bar: record count + selection + page range ── */}
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60 text-xs text-gray-500">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-gray-700 text-sm">
+                        {result.meta.total.toLocaleString()}
+                        <span className="font-normal text-gray-400 ml-1">
+                          {result.meta.total === 1 ? "record" : "records"}
+                        </span>
+                      </span>
+                      {activeFilterCount > 0 && (
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5 text-[11px]">
+                          filtered
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {selected.length > 0 && (
+                        <span className="inline-flex items-center gap-1 bg-blue-600 text-white rounded px-2 py-0.5 text-[11px] font-medium">
+                          {selected.length} selected
+                        </span>
+                      )}
+                      {result.meta.totalPages > 1 && (
+                        <span>
+                          {((page - 1) * limit) + 1}–{Math.min(page * limit, result.meta.total)} of {result.meta.total.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* ── Scrollable table with sticky header ── */}
+                  <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-240px)] sm:max-h-[calc(100vh-260px)] lg:max-h-[calc(100vh-280px)]">
                   <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50/50">
-                        <th className="w-10 px-4 py-3">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="border-b border-gray-200 bg-gray-50 shadow-[0_1px_0_0_#e5e7eb]">
+                        <th className="w-10 px-4 py-3 bg-gray-50">
                           <Checkbox
                             checked={selected.length === result.data.length && result.data.length > 0}
                             onCheckedChange={selectAll}
                           />
                         </th>
-                        {visibleFields.map(f => (
-                          <th key={f.id} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                            {f.label}
-                          </th>
-                        ))}
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
-                        <th className="w-16 px-4 py-3"></th>
+                        {visibleFields.map(f => {
+                          const isSorted = sortField === f.name;
+                          const sortable = !["FILE","IMAGE","SIGNATURE","INLINE_SUBFORM"].includes(f.type);
+                          return (
+                            <th
+                              key={f.id}
+                              className={cn(
+                                "px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 select-none",
+                                sortable && "cursor-pointer hover:text-gray-800 hover:bg-gray-100 transition-colors"
+                              )}
+                              onClick={() => sortable && handleSort(f.name)}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                {f.label}
+                                {sortable && (
+                                  <span className={cn("flex flex-col gap-[2px]", isSorted ? "opacity-100" : "opacity-30")}>
+                                    <span className={cn("w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-l-transparent border-r-transparent",
+                                      isSorted && sortDir === "asc" ? "border-b-blue-600" : "border-b-gray-400")} />
+                                    <span className={cn("w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent",
+                                      isSorted && sortDir === "desc" ? "border-t-blue-600" : "border-t-gray-400")} />
+                                  </span>
+                                )}
+                              </div>
+                            </th>
+                          );
+                        })}
+                        <th
+                          className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50 cursor-pointer hover:text-gray-800 hover:bg-gray-100 transition-colors select-none whitespace-nowrap"
+                          onClick={() => handleSort("createdAt")}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            Created
+                            <span className={cn("flex flex-col gap-[2px]", sortField === "createdAt" ? "opacity-100" : "opacity-30")}>
+                              <span className={cn("w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-l-transparent border-r-transparent",
+                                sortField === "createdAt" && sortDir === "asc" ? "border-b-blue-600" : "border-b-gray-400")} />
+                              <span className={cn("w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-l-transparent border-r-transparent",
+                                sortField === "createdAt" && sortDir === "desc" ? "border-t-blue-600" : "border-t-gray-400")} />
+                            </span>
+                          </div>
+                        </th>
+                        <th className="w-16 px-4 py-3 bg-gray-50"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {result.data.map(record => (
                         <tr key={record.id}
-                          className={cn("hover:bg-gray-50/80 transition-colors group", selected.includes(record.id) && "bg-blue-50/40")}>
+                          className={cn(
+                            "hover:bg-gray-50/80 transition-colors group",
+                            selected.includes(record.id) && "bg-blue-50/40",
+                            record.isArchived && "opacity-60",
+                          )}>
                           <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                             <Checkbox checked={selected.includes(record.id)} onCheckedChange={() => toggleSelect(record.id)} />
                           </td>
-                          {visibleFields.map(f => (
-                            <td key={f.id} className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/m/${slug}/${record.id}`)}>
-                              <FieldValue value={record.data[f.name]} field={f} />
-                            </td>
-                          ))}
+                          {visibleFields.map(f => {
+                            const isEditable = INLINE_EDITABLE_TYPES.has(f.type) && perm.canEdit;
+                            const isEditing = editingCell?.recordId === record.id && editingCell?.fieldKey === f.name;
+                            return (
+                              <td key={f.id}
+                                className={cn(
+                                  "px-4 py-2 relative",
+                                  isEditing ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "",
+                                  !isEditing && isEditable ? "cursor-pointer hover:bg-blue-50/40 group/cell" : "",
+                                  !isEditing && !isEditable ? "cursor-pointer" : "",
+                                )}
+                                onClick={() => {
+                                  if (isEditing) return;
+                                  if (isEditable) {
+                                    handleCellEdit(record.id, f.name, record.data[f.name]);
+                                  } else {
+                                    router.push(`/m/${slug}/${record.id}`);
+                                  }
+                                }}
+                              >
+                                {isEditing ? (
+                                  <InlineEditor
+                                    field={f}
+                                    value={editValue}
+                                    onChange={setEditValue}
+                                    onCommit={handleCellSave}
+                                    onCancel={handleCellCancel}
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-1 min-h-[22px]">
+                                    <FieldValue value={record.data[f.name]} field={f} recordData={record.data} fieldName={f.name} />
+                                    {isEditable && (
+                                      <Pencil className="w-3 h-3 text-gray-300 opacity-0 group-hover/cell:opacity-100 shrink-0 ml-auto" />
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
                           <td className="px-4 py-3 text-xs text-gray-400 cursor-pointer" onClick={() => router.push(`/m/${slug}/${record.id}`)}>
-                            {formatDate(record.createdAt)}
+                            <div className="flex items-center gap-1.5">
+                              {formatDate(record.createdAt)}
+                              {record.isLocked && <span title="Locked"><Lock className="w-3 h-3 text-purple-500 shrink-0" /></span>}
+                              {record.isArchived && <span title="Archived"><Archive className="w-3 h-3 text-amber-500 shrink-0" /></span>}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <DropdownMenu>
@@ -1787,20 +2759,36 @@ export default function ModuleRecordsPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </CardContent>
           </Card>
 
-          {result && result.meta.totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
-                Showing {((page - 1) * limit) + 1}–{Math.min(page * limit, result.meta.total)} of {result.meta.total}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => handlePageChange(page - 1)}>Previous</Button>
-                <span className="text-sm text-gray-600">Page {page} of {result.meta.totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= result.meta.totalPages} onClick={() => handlePageChange(page + 1)}>Next</Button>
+          {result && result.data.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span>Rows per page:</span>
+                <Select value={String(limit)} onValueChange={v => handleLimitChange(Number(v))}>
+                  <SelectTrigger className="h-7 w-16 text-xs border-gray-200">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 25, 50, 100].map(n => (
+                      <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+              {result.meta.totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">
+                    Showing {((page - 1) * limit) + 1}–{Math.min(page * limit, result.meta.total)} of {result.meta.total.toLocaleString()}
+                  </span>
+                  <Button variant="outline" size="sm" disabled={page === 1} onClick={() => handlePageChange(page - 1)}>Previous</Button>
+                  <span className="text-sm text-gray-600">{page} / {result.meta.totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={page >= result.meta.totalPages} onClick={() => handlePageChange(page + 1)}>Next</Button>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -1897,6 +2885,12 @@ export default function ModuleRecordsPage() {
           </div>
         </div>
       )}
+
+      <AnalysisPanel
+        open={analyzeOpen}
+        onClose={() => setAnalyzeOpen(false)}
+        context={analyzeContext}
+      />
     </div>
   );
 }

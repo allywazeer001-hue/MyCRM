@@ -9,6 +9,14 @@ export declare class AnalyticsController {
             name: string;
             value: number;
         }[];
+        secondaryKeys?: undefined;
+        isMultiLevel?: undefined;
+    } | {
+        total: number;
+        value: number;
+        data: Record<string, any>[];
+        secondaryKeys: string[];
+        isMultiLevel: boolean;
     }>;
     getDataGet(moduleId: string, groupByField: string, user: any): Promise<{
         total: number;
@@ -17,6 +25,14 @@ export declare class AnalyticsController {
             name: string;
             value: number;
         }[];
+        secondaryKeys?: undefined;
+        isMultiLevel?: undefined;
+    } | {
+        total: number;
+        value: number;
+        data: Record<string, any>[];
+        secondaryKeys: string[];
+        isMultiLevel: boolean;
     }>;
     getKanban(moduleId: string, body: {
         statusField: string;
@@ -31,8 +47,8 @@ export declare class AnalyticsController {
             settings: import("@prisma/client/runtime/library").JsonValue;
             order: number;
             moduleId: string;
-            label: string;
             type: import(".prisma/client").$Enums.FieldType;
+            label: string;
             isRequired: boolean;
             isUnique: boolean;
             isReadonly: boolean;
@@ -44,6 +60,7 @@ export declare class AnalyticsController {
             conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
             lookupModuleId: string | null;
             lookupFieldId: string | null;
+            formulaExpression: string | null;
         };
         columns: {
             key: string;
@@ -63,6 +80,17 @@ export declare class AnalyticsController {
         isDefault: boolean;
         isPinned: boolean;
     }[]>;
+    getView(id: string, user: any): Promise<{
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        config: import("@prisma/client/runtime/library").JsonValue;
+        createdById: string;
+        isDefault: boolean;
+        isPinned: boolean;
+    }>;
     createView(body: any, user: any): Promise<{
         id: string;
         organizationId: string;
@@ -168,9 +196,9 @@ export declare class AnalyticsController {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -189,9 +217,9 @@ export declare class AnalyticsController {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -204,9 +232,9 @@ export declare class AnalyticsController {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -219,9 +247,9 @@ export declare class AnalyticsController {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         currentValue: number;
         period: string;
         periodStart: Date | null;
@@ -235,9 +263,9 @@ export declare class AnalyticsController {
         updatedAt: Date;
         name: string;
         moduleId: string;
+        targetValue: number;
         fieldName: string | null;
         aggregation: string;
-        targetValue: number;
         period: string;
         periodStart: Date | null;
         periodEnd: Date | null;

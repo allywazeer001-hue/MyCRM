@@ -12,6 +12,10 @@ import {
   verticalListSortingStrategy, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line, Legend,
+} from "recharts";
 import { api } from "@/lib/api";
 import { useModulesStore } from "@/store/modules.store";
 import type { DynamicModule, Field } from "@/store/modules.store";
@@ -19,7 +23,10 @@ import {
   ChevronLeft, ChevronRight, Check, GripVertical, X, Plus, Loader2,
   FileBarChart2, Database, List, SlidersHorizontal, Settings,
   Eye, Save, Download, Play, AlertCircle, FileSpreadsheet,
+  BarChart2, PieChart as PieChartIcon, TrendingUp, Printer, Calendar, Clock,
 } from "lucide-react";
+
+const CHART_COLORS = ["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#06b6d4","#f97316","#84cc16"];
 
 // ——— Types ———
 
@@ -222,13 +229,7 @@ export function exportXLSX(
   });
 }
 
-export function saveReportToStorage(report: SavedReport) {
-  const reports: SavedReport[] = JSON.parse(localStorage.getItem("crm_reports") ?? "[]");
-  const idx = reports.findIndex(r => r.id === report.id);
-  if (idx >= 0) reports[idx] = report;
-  else reports.unshift(report);
-  localStorage.setItem("crm_reports", JSON.stringify(reports));
-}
+// saveReportToStorage removed — reports are now persisted via the backend API.
 
 // ——— SortableColumn item ———
 
@@ -322,6 +323,11 @@ export default function NewReportPage() {
   const [saved, setSaved] = useState(false);
   const [savedId, setSavedId] = useState(() => editId ?? "");
 
+  // Chart & schedule
+  const [showChart, setShowChart] = useState(false);
+  const [chartType, setChartType] = useState<"bar" | "pie" | "line">("bar");
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(TouchSensor),
@@ -330,24 +336,25 @@ export default function NewReportPage() {
 
   useEffect(() => { fetchModules(); }, [fetchModules]);
 
-  // Pre-populate when editing
+  // Pre-populate when editing — load from backend (single source of truth)
   useEffect(() => {
     if (!editId) return;
-    const reports: SavedReport[] = JSON.parse(localStorage.getItem("crm_reports") ?? "[]");
-    const report = reports.find(r => r.id === editId);
-    if (!report) return;
-    setReportName(report.name);
-    setDescription(report.description);
-    setSortBy(report.sortBy);
-    setSortDir(report.sortDir);
-    setGroupBy(report.groupBy);
-    setPageSize(report.pageSize);
-    setStriped(report.styling.striped);
-    setCompact(report.styling.compact);
-    setShowTotals(report.styling.showTotals);
-    setColumns(report.columns);
-    setFilters(report.filters);
-    setSavedId(report.id);
+    api.get(`/reports/${editId}`)
+      .then(({ data: report }) => {
+        setReportName(report.name ?? "");
+        setDescription(report.description ?? "");
+        setSortBy(report.sortBy ?? "");
+        setSortDir(report.sortDir ?? "asc");
+        setGroupBy(report.groupBy ?? "");
+        setPageSize(report.pageSize ?? 25);
+        setStriped(report.styling?.striped ?? true);
+        setCompact(report.styling?.compact ?? false);
+        setShowTotals(report.styling?.showTotals ?? false);
+        setColumns(report.columns ?? []);
+        setFilters(report.filters ?? []);
+        setSavedId(report.id);
+      })
+      .catch(() => {});
   }, [editId]);
 
   const selectModule = useCallback(async (mod: DynamicModule) => {
@@ -364,27 +371,23 @@ export default function NewReportPage() {
     setLoadingFields(false);
   }, []);
 
-  // Also load fields when editing
+  // Load module fields when editing — waits for modules list to be ready
   useEffect(() => {
-    if (!editId) return;
-    const reports: SavedReport[] = JSON.parse(localStorage.getItem("crm_reports") ?? "[]");
-    const report = reports.find(r => r.id === editId);
-    if (!report) return;
-    const mod = modules.find(m => m.id === report.moduleId);
-    if (mod && !selectedModule) {
-      (async () => {
+    if (!editId || !modules.length || selectedModule) return;
+    api.get(`/reports/${editId}`)
+      .then(({ data: report }) => {
+        const mod = modules.find(m => m.id === report.moduleId);
+        if (!mod) return;
         setSelectedModule(mod);
         setLoadingFields(true);
-        try {
-          const { data } = await api.get(`/modules/${mod.id}`);
-          setFields(data.fields ?? []);
-        } catch {
-          setFields([]);
-        }
-        setLoadingFields(false);
-      })();
-    }
-  }, [editId, modules, selectedModule]);
+        api.get(`/modules/${mod.id}`)
+          .then(({ data }) => setFields(data.fields ?? []))
+          .catch(() => setFields([]))
+          .finally(() => setLoadingFields(false));
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, modules.length]);
 
   const addColumn = useCallback((field: Field) => {
     setColumns(prev => {
@@ -475,20 +478,47 @@ export default function NewReportPage() {
     return d.slice(0, pageSize);
   }, [rawData, filters, sortBy, sortDir, groupBy, pageSize]);
 
+  // Compute grouped data for display
+  const groupedRows = useMemo(() => {
+    if (!groupBy || previewData.length === 0) return null;
+    const groups: { key: string; rows: Record<string, unknown>[] }[] = [];
+    const seen: Record<string, number> = {};
+    previewData.forEach(row => {
+      const key = String(getFieldValue(row, groupBy) ?? "(empty)");
+      if (seen[key] === undefined) { seen[key] = groups.length; groups.push({ key, rows: [] }); }
+      groups[seen[key]].rows.push(row);
+    });
+    return groups;
+  }, [previewData, groupBy]);
+
+  // Chart data: group counts (or numeric sums for first numeric column)
+  const chartData = useMemo(() => {
+    if (!groupBy || previewData.length === 0) return [];
+    const numericCol = columns.find(c => ["number","currency","percent","integer","decimal","rating","progress"].some(t => c.fieldType.toLowerCase().includes(t)));
+    const grouped: Record<string, { count: number; sum: number }> = {};
+    previewData.forEach(row => {
+      const key = String(getFieldValue(row, groupBy) ?? "(other)");
+      if (!grouped[key]) grouped[key] = { count: 0, sum: 0 };
+      grouped[key].count += 1;
+      if (numericCol) grouped[key].sum += Number(getFieldValue(row, numericCol.fieldName) ?? 0) || 0;
+    });
+    return Object.entries(grouped).map(([name, v]) => ({
+      name: name.length > 15 ? name.slice(0, 14) + "…" : name,
+      value: numericCol ? Math.round(v.sum * 100) / 100 : v.count,
+      count: v.count,
+    }));
+  }, [previewData, groupBy, columns]);
+
   useEffect(() => {
     if (step === 5 && rawData.length === 0 && !previewLoading && !previewError) {
       runPreview();
     }
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!reportName.trim() || !selectedModule) return;
     setSaving(true);
-    const id = savedId || `report_${Date.now()}`;
-    const existing: SavedReport[] = JSON.parse(localStorage.getItem("crm_reports") ?? "[]");
-    const prev = existing.find(r => r.id === id);
-    const report: SavedReport = {
-      id,
+    const payload = {
       name: reportName.trim(),
       description: description.trim(),
       moduleId: selectedModule.id,
@@ -501,13 +531,20 @@ export default function NewReportPage() {
       groupBy,
       pageSize,
       styling: { striped, compact, showTotals },
-      createdAt: prev?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     };
-    saveReportToStorage(report);
-    setSavedId(id);
-    setSaved(true);
-    setSaving(false);
+    try {
+      if (savedId) {
+        await api.patch(`/reports/${savedId}`, payload);
+      } else {
+        const { data } = await api.post("/reports", payload);
+        setSavedId(data.id);
+      }
+      setSaved(true);
+    } catch {
+      // silent — user can retry
+    } finally {
+      setSaving(false);
+    }
   }, [reportName, description, selectedModule, columns, filters, sortBy, sortDir, groupBy, pageSize, striped, compact, showTotals, savedId]);
 
   const canNext = () => {
@@ -950,7 +987,73 @@ export default function NewReportPage() {
 
             {!previewLoading && previewData.length > 0 && (
               <>
-                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                {/* Chart toggle toolbar */}
+                {groupBy && chartData.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setShowChart(v => !v)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors ${showChart ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 text-gray-600 hover:border-blue-300"}`}
+                    >
+                      <BarChart2 className="w-3.5 h-3.5" /> {showChart ? "Hide Chart" : "Show Chart"}
+                    </button>
+                    {showChart && (
+                      <>
+                        {([
+                          { t: "bar",  label: "Bar",  icon: <BarChart2 className="w-3 h-3" /> },
+                          { t: "line", label: "Line", icon: <TrendingUp className="w-3 h-3" /> },
+                          { t: "pie",  label: "Pie",  icon: <PieChartIcon className="w-3 h-3" /> },
+                        ] as const).map(({ t, label, icon }) => (
+                          <button key={t} onClick={() => setChartType(t)}
+                            className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border transition-colors ${chartType === t ? "bg-gray-800 text-white border-gray-800" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+                            {icon}{label}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Chart */}
+                {showChart && chartData.length > 0 && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wider">
+                      {groupBy ? `Distribution by ${columns.find(c => c.fieldName === groupBy)?.alias || columns.find(c => c.fieldName === groupBy)?.fieldLabel || groupBy}` : "Chart"}
+                    </p>
+                    <div style={{ height: 260 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        {chartType === "pie" ? (
+                          <PieChart>
+                            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                              {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        ) : chartType === "line" ? (
+                          <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
+                          </LineChart>
+                        ) : (
+                          <BarChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                              {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                            </Bar>
+                          </BarChart>
+                        )}
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {/* Table — grouped or flat */}
+                <div className="overflow-x-auto rounded-xl border border-gray-200 print:border-0">
                   <table className="min-w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
@@ -963,46 +1066,69 @@ export default function NewReportPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previewData.map((row, i) => (
-                        <tr
-                          key={i}
-                          className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${
-                            striped && i % 2 === 1 ? "bg-gray-50/50" : "bg-white"
-                          }`}
-                        >
-                          <td className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-400 font-mono tabular-nums`}>
-                            {i + 1}
-                          </td>
-                          {columns.map(col => (
-                            <td key={col.id} className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-700 max-w-48 truncate`}>
-                              {String(getFieldValue(row, col.fieldName) ?? "—")}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {groupedRows ? (
+                        groupedRows.map(group => (
+                          <>
+                            <tr key={`g-${group.key}`} className="bg-blue-50 border-b border-blue-100">
+                              <td colSpan={columns.length + 1} className="px-3 py-2 font-semibold text-blue-700 text-xs">
+                                {columns.find(c => c.fieldName === groupBy)?.alias || columns.find(c => c.fieldName === groupBy)?.fieldLabel || groupBy}: {group.key}
+                                <span className="ml-2 text-blue-400 font-normal">({group.rows.length} record{group.rows.length !== 1 ? "s" : ""})</span>
+                              </td>
+                            </tr>
+                            {group.rows.map((row, ri) => (
+                              <tr key={`${group.key}-${ri}`} className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${striped && ri % 2 === 1 ? "bg-gray-50/50" : "bg-white"}`}>
+                                <td className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-400 font-mono tabular-nums pl-6`}>{ri + 1}</td>
+                                {columns.map(col => (
+                                  <td key={col.id} className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-700 max-w-48 truncate`}>
+                                    {String(getFieldValue(row, col.fieldName) ?? "—")}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                            {showTotals && (
+                              <tr className="bg-gray-50 border-b-2 border-gray-200">
+                                <td className="px-3 py-1.5 text-gray-400 pl-6 font-bold text-[10px] uppercase">Σ</td>
+                                {columns.map(col => {
+                                  const isNum = col.fieldType.match(/number|currency|percent|integer|decimal|rating|progress/i);
+                                  if (isNum) {
+                                    const sum = group.rows.reduce((acc, r) => acc + (Number(getFieldValue(r, col.fieldName)) || 0), 0);
+                                    return <td key={col.id} className="px-3 py-1.5 font-semibold text-gray-700">{sum.toLocaleString()}</td>;
+                                  }
+                                  return <td key={col.id} className="px-3 py-1.5 text-gray-300">—</td>;
+                                })}
+                              </tr>
+                            )}
+                          </>
+                        ))
+                      ) : (
+                        previewData.map((row, i) => (
+                          <tr key={i} className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors ${striped && i % 2 === 1 ? "bg-gray-50/50" : "bg-white"}`}>
+                            <td className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-400 font-mono tabular-nums`}>{i + 1}</td>
+                            {columns.map(col => (
+                              <td key={col.id} className={`px-3 ${compact ? "py-1.5" : "py-2.5"} text-gray-700 max-w-48 truncate`}>
+                                {String(getFieldValue(row, col.fieldName) ?? "—")}
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
                     </tbody>
-                    {showTotals && (
+                    {showTotals && !groupedRows && (
                       <tfoot>
                         <tr className="bg-gray-100 border-t-2 border-gray-200">
                           <td className="px-3 py-2 font-bold text-gray-500">Σ</td>
                           {columns.map(col => {
-                            const isNum = ["number","currency","percent","integer"].includes(col.fieldType);
+                            const isNum = col.fieldType.match(/number|currency|percent|integer|decimal|rating|progress/i);
                             if (isNum) {
-                              const sum = previewData.reduce(
-                                (acc, row) => acc + (Number(getFieldValue(row, col.fieldName)) || 0),
-                                0
-                              );
+                              const sum = previewData.reduce((acc, row) => acc + (Number(getFieldValue(row, col.fieldName)) || 0), 0);
+                              const avg = sum / previewData.length;
                               return (
-                                <td key={col.id} className="px-3 py-2 font-bold text-gray-800">
+                                <td key={col.id} className="px-3 py-2 font-bold text-gray-800" title={`avg: ${avg.toFixed(2)}`}>
                                   {sum.toLocaleString()}
                                 </td>
                               );
                             }
-                            return (
-                              <td key={col.id} className="px-3 py-2 text-gray-400">
-                                {previewData.length} rows
-                              </td>
-                            );
+                            return <td key={col.id} className="px-3 py-2 text-gray-400">{previewData.length} rows</td>;
                           })}
                         </tr>
                       </tfoot>
@@ -1011,8 +1137,33 @@ export default function NewReportPage() {
                 </div>
                 <p className="text-xs text-gray-400 text-right">
                   Showing {previewData.length} of {rawData.length} records
+                  {groupBy && groupedRows && ` · ${groupedRows.length} group${groupedRows.length !== 1 ? "s" : ""}`}
                 </p>
               </>
+            )}
+
+            {/* Schedule Modal stub */}
+            {showScheduleModal && (
+              <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={() => setShowScheduleModal(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Clock className="w-8 h-8 text-amber-500" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">Scheduled Reports</h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Schedule this report to be delivered automatically via email — daily, weekly, or monthly.
+                    </p>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700 font-medium">
+                      🚧 Coming soon — configure SMTP settings first
+                    </div>
+                    <button onClick={() => setShowScheduleModal(false)}
+                      className="mt-4 px-5 py-2 bg-gray-800 text-white text-sm font-semibold rounded-xl hover:bg-gray-700 transition-colors">
+                      Got it
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Saved banner */}
@@ -1053,7 +1204,7 @@ export default function NewReportPage() {
             Next <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {previewData.length > 0 && (
               <>
                 <button
@@ -1067,6 +1218,18 @@ export default function NewReportPage() {
                   className="flex items-center gap-1.5 px-4 py-2 border border-emerald-200 hover:border-emerald-300 text-emerald-700 text-sm font-semibold rounded-xl transition-colors"
                 >
                   <FileSpreadsheet className="w-4 h-4" />Excel
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 hover:border-gray-300 text-gray-600 text-sm font-semibold rounded-xl transition-colors print:hidden"
+                >
+                  <Printer className="w-4 h-4" />Print PDF
+                </button>
+                <button
+                  onClick={() => setShowScheduleModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 hover:border-purple-300 text-purple-700 text-sm font-semibold rounded-xl transition-colors"
+                >
+                  <Clock className="w-4 h-4" />Schedule
                 </button>
               </>
             )}

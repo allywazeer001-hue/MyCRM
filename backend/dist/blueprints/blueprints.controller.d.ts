@@ -18,6 +18,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -34,6 +35,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -51,6 +53,7 @@ export declare class BlueprintsController {
             name: string;
             description: string | null;
             moduleId: string;
+            version: number;
             statusFieldName: string;
             phases: import("@prisma/client/runtime/library").JsonValue;
             transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -62,6 +65,112 @@ export declare class BlueprintsController {
         lockedFields: string[];
         availableTransitions: any[];
         treeActions: any[];
+    }>;
+    getForRecord(recordId: string, user: any): Promise<{
+        blueprint: {
+            id: string;
+            isActive: boolean;
+            organizationId: string;
+            createdAt: Date;
+            updatedAt: Date;
+            name: string;
+            description: string | null;
+            moduleId: string;
+            version: number;
+            statusFieldName: string;
+            phases: import("@prisma/client/runtime/library").JsonValue;
+            transitions: import("@prisma/client/runtime/library").JsonValue;
+            fieldLocks: import("@prisma/client/runtime/library").JsonValue;
+            rules: import("@prisma/client/runtime/library").JsonValue;
+            treeData: import("@prisma/client/runtime/library").JsonValue | null;
+        };
+        currentStage: import("./blueprints.service").BlueprintPhase;
+        availableTransitions: import("./blueprints.service").BlueprintTransition[];
+        lockedFields: string[];
+        phases: import("./blueprints.service").BlueprintPhase[];
+        canInitialize: boolean;
+    }>;
+    getStageHistory(recordId: string, user: any): Promise<{
+        fromStage: string | null;
+        toStage: string;
+        transitionName: string | null;
+        timestamp: string;
+        user: {
+            id: string;
+            firstName: string;
+            lastName: string;
+        };
+    }[]>;
+    initializeRecord(body: any, user: any): Promise<{
+        status: string;
+        stageId: string;
+        stageName: string;
+    }>;
+    executeTransition(body: any, user: any): Promise<{
+        status: string;
+        message: string;
+        newStage?: undefined;
+    } | {
+        status: string;
+        newStage: string;
+        message: string;
+    }>;
+    validateTransition(body: any, user: any): Promise<{
+        allowed: boolean;
+        reason?: string;
+    }>;
+    getMyTasks(user: any): Promise<({
+        blueprint: {
+            id: string;
+            name: string;
+            moduleId: string;
+            module: {
+                id: string;
+                name: string;
+                slug: string;
+                icon: string;
+            };
+            statusFieldName: string;
+        };
+    } & {
+        comment: string | null;
+        id: string;
+        status: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string;
+        recordId: string;
+        blueprintId: string;
+        assignedRole: string | null;
+        transitionId: string;
+        transitionName: string;
+        fromStage: string;
+        toStage: string;
+        assignedToId: string | null;
+    })[]>;
+    getRecordTasks(recordId: string, user: any): Promise<{
+        comment: string | null;
+        id: string;
+        status: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        moduleId: string;
+        recordId: string;
+        blueprintId: string;
+        assignedRole: string | null;
+        transitionId: string;
+        transitionName: string;
+        fromStage: string;
+        toStage: string;
+        assignedToId: string | null;
+    }[]>;
+    completeTask(id: string, body: {
+        action: 'approve' | 'reject';
+        comment?: string;
+    }, user: any): Promise<{
+        status: string;
     }>;
     findOne(id: string, user: any): Promise<{
         module: {
@@ -88,8 +197,8 @@ export declare class BlueprintsController {
                 settings: import("@prisma/client/runtime/library").JsonValue;
                 order: number;
                 moduleId: string;
-                label: string;
                 type: import(".prisma/client").$Enums.FieldType;
+                label: string;
                 isRequired: boolean;
                 isUnique: boolean;
                 isReadonly: boolean;
@@ -101,6 +210,7 @@ export declare class BlueprintsController {
                 conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
                 lookupModuleId: string | null;
                 lookupFieldId: string | null;
+                formulaExpression: string | null;
             })[];
         };
     } & {
@@ -112,6 +222,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -135,6 +246,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -151,6 +263,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;
@@ -167,6 +280,7 @@ export declare class BlueprintsController {
         name: string;
         description: string | null;
         moduleId: string;
+        version: number;
         statusFieldName: string;
         phases: import("@prisma/client/runtime/library").JsonValue;
         transitions: import("@prisma/client/runtime/library").JsonValue;

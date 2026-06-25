@@ -66,8 +66,9 @@ let ModulesService = ModulesService_1 = class ModulesService {
     }
     async findOne(id, orgId) {
         try {
+            const where = orgId ? { id, organizationId: orgId } : { id };
             const mod = await this.prisma.dynamicModule.findFirst({
-                where: { id, organizationId: orgId },
+                where,
                 include: {
                     fields: {
                         where: { isActive: true },
@@ -89,8 +90,9 @@ let ModulesService = ModulesService_1 = class ModulesService {
     }
     async findBySlug(slug, orgId) {
         try {
+            const where = orgId ? { slug, organizationId: orgId, isActive: true } : { slug, isActive: true };
             const mod = await this.prisma.dynamicModule.findFirst({
-                where: { slug, organizationId: orgId, isActive: true },
+                where,
                 include: {
                     fields: {
                         where: { isActive: true },

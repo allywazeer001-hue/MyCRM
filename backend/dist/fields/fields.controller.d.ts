@@ -21,8 +21,8 @@ export declare class FieldsController {
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
         moduleId: string;
-        label: string;
         type: import(".prisma/client").$Enums.FieldType;
+        label: string;
         isRequired: boolean;
         isUnique: boolean;
         isReadonly: boolean;
@@ -34,6 +34,7 @@ export declare class FieldsController {
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
+        formulaExpression: string | null;
     }>;
     findByModule(moduleId: string, user: any): Promise<({
         options: {
@@ -54,8 +55,8 @@ export declare class FieldsController {
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
         moduleId: string;
-        label: string;
         type: import(".prisma/client").$Enums.FieldType;
+        label: string;
         isRequired: boolean;
         isUnique: boolean;
         isReadonly: boolean;
@@ -67,6 +68,7 @@ export declare class FieldsController {
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
+        formulaExpression: string | null;
     })[]>;
     update(id: string, body: any, user: any): Promise<{
         options: {
@@ -87,8 +89,8 @@ export declare class FieldsController {
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
         moduleId: string;
-        label: string;
         type: import(".prisma/client").$Enums.FieldType;
+        label: string;
         isRequired: boolean;
         isUnique: boolean;
         isReadonly: boolean;
@@ -100,6 +102,7 @@ export declare class FieldsController {
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
+        formulaExpression: string | null;
     }>;
     reorder(moduleId: string, fieldIds: string[], user: any): Promise<{
         success: boolean;
@@ -113,8 +116,8 @@ export declare class FieldsController {
         settings: import("@prisma/client/runtime/library").JsonValue;
         order: number;
         moduleId: string;
-        label: string;
         type: import(".prisma/client").$Enums.FieldType;
+        label: string;
         isRequired: boolean;
         isUnique: boolean;
         isReadonly: boolean;
@@ -126,5 +129,6 @@ export declare class FieldsController {
         conditionalLogic: import("@prisma/client/runtime/library").JsonValue | null;
         lookupModuleId: string | null;
         lookupFieldId: string | null;
+        formulaExpression: string | null;
     }>;
 }

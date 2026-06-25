@@ -311,11 +311,14 @@ export class PortalService {
 
   // ── Admin methods ─────────────────────────────────────────────────────────────
 
-  async listUsers(organizationId: string, page = 1, limit = 50) {
+  async listUsers(organizationId: string, page = 1, limit = 50, search?: string, status?: string) {
     const skip = (page - 1) * limit;
     const [users, total] = await Promise.all([
       this.prisma.portalUser.findMany({
-        where: { organizationId },
+        where: {
+          organizationId,
+          ...(status ? { accountStatus: status } : {}),
+        },
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip,
@@ -325,9 +328,18 @@ export class PortalService {
           lastLoginAt: true, createdAt: true, moduleId: true, recordId: true, isPortalAdmin: true, portalRole: true,
         },
       }),
-      this.prisma.portalUser.count({ where: { organizationId } }),
+      this.prisma.portalUser.count({ where: { organizationId, ...(status ? { accountStatus: status } : {}) } }),
     ]);
     return { users, total, page, limit };
+  }
+
+  async getUserStatusCounts(orgId: string) {
+    const [active, suspended, deleted] = await Promise.all([
+      this.prisma.portalUser.count({ where: { organizationId: orgId, accountStatus: 'ACTIVE' } }),
+      this.prisma.portalUser.count({ where: { organizationId: orgId, accountStatus: 'SUSPENDED' } }),
+      this.prisma.portalUser.count({ where: { organizationId: orgId, accountStatus: 'DELETED' } }),
+    ]);
+    return { active, suspended, deleted, total: active + suspended + deleted };
   }
 
   async updateAccountStatus(organizationId: string, userId: string, status: string) {
@@ -399,6 +411,36 @@ export class PortalService {
       data: { isPortalAdmin },
       select: { id: true, email: true, isPortalAdmin: true },
     });
+  }
+
+  async softDelete(userId: string, orgId: string) {
+    const user = await this.prisma.portalUser.findFirst({ where: { id: userId, organizationId: orgId } });
+    if (!user) throw new NotFoundException('Portal user not found');
+    if (user.accountStatus === 'DELETED') throw new BadRequestException('User is already deleted');
+    return this.prisma.portalUser.update({
+      where: { id: userId },
+      data: { accountStatus: 'DELETED', isActive: false },
+    });
+  }
+
+  async restore(userId: string, orgId: string) {
+    const user = await this.prisma.portalUser.findFirst({ where: { id: userId, organizationId: orgId } });
+    if (!user) throw new NotFoundException('Portal user not found');
+    if (user.accountStatus !== 'DELETED') throw new BadRequestException('User is not deleted');
+    return this.prisma.portalUser.update({
+      where: { id: userId },
+      data: { accountStatus: 'ACTIVE', isActive: true },
+    });
+  }
+
+  async permanentDelete(userId: string, orgId: string) {
+    const user = await this.prisma.portalUser.findFirst({ where: { id: userId, organizationId: orgId } });
+    if (!user) throw new NotFoundException('Portal user not found');
+    if (user.accountStatus !== 'DELETED') throw new BadRequestException('Only soft-deleted users can be permanently deleted');
+    // Remove associated data first to avoid FK violations
+    await this.prisma.portalNotification.deleteMany({ where: { portalUserId: userId } });
+    await this.prisma.portalUser.delete({ where: { id: userId } });
+    return { success: true, message: 'Portal user permanently deleted' };
   }
 
   async setPortalRole(organizationId: string, userId: string, portalRole: string) {

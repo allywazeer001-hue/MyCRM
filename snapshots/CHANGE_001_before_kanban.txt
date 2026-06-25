@@ -1,0 +1,139 @@
+function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleField: Field | undefined; slug: string }) {
+  const router = useRouter();
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: record.id,
+    data: { record },
+  });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px,${transform.y}px,0)`, opacity: isDragging ? 0.3 : 1 }
+    : undefined;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="p-3 rounded-lg border border-gray-200 bg-white hover:shadow-md hover:border-blue-200 cursor-pointer transition-all space-y-1.5"
+      onClick={() => !isDragging && router.push(`/m/${slug}/${record.id}`)}
+    >
+      <div className="flex items-start gap-1.5">
+        <div
+          {...listeners}
+          {...attributes}
+          className="mt-0.5 shrink-0 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing transition-colors touch-none"
+          onClick={e => e.stopPropagation()}
+          title="Drag to move"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+        <p className="text-sm font-medium text-gray-800 truncate flex-1">
+          {titleField ? record.data[titleField.name] || "Untitled" : record.id.slice(0, 8)}
+        </p>
+      </div>
+      <p className="text-xs text-gray-400 pl-5">{formatDate(record.createdAt)}</p>
+    </div>
+  );
+}
+
+function KanbanColumn({ col, records, titleField, slug }: {
+  col: { value: string; label: string; color?: string };
+  records: CrmRecord[];
+  titleField: Field | undefined;
+  slug: string;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.value });
+  return (
+    <div className="flex-shrink-0 w-64">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="font-medium text-sm text-gray-700">{col.label}</span>
+        <Badge variant="secondary" className="text-xs">{records.length}</Badge>
+      </div>
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "space-y-2 min-h-24 rounded-lg p-1 transition-colors",
+          isOver && "bg-blue-50 border-2 border-dashed border-blue-300"
+        )}
+      >
+        {records.map(record => (
+          <KanbanCard key={record.id} record={record} titleField={titleField} slug={slug} />
+        ))}
+        {records.length === 0 && (
+          <div className={cn(
+            "p-3 rounded-lg border-2 border-dashed text-center",
+            isOver ? "border-blue-300 bg-blue-50" : "border-gray-100"
+          )}>
+            <p className="text-xs text-gray-400">Drop here</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KanbanView({ records, mod, slug, onRecordMove }: {
+  records: CrmRecord[];
+  mod: any;
+  slug: string;
+  onRecordMove: (recordId: string, newValue: string, fieldName: string) => void;
+}) {
+  const [activeRecord, setActiveRecord] = useState<CrmRecord | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const statusField: Field | undefined = mod?.fields?.find((f: Field) => ["STATUS", "DROPDOWN"].includes(f.type));
+  if (!statusField) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <LayoutGrid className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+        <p className="text-sm">Add a Status or Dropdown field to enable Kanban view.</p>
+      </div>
+    );
+  }
+
+  const options = statusField.options || [];
+  const columns = options.length > 0 ? options : [{ value: "__none__", label: "No Status", color: undefined }];
+  const titleField: Field | undefined = mod?.fields?.find((f: Field) => ["TEXT", "EMAIL"].includes(f.type));
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const rec = records.find(r => r.id === String(event.active.id));
+    setActiveRecord(rec ?? null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveRecord(null);
+    const { active, over } = event;
+    if (!over) return;
+    const recordId = String(active.id);
+    const newColValue = String(over.id);
+    const rec = records.find(r => r.id === recordId);
+    if (!rec) return;
+    const current = rec.data[statusField.name];
+    const effectiveNew = newColValue === "__none__" ? "" : newColValue;
+    if (current === effectiveNew || (!current && !effectiveNew)) return;
+    onRecordMove(recordId, effectiveNew, statusField.name);
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="flex gap-4 overflow-x-auto pb-4 pt-1" style={{ minHeight: "60vh" }}>
+        {columns.map(col => {
+          const colRecords = records.filter(r => {
+            const v = r.data[statusField.name];
+            return col.value === "__none__" ? !v : v === col.value;
+          });
+          return (
+            <KanbanColumn key={col.value} col={col} records={colRecords} titleField={titleField} slug={slug} />
+          );
+        })}
+      </div>
+      <DragOverlay>
+        {activeRecord && (
+          <div className="p-3 rounded-lg border border-gray-300 bg-white shadow-xl space-y-1.5 w-56 rotate-1 opacity-95">
+            <p className="text-sm font-medium text-gray-800 truncate">
+              {titleField ? activeRecord.data[titleField.name] || "Untitled" : activeRecord.id.slice(0, 8)}
+            </p>
+            <p className="text-xs text-gray-400">{formatDate(activeRecord.createdAt)}</p>
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}

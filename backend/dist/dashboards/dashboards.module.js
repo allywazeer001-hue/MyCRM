@@ -10,10 +10,15 @@ exports.DashboardsModule = void 0;
 const common_1 = require("@nestjs/common");
 const dashboards_service_1 = require("./dashboards.service");
 const dashboards_controller_1 = require("./dashboards.controller");
+const permissions_module_1 = require("../permissions/permissions.module");
 let DashboardsModule = class DashboardsModule {
 };
 exports.DashboardsModule = DashboardsModule;
 exports.DashboardsModule = DashboardsModule = __decorate([
-    (0, common_1.Module)({ controllers: [dashboards_controller_1.DashboardsController], providers: [dashboards_service_1.DashboardsService] })
+    (0, common_1.Module)({
+        imports: [permissions_module_1.PermissionsModule],
+        controllers: [dashboards_controller_1.DashboardsController],
+        providers: [dashboards_service_1.DashboardsService],
+    })
 ], DashboardsModule);
 //# sourceMappingURL=dashboards.module.js.map

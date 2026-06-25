@@ -86,8 +86,8 @@ export declare class PortalBuilderController {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }[]>;
@@ -100,8 +100,8 @@ export declare class PortalBuilderController {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }>;
@@ -114,8 +114,8 @@ export declare class PortalBuilderController {
         type: string;
         title: string;
         body: string;
-        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         isPublished: boolean;
+        targetTypes: import("@prisma/client/runtime/library").JsonValue;
         publishedAt: Date;
         scheduledAt: Date | null;
     }>;

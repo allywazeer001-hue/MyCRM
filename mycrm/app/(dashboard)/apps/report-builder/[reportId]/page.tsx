@@ -12,15 +12,7 @@ import {
   type SavedReport,
 } from "../new/page";
 
-function loadReport(id: string): SavedReport | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const list: SavedReport[] = JSON.parse(localStorage.getItem("crm_reports") ?? "[]");
-    return list.find(r => r.id === id) ?? null;
-  } catch {
-    return null;
-  }
-}
+// loadReport removed — reports are loaded from the backend API.
 
 function operatorLabel(op: string): string {
   const map: Record<string, string> = {
@@ -81,14 +73,20 @@ export default function ReportViewerPage() {
   }, []);
 
   useEffect(() => {
-    const rpt = loadReport(reportId);
-    if (!rpt) {
-      setError("Report not found. It may have been deleted.");
-      setLoading(false);
-      return;
-    }
-    setReport(rpt);
-    fetchData(rpt);
+    let cancelled = false;
+    api.get(`/reports/${reportId}`)
+      .then(({ data: rpt }) => {
+        if (cancelled) return;
+        setReport(rpt as SavedReport);
+        fetchData(rpt as SavedReport);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("Report not found or you do not have access.");
+          setLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
   }, [reportId, fetchData]);
 
   const filteredData = useMemo(() => {
@@ -161,7 +159,7 @@ export default function ReportViewerPage() {
         <div className="border-b-2 border-gray-800 pb-4 mb-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1">Enterprise CRM — Report</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1">CORE — Report</p>
               <h1 className="text-2xl font-bold text-gray-900">{report.name}</h1>
               {report.description && (
                 <p className="text-sm text-gray-600 mt-1">{report.description}</p>

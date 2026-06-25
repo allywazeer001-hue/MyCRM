@@ -34,62 +34,80 @@ let UsersController = class UsersController {
     getMyPermissions(user) {
         return this.usersService.getMyPermissions(user.id, user.organizationId);
     }
+    getMyProfile(user) {
+        return this.usersService.getMyProfile(user.id, user.organizationId);
+    }
+    updateMe(user, body) {
+        return this.usersService.update(user.id, user.organizationId, body);
+    }
+    clearMyActivity(user) {
+        return this.usersService.clearMyActivity(user.id, user.organizationId);
+    }
+    resolveOrgId(user) {
+        return user.organizationId;
+    }
     findOne(id, user) {
-        return this.usersService.findOne(id, user.organizationId);
+        return this.usersService.findOne(id, this.resolveOrgId(user));
     }
     update(id, body, user) {
-        return this.usersService.update(id, user.organizationId, body);
+        return this.usersService.update(id, this.resolveOrgId(user), body);
     }
     remove(id, user) {
-        return this.usersService.remove(id, user.organizationId);
+        return this.usersService.remove(id, this.resolveOrgId(user));
+    }
+    hardDelete(id, user) {
+        if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
+            throw new common_1.ForbiddenException('Only admins can permanently delete users');
+        }
+        return this.usersService.hardDelete(id, this.resolveOrgId(user));
     }
     reactivate(id, user) {
-        return this.usersService.reactivate(id, user.organizationId);
+        return this.usersService.reactivate(id, this.resolveOrgId(user));
     }
     suspend(id, user) {
         if (!this.isSuperAdmin(user)) {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.suspend(id, user.organizationId, user.id);
+        return this.usersService.suspend(id, this.resolveOrgId(user), user.id);
     }
     unsuspend(id, user) {
-        return this.usersService.unsuspend(id, user.organizationId, user.id);
+        return this.usersService.unsuspend(id, this.resolveOrgId(user), user.id);
     }
     lock(id, user) {
         if (!this.isSuperAdmin(user)) {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.lock(id, user.organizationId, user.id);
+        return this.usersService.lock(id, this.resolveOrgId(user), user.id);
     }
     unlock(id, user) {
         if (!this.isSuperAdmin(user)) {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.unlock(id, user.organizationId, user.id);
+        return this.usersService.unlock(id, this.resolveOrgId(user), user.id);
     }
     resetPassword(id, user) {
         if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.resetPassword(id, user.organizationId, user.id);
+        return this.usersService.resetPassword(id, this.resolveOrgId(user), user.id);
     }
     forcePasswordReset(id, user) {
         if (!this.isSuperAdmin(user) && user?.role !== 'ADMIN') {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.forcePasswordReset(id, user.organizationId, user.id);
+        return this.usersService.forcePasswordReset(id, this.resolveOrgId(user), user.id);
     }
     getPermissionSummary(id, user) {
-        return this.usersService.getPermissionSummary(id, user.organizationId);
+        return this.usersService.getPermissionSummary(id, this.resolveOrgId(user));
     }
     getPermissionOverrides(id, user) {
-        return this.usersService.getPermissionOverrides(id, user.organizationId);
+        return this.usersService.getPermissionOverrides(id, this.resolveOrgId(user));
     }
     setPermissionOverride(id, body, user) {
         if (!this.isSuperAdmin(user)) {
             throw new common_1.ForbiddenException('Only Super Admin can perform this action');
         }
-        return this.usersService.setPermissionOverride(id, user.organizationId, user.id, body);
+        return this.usersService.setPermissionOverride(id, this.resolveOrgId(user), user.id, body);
     }
     removePermissionOverride(overrideId, user) {
         if (!this.isSuperAdmin(user)) {
@@ -122,6 +140,28 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], UsersController.prototype, "getMyPermissions", null);
 __decorate([
+    (0, common_1.Get)('me/profile'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], UsersController.prototype, "getMyProfile", null);
+__decorate([
+    (0, common_1.Patch)('me'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], UsersController.prototype, "updateMe", null);
+__decorate([
+    (0, common_1.Delete)('me/activity'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], UsersController.prototype, "clearMyActivity", null);
+__decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, current_user_decorator_1.CurrentUser)()),
@@ -146,6 +186,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], UsersController.prototype, "remove", null);
+__decorate([
+    (0, common_1.Delete)(':id/permanent'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], UsersController.prototype, "hardDelete", null);
 __decorate([
     (0, common_1.Patch)(':id/reactivate'),
     __param(0, (0, common_1.Param)('id')),

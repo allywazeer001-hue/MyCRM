@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { portalApi } from "@/lib/portal-api";
 import { PortalPageRenderer, RenderedPage } from "@/components/portal/portal-page-renderer";
+import { usePortalAuthStore } from "@/store/portal-auth.store";
 import { Loader2, AlertCircle, Save, Check, Database, RefreshCw } from "lucide-react";
 
 interface SaveResult {
@@ -14,6 +15,7 @@ interface SaveResult {
 
 export default function PortalPageView() {
   const { slug } = useParams<{ slug: string }>();
+  const { user: portalUser } = usePortalAuthStore();
   const [page, setPage] = useState<RenderedPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -43,6 +45,7 @@ export default function PortalPageView() {
           order: s.order ?? 0,
           isCollapsible: s.isCollapsible ?? false,
           isVisible: s.isVisible ?? true,
+          fieldColumns: s.fieldColumns ?? 1,
           fields: (s.fields ?? []).map((f: any) => ({
             id: f.id,
             label: f.label,
@@ -56,6 +59,8 @@ export default function PortalPageView() {
             isVisible: f.isVisible ?? true,
             isAdminOnly: false,
             options: f.options ?? [],
+            colSpan: f.colSpan ?? 1,
+            content: f.content ?? null,
           })),
         }));
         const rendered: RenderedPage = {
@@ -174,6 +179,7 @@ export default function PortalPageView() {
             <PortalPageRenderer
               page={page}
               fieldValues={fieldValues}
+              portalUser={portalUser}
               onChange={handleChange}
               readOnly={false}
             />

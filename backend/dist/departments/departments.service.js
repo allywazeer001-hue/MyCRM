@@ -17,10 +17,12 @@ let DepartmentsService = class DepartmentsService {
         this.prisma = prisma;
     }
     async findAll(orgId) {
+        const where = { organizationId: orgId };
         return this.prisma.department.findMany({
-            where: { organizationId: orgId },
+            where,
             include: {
                 _count: { select: { users: true } },
+                head: { select: { id: true, firstName: true, lastName: true, email: true } },
             },
             orderBy: { name: 'asc' },
         });
@@ -30,6 +32,7 @@ let DepartmentsService = class DepartmentsService {
             where: { id, organizationId: orgId },
             include: {
                 _count: { select: { users: true } },
+                head: { select: { id: true, firstName: true, lastName: true, email: true } },
                 users: {
                     select: {
                         id: true, firstName: true, lastName: true,
@@ -57,7 +60,10 @@ let DepartmentsService = class DepartmentsService {
                 color: data.color || '#3b82f6',
                 organizationId: orgId,
             },
-            include: { _count: { select: { users: true } } },
+            include: {
+                _count: { select: { users: true } },
+                head: { select: { id: true, firstName: true, lastName: true, email: true } },
+            },
         });
     }
     async update(id, orgId, data) {
@@ -76,7 +82,23 @@ let DepartmentsService = class DepartmentsService {
         return this.prisma.department.update({
             where: { id },
             data: patch,
-            include: { _count: { select: { users: true } } },
+            include: {
+                _count: { select: { users: true } },
+                head: { select: { id: true, firstName: true, lastName: true, email: true } },
+            },
+        });
+    }
+    async setHead(id, _orgId, headUserId) {
+        const dept = await this.prisma.department.findFirst({ where: { id } });
+        if (!dept)
+            throw new common_1.NotFoundException('Unit not found');
+        return this.prisma.department.update({
+            where: { id },
+            data: { headUserId },
+            include: {
+                head: { select: { id: true, firstName: true, lastName: true, email: true } },
+                _count: { select: { users: true } },
+            },
         });
     }
     async remove(id, orgId) {

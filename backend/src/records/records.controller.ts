@@ -120,4 +120,25 @@ export class RecordsController {
   addComment(@Param('id') id: string, @Body('content') content: string, @CurrentUser() user: any) {
     return this.recordsService.addComment(id, user.organizationId, user.id, content);
   }
+
+  @Get(':id/activity')
+  getActivity(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.recordsService.getActivity(id, user.organizationId);
+  }
+
+  @Post(':id/duplicate')
+  async duplicate(@Param('moduleId') moduleId: string, @Param('id') id: string, @CurrentUser() user: any) {
+    await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canCreate');
+    return this.recordsService.duplicate(id, user.organizationId, user.id);
+  }
+
+  @Patch(':id/archive')
+  archive(@Param('id') id: string, @Body('archived') archived: boolean, @CurrentUser() user: any) {
+    return this.recordsService.setArchived(id, user.organizationId, user.id, archived);
+  }
+
+  @Patch(':id/lock')
+  lock(@Param('id') id: string, @Body('locked') locked: boolean, @CurrentUser() user: any) {
+    return this.recordsService.setLocked(id, user.organizationId, user.id, locked);
+  }
 }

@@ -8,12 +8,20 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FilesModule = void 0;
 const common_1 = require("@nestjs/common");
+const platform_express_1 = require("@nestjs/platform-express");
+const multer_1 = require("multer");
 const files_service_1 = require("./files.service");
 const files_controller_1 = require("./files.controller");
 let FilesModule = class FilesModule {
 };
 exports.FilesModule = FilesModule;
 exports.FilesModule = FilesModule = __decorate([
-    (0, common_1.Module)({ controllers: [files_controller_1.FilesController], providers: [files_service_1.FilesService] })
+    (0, common_1.Module)({
+        imports: [
+            platform_express_1.MulterModule.register({ storage: (0, multer_1.memoryStorage)() }),
+        ],
+        controllers: [files_controller_1.FilesController],
+        providers: [files_service_1.FilesService],
+    })
 ], FilesModule);
 //# sourceMappingURL=files.module.js.map

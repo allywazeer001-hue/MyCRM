@@ -9,8 +9,19 @@ interface User {
   firstName: string;
   lastName: string;
   role: string;
+  usertype?: string;
   organizationId: string;
-  organization?: { id: string; name: string; slug: string };
+  organization?: {
+    id: string;
+    name: string;
+    slug: string;
+    code?: string;
+    description?: string;
+    logo?: string;
+    website?: string;
+    status?: string;
+    settings?: { packages?: string[]; [key: string]: any };
+  };
   avatar?: string;
 }
 
@@ -31,13 +42,21 @@ interface RegisterData {
   password: string;
   firstName: string;
   lastName: string;
-  organizationName: string;
-  organizationSlug: string;
+  organizationName?: string;
+  organizationSlug?: string;
+  organizationCode?: string;
+  organizationDescription?: string;
+  organizationAddress?: string;
+  organizationEmail?: string;
+  organizationWebsite?: string;
+  organizationIndustry?: string;
+  organizationLogo?: string;
+  packages?: string[];
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       accessToken: null,
       refreshToken: null,
@@ -47,6 +66,8 @@ export const useAuthStore = create<AuthState>()(
       login: async (email, password) => {
         set({ isLoading: true });
         try {
+          // DEBUG — remove once LAN access is confirmed working
+          console.log("[CRM] Login endpoint:", `${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/auth/login`);
           const { data } = await api.post("/auth/login", { email, password });
           localStorage.setItem("access_token", data.accessToken);
           localStorage.setItem("refresh_token", data.refreshToken);
@@ -85,6 +106,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("refresh_token");
+        localStorage.removeItem("crm-auth");
         set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
         window.location.href = "/login";
       },
@@ -93,7 +115,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "crm-auth",
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      // Only persist user profile. isAuthenticated is re-derived from the actual
+      // token on every mount — prevents stale "logged in" state after token expiry.
+      partialize: (state) => ({ user: state.user }),
     }
   )
 );

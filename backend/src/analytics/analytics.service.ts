@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PermissionCheckService, ShareableResource } from '../permissions/permission-check.service';
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private perm: PermissionCheckService,
+  ) {}
 
   // ── Filter engine ────────────────────────────────────────────────────────────
   // Applies a filter group (AND/OR with nested groups) to an array of records in JS.
@@ -87,8 +91,8 @@ export class AnalyticsService {
 
   // ── Analytics aggregation ────────────────────────────────────────────────────
 
-  async getAnalytics(moduleId: string, orgId: string, params: AnalyticsParams) {
-    const { groupByField, aggregation = 'COUNT', aggregateField, filterGroup } = params;
+  async getAnalytics(moduleId: string, orgId: string, params: AnalyticsParams & { secondaryGroupByField?: string; barMode?: 'stacked' | 'grouped' }) {
+    const { groupByField, aggregation = 'COUNT', aggregateField, filterGroup, secondaryGroupByField } = params;
 
     const mod = await this.prisma.dynamicModule.findFirst({
       where: { id: moduleId, organizationId: orgId },
@@ -118,7 +122,7 @@ export class AnalyticsService {
       return { total, value, data: [] };
     }
 
-    // Group by field
+    // Group by primary field
     const groups: Record<string, any[]> = {};
     for (const r of records) {
       const key = String((r.data as any)?.[groupByField] ?? '(empty)');
@@ -126,19 +130,48 @@ export class AnalyticsService {
       groups[key].push(r);
     }
 
-    let data = Object.entries(groups).map(([name, recs]) => {
-      let value = recs.length;
-      if (aggregation === 'SUM' && aggregateField) {
-        value = recs.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
-      } else if (aggregation === 'AVG' && aggregateField) {
-        const sum = recs.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
-        value = recs.length > 0 ? sum / recs.length : 0;
+    // ── Single-level grouping (original behaviour) ──────────────────────────
+    if (!secondaryGroupByField) {
+      let data = Object.entries(groups).map(([name, recs]) => {
+        let value = recs.length;
+        if (aggregation === 'SUM' && aggregateField) {
+          value = recs.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
+        } else if (aggregation === 'AVG' && aggregateField) {
+          const sum = recs.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
+          value = recs.length > 0 ? sum / recs.length : 0;
+        }
+        return { name, value };
+      });
+      data.sort((a, b) => b.value - a.value);
+      return { total, value: total, data };
+    }
+
+    // ── Multi-level grouping (secondary group → stacked/clustered bars) ─────
+    // Collect all secondary group keys across all records
+    const secondaryKeys = new Set<string>();
+    for (const r of records) {
+      const sk = String((r.data as any)?.[secondaryGroupByField] ?? '(empty)');
+      secondaryKeys.add(sk);
+    }
+    const secKeys = [...secondaryKeys].sort();
+
+    const data = Object.entries(groups).map(([name, recs]) => {
+      const row: Record<string, any> = { name };
+      for (const sk of secKeys) {
+        const subset = recs.filter(r => String((r.data as any)?.[secondaryGroupByField] ?? '(empty)') === sk);
+        let value = subset.length;
+        if (aggregation === 'SUM' && aggregateField) {
+          value = subset.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
+        } else if (aggregation === 'AVG' && aggregateField) {
+          const sum = subset.reduce((s, r) => s + (Number((r.data as any)?.[aggregateField]) || 0), 0);
+          value = subset.length > 0 ? sum / subset.length : 0;
+        }
+        row[sk] = value;
       }
-      return { name, value };
+      return row;
     });
 
-    data.sort((a, b) => b.value - a.value);
-    return { total, value: total, data };
+    return { total, value: total, data, secondaryKeys: secKeys, isMultiLevel: true };
   }
 
   // Kanban grouping
@@ -180,7 +213,9 @@ export class AnalyticsService {
 
   // ── Saved Views ──────────────────────────────────────────────────────────────
 
-  async getViews(orgId: string) {
+  async getViews(_userId: string, orgId: string) {
+    // All views in the org are visible to any user with analytics access.
+    // Per-view access control only governs who can edit/delete a view (creator or admin).
     const views = await this.prisma.analyticsView.findMany({
       where: { organizationId: orgId },
       orderBy: { updatedAt: 'desc' },
@@ -189,27 +224,44 @@ export class AnalyticsService {
     return [...views.filter(v => v.isPinned), ...views.filter(v => !v.isPinned)];
   }
 
+  async getView(id: string, _userId: string, orgId: string) {
+    const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
+    if (!view) throw new NotFoundException('View not found');
+    return view;
+  }
+
   async createView(orgId: string, userId: string, data: any) {
     return this.prisma.analyticsView.create({
-      data: { ...data, organizationId: orgId, createdById: userId },
+      data: {
+        name: data.name,
+        config: data.config ?? {},
+        organizationId: orgId,
+        createdById: userId,
+      },
     });
   }
 
-  async updateView(id: string, orgId: string, data: any) {
+  async updateView(id: string, userId: string, orgId: string, data: any) {
     const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
     if (!view) throw new NotFoundException('View not found');
-    return this.prisma.analyticsView.update({ where: { id }, data });
+    await this.perm.enforceCanEditResource(userId, orgId, view as unknown as ShareableResource);
+    const allowed = ['name', 'config', 'isPinned'];
+    const clean: any = {};
+    for (const k of allowed) if (data[k] !== undefined) clean[k] = data[k];
+    return this.prisma.analyticsView.update({ where: { id }, data: clean });
   }
 
-  async deleteView(id: string, orgId: string) {
+  async deleteView(id: string, userId: string, orgId: string) {
     const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
     if (!view) throw new NotFoundException('View not found');
+    await this.perm.enforceCanEditResource(userId, orgId, view as unknown as ShareableResource);
     return this.prisma.analyticsView.delete({ where: { id } });
   }
 
-  async togglePinView(id: string, orgId: string) {
+  async togglePinView(id: string, userId: string, orgId: string) {
     const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
     if (!view) throw new NotFoundException('View not found');
+    await this.perm.enforceCanEditResource(userId, orgId, view as unknown as ShareableResource);
     return this.prisma.analyticsView.update({ where: { id }, data: { isPinned: !view.isPinned } });
   }
 

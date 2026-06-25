@@ -17,14 +17,16 @@ const websockets_1 = require("@nestjs/websockets");
 const socket_io_1 = require("socket.io");
 let AppGateway = class AppGateway {
     constructor() {
-        this.connectedUsers = new Map();
+        this.userSockets = new Map();
     }
-    handleConnection(client) {
-        console.log(`Client connected: ${client.id}`);
-    }
+    handleConnection(client) { }
     handleDisconnect(client) {
-        this.connectedUsers.delete(client.id);
-        console.log(`Client disconnected: ${client.id}`);
+        for (const [uid, sid] of this.userSockets.entries()) {
+            if (sid === client.id) {
+                this.userSockets.delete(uid);
+                break;
+            }
+        }
     }
     handleJoinOrg(client, orgId) {
         client.join(`org:${orgId}`);
@@ -36,7 +38,18 @@ let AppGateway = class AppGateway {
     }
     handleJoinUser(client, userId) {
         client.join(`user:${userId}`);
+        this.userSockets.set(userId, client.id);
         return { event: 'joined', data: `user:${userId}` };
+    }
+    handleChatJoin(client, conversationId) {
+        client.join(`chat:${conversationId}`);
+        return { event: 'chat:joined', data: conversationId };
+    }
+    handleTyping(client, data) {
+        client.to(`chat:${data.conversationId}`).emit('chat:typing', data);
+    }
+    handleRead(client, data) {
+        client.to(`chat:${data.conversationId}`).emit('chat:read', data);
     }
     emitToOrg(orgId, event, data) {
         this.server.to(`org:${orgId}`).emit(event, data);
@@ -46,6 +59,16 @@ let AppGateway = class AppGateway {
     }
     emitToUser(userId, event, data) {
         this.server.to(`user:${userId}`).emit(event, data);
+    }
+    emitToConversation(conversationId, event, data, excludeSenderId) {
+        const room = `chat:${conversationId}`;
+        const senderSocketId = excludeSenderId ? this.userSockets.get(excludeSenderId) : undefined;
+        if (senderSocketId) {
+            this.server.to(room).except(senderSocketId).emit(event, data);
+        }
+        else {
+            this.server.to(room).emit(event, data);
+        }
     }
 };
 exports.AppGateway = AppGateway;
@@ -77,6 +100,30 @@ __decorate([
     __metadata("design:paramtypes", [socket_io_1.Socket, String]),
     __metadata("design:returntype", void 0)
 ], AppGateway.prototype, "handleJoinUser", null);
+__decorate([
+    (0, websockets_1.SubscribeMessage)('chat:join'),
+    __param(0, (0, websockets_1.ConnectedSocket)()),
+    __param(1, (0, websockets_1.MessageBody)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [socket_io_1.Socket, String]),
+    __metadata("design:returntype", void 0)
+], AppGateway.prototype, "handleChatJoin", null);
+__decorate([
+    (0, websockets_1.SubscribeMessage)('chat:typing'),
+    __param(0, (0, websockets_1.ConnectedSocket)()),
+    __param(1, (0, websockets_1.MessageBody)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [socket_io_1.Socket, Object]),
+    __metadata("design:returntype", void 0)
+], AppGateway.prototype, "handleTyping", null);
+__decorate([
+    (0, websockets_1.SubscribeMessage)('chat:read'),
+    __param(0, (0, websockets_1.ConnectedSocket)()),
+    __param(1, (0, websockets_1.MessageBody)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [socket_io_1.Socket, Object]),
+    __metadata("design:returntype", void 0)
+], AppGateway.prototype, "handleRead", null);
 exports.AppGateway = AppGateway = __decorate([
     (0, websockets_1.WebSocketGateway)({ cors: { origin: '*' }, namespace: '/' })
 ], AppGateway);

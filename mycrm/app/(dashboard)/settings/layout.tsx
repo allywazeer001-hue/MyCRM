@@ -3,18 +3,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   User, Building2, Shield, Globe, Users, Mail, Zap,
-  BarChart3, FileText, Layers, ChevronRight, LayoutGrid, Blocks, UserCog,
+  BarChart3, FileText, Layers, ChevronRight, LayoutGrid, Blocks, UserCog, LayoutList,
+  Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth.store";
 
 const ACCOUNT_NAV = [
-  { href: "/settings", label: "Profile & Security", icon: User, exact: true },
+  { href: "/settings",              label: "Profile & Security", icon: User, exact: true },
+  { href: "/settings/calendar-sync", label: "Calendar Sync",     icon: Calendar },
 ];
 
 const ADMIN_NAV = [
   { href: "/users",                label: "Users",          icon: Users },
-  { href: "/admin/departments",    label: "Departments",    icon: Building2 },
+  { href: "/admin/departments",    label: "Units",          icon: Building2 },
   { href: "/admin/permissions",    label: "Access Control", icon: Shield },
   { href: "/admin/global-lists",   label: "Global Lists",   icon: Globe },
 ];
@@ -27,7 +29,8 @@ const CONFIG_NAV = [
   { href: "/settings/modules",     label: "Module Config",  icon: Layers },
   { href: "/settings/portal",      label: "Portal Settings", icon: LayoutGrid },
   { href: "/settings/portal/users", label: "Portal Users",    icon: UserCog },
-  { href: "/apps/portal-builder",      label: "Portal Builder",  icon: Blocks },
+  { href: "/apps/portal-builder",   label: "Portal Builder",  icon: Blocks },
+  { href: "/settings/task-panels",  label: "Task Panels",     icon: LayoutList },
 ];
 
 function NavSection({ title, items, pathname }: {
@@ -71,7 +74,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       {/* Left sub-nav — sticky */}
       <aside className="w-52 shrink-0 border-r border-gray-200 bg-gray-50/50 self-start sticky top-0">
         <div className="px-4 pt-6 pb-3 border-b border-gray-200">
-          <h2 className="font-semibold text-gray-900 text-sm">Settings</h2>
+          <h2 className="font-semibold text-gray-900 text-sm">CRM Settings</h2>
           <p className="text-xs text-gray-500 mt-0.5">Account & configuration</p>
         </div>
         <nav className="p-2 space-y-4 pb-6">
@@ -85,12 +88,18 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         </nav>
       </aside>
 
-      {/* Content area */}
-      <div className="flex-1 py-6 pr-6">
-        <div className="max-w-3xl space-y-6">
+      {/* Content area — automation page gets full width + height */}
+      {pathname === "/settings/automation" ? (
+        <div className="flex-1 overflow-hidden flex flex-col">
           {children}
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 py-6 pr-6">
+          <div className="max-w-3xl space-y-6">
+            {children}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import { CheckCircle2, XCircle, Info, AlertTriangle, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, generateId } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const add = useCallback(
     (type: ToastType, title: string, description?: string, duration = 4000) => {
-      const id = crypto.randomUUID();
+      const id = generateId();
       setToasts((prev) => [...prev.slice(-4), { id, type, title, description: description || "", duration }]);
       const timer = setTimeout(() => dismiss(id), duration);
       timers.current.set(id, timer);

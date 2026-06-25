@@ -14,7 +14,46 @@ export class FormsController {
 
   @Get()
   findAll(@CurrentUser() user: any) {
-    return this.svc.findAll(user.organizationId);
+    return this.svc.findAll(user.organizationId, user.id, user.role);
+  }
+
+  // Folders — MUST be before @Get(':id') so 'folders' is not matched as an id
+
+  @Get('folders')
+  getFolders(@CurrentUser() user: any) {
+    return this.svc.getFolders(user.organizationId, user.id, user.role, user.departmentId ?? null);
+  }
+
+  @Post('folders')
+  createFolder(@Body() body: any, @CurrentUser() user: any) {
+    return this.svc.createFolder(user.organizationId, user.id, body);
+  }
+
+  @Patch('folders/:folderId')
+  updateFolder(@Param('folderId') folderId: string, @Body() body: any, @CurrentUser() user: any) {
+    return this.svc.updateFolder(folderId, user.organizationId, user.id, user.role, body);
+  }
+
+  @Delete('folders/:folderId')
+  deleteFolder(@Param('folderId') folderId: string, @CurrentUser() user: any) {
+    return this.svc.deleteFolder(folderId, user.organizationId, user.id, user.role);
+  }
+
+  @Get('folders/:folderId/forms')
+  getFolderForms(@Param('folderId') folderId: string, @CurrentUser() user: any) {
+    return this.svc.getFolderForms(folderId, user.organizationId);
+  }
+
+  // Shared — MUST be before @Get(':id')
+
+  @Get('shared')
+  getSharedForms(@CurrentUser() user: any) {
+    return this.svc.getSharedForms(user.organizationId, user.id, user.role, user.departmentId ?? null);
+  }
+
+  @Get('shared-folders')
+  getSharedFolders(@CurrentUser() user: any) {
+    return this.svc.getSharedFolders(user.organizationId, user.id, user.role, user.departmentId ?? null);
   }
 
   @Get(':id')
@@ -132,6 +171,18 @@ export class FormsController {
   @Get(':id/submissions')
   getSubmissions(@Param('id') id: string, @CurrentUser() user: any) {
     return this.svc.getSubmissions(id, user.organizationId);
+  }
+
+  // Form sharing settings
+
+  @Get(':id/sharing')
+  getFormSharing(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.svc.getFormSharing(id, user.organizationId);
+  }
+
+  @Patch(':id/sharing')
+  updateFormSharing(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    return this.svc.updateFormSharing(id, user.organizationId, user.id, user.role, body);
   }
 }
 

@@ -34,6 +34,19 @@ const user_preferences_module_1 = require("./user-preferences/user-preferences.m
 const blueprints_module_1 = require("./blueprints/blueprints.module");
 const portal_module_1 = require("./portal/portal.module");
 const departments_module_1 = require("./departments/departments.module");
+const process_module_1 = require("./process/process.module");
+const task_panels_module_1 = require("./task-panels/task-panels.module");
+const reports_module_1 = require("./reports/reports.module");
+const workspace_module_1 = require("./workspace/workspace.module");
+const messages_module_1 = require("./messages/messages.module");
+const tracker_module_1 = require("./tracker/tracker.module");
+const gallery_module_1 = require("./gallery/gallery.module");
+const publications_module_1 = require("./publications/publications.module");
+const calendar_sync_module_1 = require("./calendar-sync/calendar-sync.module");
+const request_types_module_1 = require("./request-types/request-types.module");
+const request_blueprints_module_1 = require("./request-blueprints/request-blueprints.module");
+const requests_module_1 = require("./requests/requests.module");
+const industry_setup_module_1 = require("./industry-setup/industry-setup.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -66,6 +79,19 @@ exports.AppModule = AppModule = __decorate([
             blueprints_module_1.BlueprintsModule,
             portal_module_1.PortalModule,
             departments_module_1.DepartmentsModule,
+            process_module_1.ProcessModule,
+            task_panels_module_1.TaskPanelsModule,
+            reports_module_1.ReportsModule,
+            workspace_module_1.WorkspaceModule,
+            messages_module_1.MessagesModule,
+            tracker_module_1.TrackerModule,
+            gallery_module_1.GalleryModule,
+            publications_module_1.PublicationsModule,
+            calendar_sync_module_1.CalendarSyncModule,
+            request_types_module_1.RequestTypesModule,
+            request_blueprints_module_1.RequestBlueprintsModule,
+            requests_module_1.RequestsModule,
+            industry_setup_module_1.IndustrySetupModule,
         ],
     })
 ], AppModule);
