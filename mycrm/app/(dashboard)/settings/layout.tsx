@@ -89,7 +89,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       </aside>
 
       {/* Content area — automation page gets full width + height */}
-      {pathname === "/settings/automation" ? (
+      {(pathname === "/settings/automation" || pathname === "/settings/email") ? (
         <div className="flex-1 overflow-hidden flex flex-col">
           {children}
         </div>

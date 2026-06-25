@@ -6,7 +6,7 @@ import {
   Settings, ChevronRight, Database, Workflow, BarChart3,
   Users, Building2, Plus, ChevronLeft, FileBarChart2, X,
   Globe, Palette, LayoutGrid, Home,
-  ChevronDown, ClipboardCheck, Inbox, Settings2, Mail,
+  ChevronDown, ClipboardCheck, Inbox, Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useModulesStore } from "@/store/modules.store";
@@ -25,7 +25,6 @@ const coreNavItems = [
   { href: "/workflows",          label: "Workflows",          icon: Workflow,      permKey: "canWorkflow"  as const },
   { href: "/apps/report-builder",label: "Reports",            icon: FileBarChart2, permKey: null },
   { href: "/tracker",            label: "Tracker",            icon: ClipboardCheck,permKey: null },
-  { href: "/emails",             label: "Emails",             icon: Mail,          permKey: null },
 ];
 
 const adminNavItems = [
