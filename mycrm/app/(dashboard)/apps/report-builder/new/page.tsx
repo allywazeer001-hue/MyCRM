@@ -988,7 +988,18 @@ export default function NewReportPage() {
                       <ResponsiveContainer width="100%" height="100%">
                         {chartType === "pie" ? (
                           <PieChart>
-                            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}
+                              label={({ cx, cy, midAngle, outerRadius, name, percent }: any) => {
+                                const RADIAN = Math.PI / 180;
+                                const radius = outerRadius + 12;
+                                const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                                return (
+                                  <text x={x} y={y} fontSize={9} fill="#64748b" textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
+                                    {`${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                                  </text>
+                                );
+                              }}>
                               {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                             </Pie>
                             <Tooltip />

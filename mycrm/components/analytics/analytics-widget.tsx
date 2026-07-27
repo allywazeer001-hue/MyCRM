@@ -570,7 +570,18 @@ export function AnalyticsWidgetBody({ widget, targets = [], colSpan, rowSpan, co
         <ResponsiveContainer key={cacheKey} width="100%" height={chartH}>
           <PieChart>
             <Pie data={data} cx="50%" cy="50%" outerRadius="70%" dataKey="value"
-              label={({ name, percent }: any) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`} labelLine={false}
+              label={({ cx, cy, midAngle, outerRadius, name, percent }: any) => {
+                const RADIAN = Math.PI / 180;
+                const radius = outerRadius + 12;
+                const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                return (
+                  <text x={x} y={y} fontSize={9} fill="#64748b" textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
+                    {`${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
+                  </text>
+                );
+              }}
+              labelLine={false}
               onClick={(slice: any) => { if (slice?.name) onSegmentClick?.(String(slice.name)); }}
               cursor={onSegmentClick ? "pointer" : undefined}>
               {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}

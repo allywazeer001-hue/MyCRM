@@ -202,6 +202,20 @@ const TIP_STYLE = {
   borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,.08)",
 };
 
+// Pie/doughnut slice label — placed just outside the slice, sized to match
+// the rest of the chart's text (recharts' own default label is much larger).
+function sliceLabel({ cx, cy, midAngle, outerRadius, name, percent }: any) {
+  const RADIAN = Math.PI / 180;
+  const radius = outerRadius + 12;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fontSize={LABEL.fontSize} fill={LABEL.fill} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central">
+      {`${name ?? ""} ${((percent ?? 0) * 100).toFixed(1)}%`}
+    </text>
+  );
+}
+
 // ── Chart renderer ────────────────────────────────────────────────────────────
 
 interface RendererProps {
@@ -303,10 +317,7 @@ function ChartRenderer({ config, result, vSlots }: RendererProps) {
 
   // ── pie ─────────────────────────────────────────────────────────────────────
   if (config.type === "pie") {
-    const pieLabel = config.showDataLabels
-      ? ({ name, percent }: { name?: string; percent?: number }) =>
-          `${name ?? ""} ${((percent ?? 0) * 100).toFixed(1)}%`
-      : undefined;
+    const pieLabel = config.showDataLabels ? sliceLabel : undefined;
     return (
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
@@ -325,10 +336,7 @@ function ChartRenderer({ config, result, vSlots }: RendererProps) {
 
   // ── doughnut ────────────────────────────────────────────────────────────────
   if (config.type === "doughnut") {
-    const donutLabel = config.showDataLabels
-      ? ({ name, percent }: { name?: string; percent?: number }) =>
-          `${name ?? ""} ${((percent ?? 0) * 100).toFixed(1)}%`
-      : undefined;
+    const donutLabel = config.showDataLabels ? sliceLabel : undefined;
     return (
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
