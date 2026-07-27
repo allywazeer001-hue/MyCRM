@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { BlueprintsService } from './blueprints.service';
@@ -80,6 +80,11 @@ export class BlueprintsController {
 
   // ── Pending tasks ──────────────────────────────────────────────────────
 
+  @Get('my-pending-tasks/count')
+  getMyTaskCount(@CurrentUser() user: any) {
+    return this.blueprintsService.getMyBlueprintTaskCount(user.id, user.organizationId);
+  }
+
   @Get('my-pending-tasks')
   getMyTasks(@CurrentUser() user: any) {
     return this.blueprintsService.getMyBlueprintTasks(user.id, user.organizationId);
@@ -88,6 +93,12 @@ export class BlueprintsController {
   @Get('record/:recordId/tasks')
   getRecordTasks(@Param('recordId') recordId: string, @CurrentUser() user: any) {
     return this.blueprintsService.getBlueprintTasksForRecord(recordId, user.organizationId);
+  }
+
+  @Patch('tasks/:id/seen')
+  @HttpCode(HttpStatus.OK)
+  markSeen(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.blueprintsService.markTaskSeen(id, user.id, user.organizationId);
   }
 
   @Post('pending-tasks/:id/action')
@@ -107,6 +118,11 @@ export class BlueprintsController {
 
   // ── CRUD (continued) ──────────────────────────────────────────────────
 
+  @Get('managed-tags/:moduleId')
+  getManagedTags(@Param('moduleId') moduleId: string, @CurrentUser() user: any) {
+    return this.blueprintsService.getManagedTagsForModule(moduleId, user.organizationId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.blueprintsService.findOne(id, user.organizationId);
@@ -120,6 +136,16 @@ export class BlueprintsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     return this.blueprintsService.update(id, user.organizationId, body);
+  }
+
+  @Patch(':id/transitions/:transitionId/link-workflow')
+  linkWorkflow(
+    @Param('id') id: string,
+    @Param('transitionId') transitionId: string,
+    @Body() body: { workflowId: string | null },
+    @CurrentUser() user: any,
+  ) {
+    return this.blueprintsService.linkWorkflowToTransition(id, transitionId, user.organizationId, body.workflowId);
   }
 
   @Delete(':id')

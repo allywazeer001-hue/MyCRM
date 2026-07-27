@@ -2,26 +2,27 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException,
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { GoogleSheetsService } from '../calendar-sync/google-sheets.service';
+import { BlueprintsService } from '../blueprints/blueprints.service';
 import { randomBytes } from 'crypto';
+import Anthropic from '@anthropic-ai/sdk';
 
 @Injectable()
 export class FormsService {
   constructor(
     private prisma: PrismaService,
     private workflows: WorkflowsService,
+    private blueprints: BlueprintsService,
     @Optional() private googleSheets: GoogleSheetsService,
   ) {}
 
   // ── Forms CRUD ──────────────────────────────────────────────────────────────
 
   async findAll(orgId: string, userId: string, userRole: string) {
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
     return this.prisma.form.findMany({
       where: {
         organizationId: orgId,
         isActive: true,
-        // Non-admins only see forms they created (My Forms = user's own)
-        ...(isAdmin ? {} : { createdById: userId }),
+        createdById: userId,
       },
       include: {
         module: { select: { id: true, name: true, slug: true, icon: true } },
@@ -210,18 +211,19 @@ export class FormsService {
     const settings = form.settings as any;
 
     // Availability checks
-    if (settings.isEnabled === false) throw new BadRequestException('FORM_CLOSED');
+    const unavailableMessage = settings.unavailableMessage || '';
+    if (settings.isEnabled === false) throw new BadRequestException({ code: 'FORM_CLOSED', unavailableMessage });
     const now = new Date();
     if (settings.startDate && new Date(settings.startDate) > now) {
-      throw new BadRequestException('FORM_NOT_STARTED');
+      throw new BadRequestException({ code: 'FORM_NOT_STARTED', unavailableMessage });
     }
     if (settings.endDate && new Date(settings.endDate) < now) {
-      throw new BadRequestException('FORM_EXPIRED');
+      throw new BadRequestException({ code: 'FORM_EXPIRED', unavailableMessage });
     }
     if (settings.submissionLimit) {
       const count = await this.prisma.formSubmission.count({ where: { formId: form.id } });
       if (count >= settings.submissionLimit) {
-        throw new BadRequestException('FORM_LIMIT_REACHED');
+        throw new BadRequestException({ code: 'FORM_LIMIT_REACHED', unavailableMessage });
       }
     }
 
@@ -293,26 +295,77 @@ export class FormsService {
             }
           }
 
-          // Fill AUTO_NUMBER fields that were not submitted
-          const allModuleFields = await this.prisma.field.findMany({
-            where: { moduleId: form.moduleId, isActive: true, type: 'AUTO_NUMBER' },
-          });
-          for (const autoField of allModuleFields) {
-            if (!recordData[autoField.name]) {
-              recordData[autoField.name] = await this.generateAutoNumber(autoField, form.moduleId, form.organizationId);
+          // Determine whether this submission should update an existing record
+          // instead of creating a duplicate. Two ways to match, checked in order:
+          //  1. The form auto-filled from a lookup the visitor selected — an
+          //     explicit, user-confirmed match, always honored if present.
+          //  2. An admin-configured "update if found" match field (e.g. email).
+          const postSubmit = settings.postSubmit || {};
+          let existingRecord: { id: string; data: any } | null = null;
+
+          const matchedRecordId: string | undefined = data.__matchedRecordId;
+          if (matchedRecordId) {
+            existingRecord = await this.prisma.record.findFirst({
+              where: { id: matchedRecordId, moduleId: form.moduleId, organizationId: form.organizationId, isDeleted: false },
+              select: { id: true, data: true },
+            });
+          } else if (postSubmit.mode === 'update' && postSubmit.matchField) {
+            const matchValue = recordData[postSubmit.matchField];
+            if (matchValue !== undefined && matchValue !== null && matchValue !== '') {
+              const candidates = await this.prisma.record.findMany({
+                where: { moduleId: form.moduleId, organizationId: form.organizationId, isDeleted: false },
+                select: { id: true, data: true },
+              });
+              existingRecord = candidates.find(
+                r => String((r.data as any)?.[postSubmit.matchField]) === String(matchValue),
+              ) ?? null;
             }
           }
 
-          const newRecord = await this.prisma.record.create({
-            data: {
-              moduleId: form.moduleId,
-              organizationId: form.organizationId,
-              createdById: systemUser.id,
-              data: recordData,
-            },
-          });
-          this.workflows
-            .executeForRecord('RECORD_CREATED', form.moduleId, form.organizationId, newRecord)
+          let recordId: string;
+          if (existingRecord) {
+            const mergedData = { ...(existingRecord.data as any), ...recordData };
+            const updated = await this.prisma.record.update({
+              where: { id: existingRecord.id },
+              data: { data: mergedData, updatedById: systemUser.id },
+            });
+            recordId = updated.id;
+            this.workflows
+              .executeForRecord('RECORD_UPDATED', form.moduleId, form.organizationId, updated, existingRecord.data)
+              .catch(() => {});
+            this.workflows
+              .executeForRecord('FIELD_CHANGED', form.moduleId, form.organizationId, updated, existingRecord.data)
+              .catch(() => {});
+          } else {
+            // Fill AUTO_NUMBER fields that were not submitted
+            const allModuleFields = await this.prisma.field.findMany({
+              where: { moduleId: form.moduleId, isActive: true, type: 'AUTO_NUMBER' },
+            });
+            for (const autoField of allModuleFields) {
+              if (!recordData[autoField.name]) {
+                recordData[autoField.name] = await this.generateAutoNumber(autoField, form.moduleId, form.organizationId);
+              }
+            }
+
+            const newRecord = await this.prisma.record.create({
+              data: {
+                moduleId: form.moduleId,
+                organizationId: form.organizationId,
+                createdById: systemUser.id,
+                data: recordData,
+              },
+            });
+            recordId = newRecord.id;
+            this.workflows
+              .executeForRecord('RECORD_CREATED', form.moduleId, form.organizationId, newRecord)
+              .catch(() => {});
+          }
+
+          this.blueprints
+            .evaluateAutomaticTransitions(
+              recordId, form.organizationId, systemUser.id, 'on_form_submit',
+              [], existingRecord ? (existingRecord.data as any) : undefined,
+            )
             .catch(() => {});
         }
       } catch (err) {
@@ -321,13 +374,25 @@ export class FormsService {
       }
     }
 
+    // Ticketing — generate ticket number if enabled
+    const ticketingSettings = (form.settings as any)?.ticketing;
+    let ticketNumber: string | undefined;
+    if (ticketingSettings?.enabled) {
+      const prefix = (ticketingSettings.prefix || 'TKT').toUpperCase();
+      const count = await this.prisma.formSubmission.count({ where: { formId: form.id } });
+      const start = Number(ticketingSettings.startNumber || 1);
+      const padded = String(start + count).padStart(4, '0');
+      ticketNumber = `${prefix}-${padded}`;
+      await this.prisma.$executeRaw`UPDATE form_submissions SET ticketNumber = ${ticketNumber} WHERE id = ${submission.id}`;
+    }
+
     // Google Sheets sync (fire-and-forget)
     const gsSettings = (form.settings as any)?.googleSheet;
     if (this.googleSheets && gsSettings?.syncEnabled && gsSettings?.spreadsheetId) {
       this.syncToGoogleSheets(form, gsSettings, data, submission.createdAt).catch(() => {});
     }
 
-    return submission;
+    return { ...submission, ticketNumber };
   }
 
   private async syncToGoogleSheets(form: any, gsSettings: any, data: any, submittedAt: Date) {
@@ -361,6 +426,77 @@ export class FormsService {
     );
   }
 
+  async extractDocument(token: string, fileBase64: string, mediaType: string) {
+    const form = await this.prisma.form.findFirst({
+      where: { token, isActive: true },
+      include: {
+        fields: { orderBy: { order: 'asc' } },
+      },
+    });
+    if (!form) throw new NotFoundException('Form not found');
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new BadRequestException('Document extraction is not configured');
+
+    // Resolve module fields WITH options so we can embed them in the prompt
+    const fieldIds = (form.fields as any[]).map(ff => ff.fieldId).filter(Boolean);
+    const moduleFields = fieldIds.length
+      ? await this.prisma.field.findMany({
+          where: { id: { in: fieldIds } },
+          select: { id: true, name: true, label: true, type: true, options: { select: { value: true, label: true } } },
+        })
+      : [];
+    const fieldMap = Object.fromEntries(moduleFields.map(f => [f.id, f]));
+
+    const OPTION_TYPES = new Set(['RADIO', 'SELECT', 'DROPDOWN', 'STATUS', 'MULTI_SELECT']);
+
+    const fieldDescriptions = (form.fields as any[])
+      .map((ff: any) => {
+        const f = fieldMap[ff.fieldId];
+        const label = ff.customLabel || f?.label || f?.name || ff.fieldId;
+        const key = f?.name || ff.fieldId;
+        if (f && OPTION_TYPES.has(f.type) && f.options?.length) {
+          const optList = f.options.map((o: any) => `"${o.value}"`).join(', ');
+          return `- "${key}" (${label}) [MUST be one of: ${optList}]`;
+        }
+        return `- "${key}" (${label})`;
+      })
+      .join('\n');
+
+    const anthropic = new Anthropic({ apiKey });
+
+    const isImage = mediaType.startsWith('image/');
+    const contentBlocks: any[] = [
+      {
+        type: isImage ? 'image' : 'document',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: fileBase64,
+        },
+      },
+      {
+        type: 'text',
+        text: `Extract values for the following form fields from the document above. Return ONLY a JSON object where keys are the field names and values are the extracted text. Rules:\n- If a field value cannot be found, omit it entirely.\n- For fields marked [MUST be one of: ...], return ONLY one of the listed values exactly as written — do not paraphrase.\n- Do not add any explanation, just the JSON.\n\nFields:\n${fieldDescriptions}`,
+      },
+    ];
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: contentBlocks }],
+    });
+
+    const raw = (response.content[0] as any)?.text || '{}';
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    let fieldValues: Record<string, any> = {};
+    if (jsonMatch) {
+      try { fieldValues = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
+    }
+
+    return { fieldValues };
+  }
+
   async getSubmissions(formId: string, orgId: string) {
     const form = await this.prisma.form.findFirst({ where: { id: formId, organizationId: orgId } });
     if (!form) throw new NotFoundException('Form not found');
@@ -378,16 +514,13 @@ export class FormsService {
       include: { _count: { select: { forms: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
     return all.filter(f => {
-      if (isAdmin || f.createdById === userId) return true;
+      if (f.createdById === userId) return true;
       const users: string[] = f.sharedUsers as any;
       const depts: string[] = f.sharedDepts as any;
-      const roles: string[] = f.sharedRoles as any;
       return (
         users.includes(userId) ||
-        (deptId && depts.includes(deptId)) ||
-        roles.includes(userRole)
+        (deptId && depts.includes(deptId))
       );
     });
   }
@@ -440,16 +573,12 @@ export class FormsService {
       },
       orderBy: { updatedAt: 'desc' },
     });
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
-    if (isAdmin) return all;
     return all.filter(f => {
       const su: string[] = (f.sharedUsers as any) || [];
       const sd: string[] = (f.sharedDepts as any) || [];
-      const sr: string[] = (f.sharedRoles as any) || [];
       return (
         su.includes(userId) ||
-        (deptId && sd.includes(deptId)) ||
-        sr.includes(userRole)
+        (deptId && sd.includes(deptId))
       );
     });
   }
@@ -465,16 +594,12 @@ export class FormsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(userRole);
-    if (isAdmin) return all;
     return all.filter(f => {
       const su: string[] = (f.sharedUsers as any) || [];
       const sd: string[] = (f.sharedDepts as any) || [];
-      const sr: string[] = (f.sharedRoles as any) || [];
       return (
         su.includes(userId) ||
-        (deptId && sd.includes(deptId)) ||
-        sr.includes(userRole)
+        (deptId && sd.includes(deptId))
       );
     });
   }

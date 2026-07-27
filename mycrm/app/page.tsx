@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight, Database, Workflow, FileText,
   Globe, BarChart3, FileBarChart2, GitBranch,
-  TrendingUp, Users, Zap, Shield,
+  TrendingUp, Users, Zap, Shield, BookOpen,
+  Settings2, Layers, ShieldCheck, ListChecks, Table2,
 } from "lucide-react";
+import { Footer } from "@/components/marketing/footer";
 
 // ── Landing config (editable via /land-admin) ────────────────────────────────
 
@@ -23,11 +25,13 @@ interface LandingConfig {
   image2Url: string;
   badgeText: string;
   accentColor: string;
+  bgColor: string;
+  socialLinks?: Record<string, string>;
 }
 
 const DEFAULT_CONFIG: LandingConfig = {
-  heroTitle: "Your organization,\none platform.",
-  heroSubtitle: "CRM, workflows, forms, analytics, reports, and more — all connected. Built for organizations that move fast.",
+  heroTitle: "One platform.\nEvery part of your business.",
+  heroSubtitle: "One unified platform to grow your customer base, manage your people, track your finances, and run every operation — built from the gaps real teams actually hit.",
   heroCta1: "Start for free",
   heroCta2: "Sign in to your workspace",
   sectionTitle: "Everything your team needs",
@@ -38,6 +42,8 @@ const DEFAULT_CONFIG: LandingConfig = {
   image2Url: "",
   badgeText: "One platform. Every tool your organization needs.",
   accentColor: "#2563eb",
+  bgColor: "#060d1f",
+  socialLinks: {},
 };
 
 // ── Logo mark ─────────────────────────────────────────────────────────────────
@@ -315,6 +321,9 @@ export default function LandingPage() {
           <span className="font-bold text-lg tracking-tight">Cloudbox</span>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/contact" className="hidden sm:inline-block text-sm text-white/50 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all">
+            Contact us
+          </Link>
           <Link href="/login" className="text-sm text-white/50 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all">
             Sign in
           </Link>
@@ -549,6 +558,179 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── How it Works ── */}
+      <section className="relative z-10 max-w-7xl mx-auto px-6 md:px-14 pb-28">
+        <Reveal className="text-center mb-14">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 mb-5">
+            Simple by design
+          </div>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">How it works</h2>
+          <p className="text-white/35 text-lg max-w-xl mx-auto">
+            From setup to automation in four steps. No developers or IT team required.
+          </p>
+        </Reveal>
+
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5 mb-14">
+          {[
+            {
+              step: "01",
+              icon: Settings2,
+              color: "#3b82f6",
+              bg: "rgba(59,130,246,0.1)",
+              border: "rgba(59,130,246,0.2)",
+              title: "Build your modules",
+              desc: "Create custom data modules for your organization — contacts, projects, cases, or anything your team tracks.",
+            },
+            {
+              step: "02",
+              icon: Layers,
+              color: "#8b5cf6",
+              bg: "rgba(139,92,246,0.1)",
+              border: "rgba(139,92,246,0.2)",
+              title: "Design your forms",
+              desc: "Drag and drop a public form in minutes. Share a link — submissions land directly as records in your module.",
+            },
+            {
+              step: "03",
+              icon: Workflow,
+              color: "#10b981",
+              bg: "rgba(16,185,129,0.1)",
+              border: "rgba(16,185,129,0.2)",
+              title: "Automate the process",
+              desc: "Set triggers to send emails, assign tasks, update fields, or run approvals — automatically on every record change.",
+            },
+            {
+              step: "04",
+              icon: BarChart3,
+              color: "#f59e0b",
+              bg: "rgba(245,158,11,0.1)",
+              border: "rgba(245,158,11,0.2)",
+              title: "Track with analytics",
+              desc: "Build dashboards with KPI cards, charts, and pivot tables. Share views with your team in seconds.",
+            },
+          ].map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <Reveal key={item.step} delay={i * 80}>
+                <div
+                  className="relative rounded-2xl p-6 h-full flex flex-col"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+                >
+                  {/* Step number */}
+                  <div className="text-[11px] font-black tracking-widest mb-4" style={{ color: item.color, opacity: 0.5 }}>
+                    STEP {item.step}
+                  </div>
+                  {/* Icon */}
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center mb-4"
+                    style={{ background: item.bg, border: `1px solid ${item.border}` }}
+                  >
+                    <Icon className="w-5 h-5" style={{ color: item.color }} />
+                  </div>
+                  <h3 className="font-bold text-white text-sm mb-2">{item.title}</h3>
+                  <p className="text-xs text-white/35 leading-relaxed flex-1">{item.desc}</p>
+                  {/* Connector line — hidden on last */}
+                  {i < 3 && (
+                    <div className="hidden lg:block absolute -right-[11px] top-1/2 -translate-y-1/2 z-10">
+                      <div className="w-5 h-px bg-white/10" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-white/15 absolute right-0 top-1/2 -translate-y-1/2" />
+                    </div>
+                  )}
+                </div>
+              </Reveal>
+            );
+          })}
+        </div>
+
+        {/* Docs CTA */}
+        <Reveal delay={320}>
+          <div
+            className="rounded-2xl px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-5"
+            style={{ background: "rgba(59,130,246,0.07)", border: "1px solid rgba(59,130,246,0.18)" }}
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center shrink-0">
+                <BookOpen className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <p className="font-bold text-white text-sm">Want the full picture?</p>
+                <p className="text-xs text-white/40 mt-0.5">
+                  Our interactive manual covers every feature — modules, workflows, OCR, permissions, and the full API.
+                </p>
+              </div>
+            </div>
+            <a
+              href="https://claude.ai/code/artifact/2ef3933b-27cf-4447-9bba-1c9632bce995"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 inline-flex items-center gap-2 font-bold text-sm px-6 py-3 rounded-xl transition-all hover:-translate-y-0.5"
+              style={{
+                background: "rgba(37,99,235,0.9)",
+                boxShadow: "0 0 0 1px rgba(59,130,246,0.4)",
+                color: "#fff",
+              }}
+            >
+              Read the docs <ArrowRight className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </Reveal>
+      </section>
+
+      {/* ── Unique features: built from real gaps ── */}
+      <section className="relative z-10 max-w-7xl mx-auto px-6 md:px-14 pb-28">
+        <Reveal className="text-center mb-14">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 mb-5">
+            Built from real gaps
+          </div>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Features you won&apos;t find bolted on</h2>
+          <p className="text-white/35 text-lg max-w-2xl mx-auto">
+            Every one of these came from a problem we hit running our own operations — not a feature-request backlog.
+          </p>
+        </Reveal>
+
+        <div className="grid md:grid-cols-3 gap-5">
+          {[
+            {
+              icon: ShieldCheck,
+              color: "#10b981",
+              bg: "rgba(16,185,129,0.1)",
+              border: "rgba(16,185,129,0.2)",
+              title: "Self-checking data quality",
+              desc: "The platform continuously scans your records for duplicates and redundancy and flags them for cleanup automatically — no more three copies of the same contact scattered across your CRM.",
+            },
+            {
+              icon: ListChecks,
+              color: "#3b82f6",
+              bg: "rgba(59,130,246,0.1)",
+              border: "rgba(59,130,246,0.2)",
+              title: "Global list packages",
+              desc: "Define a picklist — statuses, departments, categories — once, and reuse it everywhere. Update it in one place and every module that depends on it stays in sync.",
+            },
+            {
+              icon: Table2,
+              color: "#8b5cf6",
+              bg: "rgba(139,92,246,0.1)",
+              border: "rgba(139,92,246,0.2)",
+              title: "Built-in pivoting",
+              desc: "Slice any dataset into a live pivot table — rows, columns, and measures you choose — without exporting to a spreadsheet or waiting on a report request.",
+            },
+          ].map((f, i) => {
+            const Icon = f.icon;
+            return (
+              <Reveal key={f.title} delay={i * 90}>
+                <div className="rounded-2xl p-6 h-full" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: f.bg, border: `1px solid ${f.border}` }}>
+                    <Icon className="w-5 h-5" style={{ color: f.color }} />
+                  </div>
+                  <h3 className="font-bold text-white text-base mb-2">{f.title}</h3>
+                  <p className="text-sm text-white/40 leading-relaxed">{f.desc}</p>
+                </div>
+              </Reveal>
+            );
+          })}
+        </div>
+      </section>
+
       {/* ── CTA band ── */}
       <Reveal className="relative z-10 mx-6 md:mx-14 mb-20">
         <div
@@ -573,22 +755,7 @@ export default function LandingPage() {
       </Reveal>
 
       {/* ── Footer ── */}
-      <footer className="relative z-10 border-t border-white/[0.05] px-6 md:px-14 py-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-white/20">
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 bg-blue-600/70 rounded-lg flex items-center justify-center">
-            <LogoMark size={11} className="text-white" />
-          </div>
-          <span className="font-semibold">Cloudbox</span>
-          <span className="text-white/10">·</span>
-          <span>Enterprise Platform</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span>© 2026 Cloudbox. All rights reserved.</span>
-          <a href="/land-admin" className="text-white/15 hover:text-white/40 transition-colors text-xs">
-            Platform Admin
-          </a>
-        </div>
-      </footer>
+      <Footer />
 
       {/* ── Keyframes ── */}
       <style>{`

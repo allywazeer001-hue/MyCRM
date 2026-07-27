@@ -1,16 +1,16 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, createContext, useContext } from "react";
 import { useParams, usePathname } from "next/navigation";
 import {
-  ArrowLeft, Plus, GripVertical, X, Save, Loader2,
-  Settings, Layers, Trash2, Lock as LockIcon,
+  ArrowLeft, Plus, Minus, GripVertical, X, Save, Loader2,
+  Settings, Layers, Trash2, Share2 as Share2Icon,
   Calendar, MessageSquare, Image as ImageIcon, CheckCircle2,
   Zap, ArrowRight, ChevronRight, ExternalLink,
   ChevronDown, Link2, FileText, Type, Hash, AtSign,
   Phone, CalendarDays, ToggleLeft, List, CheckSquare, AlignLeft, Upload, PenLine,
   Maximize2, Columns2, Palette, AlignCenter, AlignLeft as AlignLeftIcon, AlignRight,
   Copy, Eye, Layers as LayersIcon, LayoutTemplate,
-  FileSpreadsheet, RefreshCw,
+  FileSpreadsheet, RefreshCw, ScanSearch, Ticket,
 } from "lucide-react";
 import {
   DndContext, DragEndEvent, DragStartEvent, DragOverEvent, DragOverlay,
@@ -44,6 +44,12 @@ function builderCollision(args: Parameters<typeof closestCenter>[0]) {
   return closestCenter(args);
 }
 import { CSS } from "@dnd-kit/utilities";
+
+// Shared drag context — lets SortableFormFieldItem read activeId/overFieldId
+// without prop-drilling through PageBlock → Section → grid
+const BuilderDragCtx = createContext<{ activeId: string | null; overFieldId: string | null; overTarget: string | null }>({
+  activeId: null, overFieldId: null, overTarget: null,
+});
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +62,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { FormSharePanel } from "@/components/forms/share-panel";
+import { DesktopOnlyGate } from "@/components/ui/desktop-only-notice";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -199,7 +207,8 @@ function SortableFormFieldItem({ ff, moduleField, isSelected, onSelect, onRemove
   colSpan?: "full" | "half"; onToggleWidth?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ff.id });
-  const style = { transform: CSS.Transform.toString(transform), transition };
+  const { activeId: dragActiveId, overFieldId: dragOverFieldId } = useContext(BuilderDragCtx);
+  const style = { transform: CSS.Transform.toString(transform), transition, touchAction: 'none' as const };
   const logic = parseLogic(ff);
   const ruleCount = logic.rules?.length || 0;
   const displayLabel = ff.customLabel || moduleField?.label || ff.fieldId;
@@ -207,48 +216,64 @@ function SortableFormFieldItem({ ff, moduleField, isSelected, onSelect, onRemove
   const isHalf = colSpan === "half";
   const typeLabel = CUSTOM_FIELD_TYPES.find(t => t.type === fieldType)?.label || fieldType || "Field";
 
+  // Show drop-indicator line above this card when something is being dragged over it
+  const isDropTarget = !!(dragActiveId && dragActiveId !== ff.id && dragOverFieldId === ff.id);
+
   return (
     <div
       ref={setNodeRef} style={style}
+      {...attributes} {...listeners}
       className={cn(
-        "rounded-xl border-2 bg-white transition-all cursor-pointer group relative overflow-hidden",
-        isDragging ? "opacity-30 scale-[0.98] shadow-xl z-50" : "shadow-sm hover:shadow-md",
-        isSelected ? "border-indigo-400" : "border-slate-200 hover:border-slate-300",
+        "rounded-xl border-2 bg-white transition-all relative overflow-hidden group select-none",
+        isDragging ? "opacity-0" : "shadow-sm hover:shadow-md",
+        isSelected
+          ? "border-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,0.1)]"
+          : "border-slate-200 hover:border-indigo-200",
+        isDragging ? "cursor-grabbing" : "cursor-grab",
       )}
       onClick={onSelect}
     >
+      {/* Drop indicator — glowing line above card when something drags over it */}
+      {isDropTarget && (
+        <div className="absolute top-0 left-2 right-2 h-0.5 bg-indigo-500 z-20 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.7)]" />
+      )}
+
       {/* Left accent bar */}
-      <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl transition-all", isSelected ? "bg-indigo-500" : "bg-transparent")} />
+      <div className={cn(
+        "absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl transition-colors",
+        isSelected ? "bg-indigo-500" : "group-hover:bg-indigo-200 bg-transparent"
+      )} />
+
+      {/* Grip dots — visual affordance only (no separate drag handler needed) */}
+      <div className={cn(
+        "absolute top-3 right-3 transition-opacity pointer-events-none",
+        isSelected ? "opacity-40" : "opacity-0 group-hover:opacity-30"
+      )}>
+        <GripVertical className="w-3.5 h-3.5 text-slate-500" />
+      </div>
 
       {/* Question row */}
-      <div className="pl-5 pr-3 pt-4 pb-2 flex items-start gap-2">
-        <button
-          {...attributes} {...listeners}
-          className="mt-0.5 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing shrink-0 touch-none opacity-25 group-hover:opacity-100 transition-opacity"
-          onClick={e => e.stopPropagation()}
-          title="Drag to reorder or move to another section"
-        >
-          <GripVertical className="w-4 h-4" />
-        </button>
+      <div className="pl-5 pr-10 pt-4 pb-2 flex items-start gap-2">
         <div className="flex-1 min-w-0">
           {onLabelChange ? (
             <input
               value={displayLabel}
               onChange={e => { e.stopPropagation(); onLabelChange(e.target.value); }}
-              onClick={e => e.stopPropagation()}
-              className="text-sm font-semibold text-slate-900 bg-transparent border-0 outline-none w-full placeholder:text-slate-400 leading-snug"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); onSelect(); }}
+              className="text-sm font-semibold text-slate-900 bg-transparent border-0 outline-none w-full placeholder:text-slate-400 leading-snug cursor-text"
               placeholder="Question…"
             />
           ) : (
-            <p className="text-sm font-semibold text-slate-900 leading-snug">{displayLabel}</p>
+            <p className="text-sm font-semibold text-slate-900 leading-snug truncate" title={displayLabel}>{displayLabel}</p>
           )}
           {ff.isRequired && <span className="text-red-500 text-xs"> *</span>}
         </div>
-        <span className="shrink-0 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{typeLabel}</span>
+        <span className="shrink-0 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium whitespace-nowrap mr-6">{typeLabel}</span>
       </div>
 
       {/* Field preview */}
-      <div className="pl-11 pr-4 pb-3">
+      <div className="pl-5 pr-4 pb-3">
         <FieldTypePreview type={fieldType} options={moduleField?.options} />
       </div>
 
@@ -258,7 +283,7 @@ function SortableFormFieldItem({ ff, moduleField, isSelected, onSelect, onRemove
         isSelected ? "bg-indigo-50/50" : "bg-slate-50/50"
       )}>
         <div className="flex items-center gap-1.5 flex-wrap">
-          {isHalf && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 rounded font-mono">½</span>}
+          {isHalf && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 rounded font-mono">½ width</span>}
           {ff.isHidden && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 rounded">Hidden</span>}
           {ff.isReadonly && <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 rounded">Read only</span>}
           {ff.isRequired && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 rounded">Required</span>}
@@ -272,20 +297,41 @@ function SortableFormFieldItem({ ff, moduleField, isSelected, onSelect, onRemove
           {onToggleWidth && (
             <button
               title={isHalf ? "Expand to full width" : "Make half width"}
+              onPointerDown={e => e.stopPropagation()}
               onClick={e => { e.stopPropagation(); onToggleWidth(); }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors cursor-pointer"
             >
               {isHalf ? <Maximize2 className="w-3.5 h-3.5" /> : <Columns2 className="w-3.5 h-3.5" />}
             </button>
           )}
           <button
+            onPointerDown={e => e.stopPropagation()}
             onClick={e => { e.stopPropagation(); onRemove(); }}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* Right-edge resize handle — visible on hover and when selected */}
+      {onToggleWidth && (
+        <div
+          className={cn(
+            "absolute right-0 top-4 bottom-4 w-3 flex items-center justify-center transition-opacity",
+            isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-60",
+            isDragging && "opacity-0"
+          )}
+          title={isHalf ? "Expand to full width" : "Resize to half width"}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onToggleWidth(); }}
+          style={{ cursor: "col-resize" }}
+        >
+          <div className="flex flex-col gap-[3px]">
+            <div className="w-[3px] h-4 bg-slate-300 rounded-full hover:bg-indigo-400 transition-colors" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -330,7 +376,7 @@ function FieldRulesEditor({ ff, formFields, allModuleFields, onUpdate }: {
           </div>
           <div className="space-y-1.5">
             <p className="text-[10px] text-blue-600 font-semibold uppercase">IF</p>
-            <Select value={rule.fieldKey} onValueChange={v => upd(idx, { fieldKey: v })}><SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select field…" /></SelectTrigger><SelectContent>{otherFields.map(({ ff: f, mf }) => <SelectItem key={mf.name} value={mf.name} className="text-xs">{f.customLabel || mf.label}</SelectItem>)}</SelectContent></Select>
+            <Select value={rule.fieldKey} onValueChange={v => upd(idx, { fieldKey: v })}><SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select field…" /></SelectTrigger><SelectContent>{otherFields.map(({ ff: f, mf }) => <SelectItem key={mf.id ?? mf.name} value={mf.name} className="text-xs">{f.customLabel || mf.label}</SelectItem>)}</SelectContent></Select>
             <Select value={rule.operator} onValueChange={v => upd(idx, { operator: v as RuleOperator })}><SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger><SelectContent>{(Object.keys(OP_LABELS) as RuleOperator[]).map(op => <SelectItem key={op} value={op} className="text-xs">{OP_LABELS[op]}</SelectItem>)}</SelectContent></Select>
             {needsValue(rule.operator) && <Input value={rule.value} onChange={e => upd(idx, { value: e.target.value })} placeholder="Value…" className="h-7 text-xs" />}
           </div>
@@ -364,7 +410,7 @@ function LookupAutoFillEditor({ ff, formFields, allModuleFields, onUpdate }: {
             <div className="flex-1 space-y-0.5"><p className="text-[10px] text-gray-400">CRM field name</p><Input value={entry.sourceField} onChange={e => save(autoFill.map((x, i) => i === idx ? { ...x, sourceField: e.target.value } : x))} placeholder="e.g. email" className="h-7 text-xs" /></div>
             <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-4" />
             <div className="flex-1 space-y-0.5"><p className="text-[10px] text-gray-400">Fill into</p>
-              <Select value={entry.targetFieldKey || "_none"} onValueChange={v => save(autoFill.map((x, i) => i === idx ? { ...x, targetFieldKey: v === "_none" ? "" : v } : x))}><SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Target…" /></SelectTrigger><SelectContent><SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>{otherFields.map(({ ff: f, mf }) => <SelectItem key={mf.name} value={mf.name} className="text-xs">{f.customLabel || mf.label}</SelectItem>)}</SelectContent></Select>
+              <Select value={entry.targetFieldKey || "_none"} onValueChange={v => save(autoFill.map((x, i) => i === idx ? { ...x, targetFieldKey: v === "_none" ? "" : v } : x))}><SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Target…" /></SelectTrigger><SelectContent><SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>{otherFields.map(({ ff: f, mf }) => <SelectItem key={mf.id ?? mf.name} value={mf.name} className="text-xs">{f.customLabel || mf.label}</SelectItem>)}</SelectContent></Select>
             </div>
             <button onClick={() => save(autoFill.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-500 mt-4 shrink-0"><X className="w-3.5 h-3.5" /></button>
           </div>
@@ -428,9 +474,9 @@ function FormRuleEngine({ formFields, allModuleFields, sections, settings, onSet
         <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">Form Rules</h2><p className="text-xs text-gray-400 mt-0.5">Fire instantly as users fill the form.</p></div><Button size="sm" onClick={handleAddRule} className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add Rule</Button></div>
         {rules.length === 0 ? <div className="border-2 border-dashed border-gray-200 rounded-xl p-12 text-center"><Zap className="w-10 h-10 text-gray-300 mx-auto mb-3" /><p className="text-sm font-medium text-gray-500">No rules yet</p><Button size="sm" variant="outline" onClick={handleAddRule} className="mt-4 gap-1.5"><Plus className="w-3.5 h-3.5" /> Create First Rule</Button></div>
         : <div className="space-y-2">{rules.map(rule => (
-          <div key={rule.id} className="flex items-center justify-between p-3.5 bg-white border rounded-xl shadow-sm">
-            <div className="flex items-center gap-3"><Switch checked={rule.enabled} onCheckedChange={v => updRule(rule.id, { enabled: v })} /><div><p className="text-sm font-medium">{rule.name}</p><p className="text-xs text-gray-400">{rule.conditions.length} cond · {rule.actions.length} action</p></div></div>
-            <div className="flex items-center gap-1.5"><Button size="sm" variant="ghost" onClick={() => setEditingRuleId(rule.id)} className="h-8 text-xs">Edit</Button><button onClick={() => delRule(rule.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 className="w-3.5 h-3.5" /></button></div>
+          <div key={rule.id} className="flex items-center justify-between gap-3 p-3.5 bg-white border rounded-xl shadow-sm">
+            <div className="flex items-center gap-3 min-w-0 flex-1"><Switch checked={rule.enabled} onCheckedChange={v => updRule(rule.id, { enabled: v })} className="shrink-0" /><div className="min-w-0"><p className="text-sm font-medium truncate" title={rule.name}>{rule.name}</p><p className="text-xs text-gray-400">{rule.conditions.length} cond · {rule.actions.length} action</p></div></div>
+            <div className="flex items-center gap-1.5 shrink-0"><Button size="sm" variant="ghost" onClick={() => setEditingRuleId(rule.id)} className="h-8 text-xs">Edit</Button><button onClick={() => delRule(rule.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 className="w-3.5 h-3.5" /></button></div>
           </div>
         ))}</div>}
       </div>
@@ -489,14 +535,30 @@ function FormRuleEngine({ formFields, allModuleFields, sections, settings, onSet
 
 // ── Form Settings Panel ────────────────────────────────────────────────────────
 
-type SettingsSection = "design" | "schedule" | "style" | "submit" | "integrations";
+type SettingsSection = "design" | "schedule" | "style" | "submit" | "integrations" | "documents" | "ticketing";
 
-function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }: {
+const FORM_THEMES = [
+  { id: "indigo",   name: "Indigo",   headerBg: "#4338ca", gradTo: "#6366f1", bgType: "gradient", textColor: "#ffffff", bodyColor: "#1f2937", pageBg: "#f8fafc", accent: "#4f46e5" },
+  { id: "ocean",    name: "Ocean",    headerBg: "#0369a1", gradTo: "#0ea5e9", bgType: "gradient", textColor: "#ffffff", bodyColor: "#0f172a", pageBg: "#f0f9ff", accent: "#0284c7" },
+  { id: "forest",   name: "Forest",   headerBg: "#166534", gradTo: "#22c55e", bgType: "gradient", textColor: "#ffffff", bodyColor: "#1c1917", pageBg: "#f0fdf4", accent: "#16a34a" },
+  { id: "sunset",   name: "Sunset",   headerBg: "#be185d", gradTo: "#f43f5e", bgType: "gradient", textColor: "#ffffff", bodyColor: "#1c1917", pageBg: "#fff1f2", accent: "#e11d48" },
+  { id: "midnight", name: "Midnight", headerBg: "#0f172a", gradTo: "#312e81", bgType: "gradient", textColor: "#e2e8f0", bodyColor: "#0f172a", pageBg: "#f8fafc", accent: "#7c3aed" },
+  { id: "minimal",  name: "Minimal",  headerBg: "#f1f5f9", gradTo: "#e2e8f0", bgType: "solid",    textColor: "#1e293b", bodyColor: "#374151", pageBg: "#ffffff",  accent: "#2563eb" },
+] as const;
+
+function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving, allModuleFields }: {
   form: any; settings: any; onSettingsChange: (u: any) => void; onSave: () => void; saving: boolean;
+  allModuleFields: any[];
 }) {
   const [section, setSection] = useState<SettingsSection>("design");
   const set = (k: string, v: any) => onSettingsChange({ [k]: v });
   const setN = (root: string, k: string, v: any) => onSettingsChange({ [root]: { ...(settings[root] || {}), [k]: v } });
+  const applyTheme = (t: typeof FORM_THEMES[number]) => {
+    onSettingsChange({
+      style:  { ...(settings.style  || {}), bodyColor: t.bodyColor, pageBg: t.pageBg, accentColor: t.accent },
+      header: { ...(settings.header || {}), bgColor: t.headerBg, bgGradientTo: t.gradTo, bgType: t.bgType, textColor: t.textColor },
+    });
+  };
   const hdr = settings.header || {};
   const ps  = settings.postSubmit || {};
   const sty = settings.style || {};
@@ -606,6 +668,8 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
     { key: "schedule", label: "Availability", desc: "Schedule & limits",        icon: Calendar,     accent: "text-blue-700",   bg: "bg-blue-50",    border: "border-blue-200"   },
     { key: "submit",       label: "Submission",    desc: "After submit behavior",    icon: CheckCircle2,    accent: "text-green-700",  bg: "bg-green-50",    border: "border-green-200"  },
     { key: "integrations", label: "Integrations",  desc: "Google Sheets & more",     icon: FileSpreadsheet, accent: "text-teal-700",   bg: "bg-teal-50",     border: "border-teal-200"   },
+    { key: "documents",    label: "OCR Upload",         desc: "Auto-fill from document",      icon: ScanSearch,  accent: "text-sky-700",    bg: "bg-sky-50",      border: "border-sky-200"    },
+    { key: "ticketing",    label: "Submission Receipt", desc: "Printable receipt on submit",  icon: Ticket,      accent: "text-amber-700",  bg: "bg-amber-50",    border: "border-amber-200"  },
   ];
 
   const activeTab = tabs.find(t => t.key === section)!;
@@ -845,6 +909,38 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
                   <h2 className="text-base font-bold text-slate-800">Style</h2>
                   <p className="text-xs text-slate-500 mt-0.5">Typography, field styles, colors and layout</p>
                 </div>
+
+                {/* Theme Presets */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Theme Presets</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Pick a preset to apply a complete visual style. Fine-tune below.</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {FORM_THEMES.map(theme => (
+                      <button
+                        key={theme.id}
+                        onClick={() => applyTheme(theme)}
+                        title={`Apply ${theme.name} theme`}
+                        className="rounded-xl border border-slate-200 overflow-hidden text-left transition-all hover:shadow-md hover:border-slate-300 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                      >
+                        <div className="h-9" style={{
+                          background: theme.bgType === "gradient"
+                            ? `linear-gradient(135deg, ${theme.headerBg}, ${theme.gradTo})`
+                            : theme.headerBg,
+                        }} />
+                        <div className="px-2.5 py-2" style={{ background: theme.pageBg }}>
+                          <p className="text-[11px] font-semibold truncate" style={{ color: theme.bodyColor }}>{theme.name}</p>
+                          <div className="mt-1.5 flex gap-1 items-center">
+                            <div className="h-1.5 w-7 rounded-full" style={{ background: theme.accent }} />
+                            <div className="h-1.5 w-3 rounded-full opacity-15" style={{ background: theme.bodyColor }} />
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
@@ -959,6 +1055,19 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
                     </div>
                     <Switch checked={settings.isEnabled !== false} onCheckedChange={v => set("isEnabled", v)} />
                   </div>
+                  {settings.isEnabled === false && (
+                    <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                      <Label className="text-xs font-medium">Message shown when form is closed</Label>
+                      <Textarea
+                        value={settings.unavailableMessage || ""}
+                        onChange={e => set("unavailableMessage", e.target.value)}
+                        placeholder="This form is currently closed and not accepting responses."
+                        className="text-sm resize-none"
+                        rows={3}
+                      />
+                      <p className="text-[11px] text-slate-400">Visitors will see this message instead of the form</p>
+                    </div>
+                  )}
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Schedule</p>
@@ -982,6 +1091,17 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
                       onChange={e => set("submissionLimit", e.target.value ? parseInt(e.target.value) : null)}
                       placeholder="Unlimited" className="w-48 h-9 text-sm" />
                     <p className="text-[11px] text-slate-400">Leave blank to allow unlimited responses</p>
+                  </div>
+                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                    <Label className="text-xs font-medium">Message when outside schedule / limit reached</Label>
+                    <Textarea
+                      value={settings.unavailableMessage || ""}
+                      onChange={e => set("unavailableMessage", e.target.value)}
+                      placeholder="This form is currently closed and not accepting responses."
+                      className="text-sm resize-none"
+                      rows={3}
+                    />
+                    <p className="text-[11px] text-slate-400">Shown when the form is past its open window or submission limit</p>
                   </div>
                 </div>
               </div>
@@ -1017,6 +1137,33 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
                     <Switch checked={ps.createRecord !== false} onCheckedChange={v => setN("postSubmit", "createRecord", v)} />
                   </div>
                 </div>
+                {ps.createRecord !== false && (
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Update existing record if found</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Avoid duplicates — update a matching record instead of creating a new one</p>
+                      </div>
+                      <Switch checked={ps.mode === "update"} onCheckedChange={v => setN("postSubmit", "mode", v ? "update" : "create")} />
+                    </div>
+                    {ps.mode === "update" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Match by field</Label>
+                        <Select value={ps.matchField || ""} onValueChange={v => setN("postSubmit", "matchField", v)}>
+                          <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select a field…" /></SelectTrigger>
+                          <SelectContent>
+                            {allModuleFields.map((f: any) => (
+                              <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-slate-400">
+                          If a submission's value for this field matches an existing record, that record is updated instead of a new one being created.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1243,6 +1390,176 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving }:
               </div>
             )}
 
+            {/* ── DOCUMENTS (Document Intelligence) ── */}
+            {section === "documents" && (() => {
+              const di = settings.documentIntelligence || {};
+              const setDI = (k: string, v: any) => onSettingsChange({ documentIntelligence: { ...di, [k]: v } });
+              return (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-800">Document Intelligence</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Let respondents upload a document instead of filling the form manually. AI will extract field values automatically.</p>
+                  </div>
+
+                  {/* Enable toggle */}
+                  <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+                    <div className="flex items-center justify-between px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-sky-50 flex items-center justify-center shrink-0">
+                          <ScanSearch className="w-5 h-5 text-sky-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Enable Document Upload</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Show "Fill Manually / Upload Document" choice on the form</p>
+                        </div>
+                      </div>
+                      <Switch checked={!!di.enabled} onCheckedChange={v => setDI("enabled", v)} />
+                    </div>
+
+                    {di.enabled && (
+                      <div className="px-4 py-5 space-y-5">
+                        {/* Accepted file types */}
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium">Accepted File Types</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {["pdf", "jpg", "png", "jpeg", "webp"].map(ext => (
+                              <button
+                                key={ext}
+                                onClick={() => {
+                                  const current: string[] = di.acceptedTypes || ["pdf", "jpg", "png"];
+                                  const next = current.includes(ext) ? current.filter(e => e !== ext) : [...current, ext];
+                                  setDI("acceptedTypes", next);
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
+                                  (di.acceptedTypes || ["pdf", "jpg", "png"]).includes(ext)
+                                    ? "bg-sky-50 border-sky-300 text-sky-700"
+                                    : "bg-slate-50 border-slate-200 text-slate-500"
+                                )}
+                              >
+                                .{ext}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Max file size */}
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium">Max File Size (MB)</Label>
+                          <Input
+                            type="number"
+                            min={1} max={20}
+                            value={di.maxSizeMb || 10}
+                            onChange={e => setDI("maxSizeMb", Number(e.target.value))}
+                            className="h-9 text-sm w-28"
+                          />
+                        </div>
+
+                        {/* Auto-populate */}
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">Auto-populate Fields</p>
+                            <p className="text-xs text-slate-400">Automatically fill form fields from the extracted data</p>
+                          </div>
+                          <Switch checked={di.autoPopulate !== false} onCheckedChange={v => setDI("autoPopulate", v)} />
+                        </div>
+
+                        {/* User review */}
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">Require Review Before Submit</p>
+                            <p className="text-xs text-slate-400">Let users review and correct extracted values</p>
+                          </div>
+                          <Switch checked={di.userReview !== false} onCheckedChange={v => setDI("userReview", v)} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!di.enabled && (
+                    <div className="rounded-xl bg-sky-50 border border-sky-100 px-4 py-4 text-xs text-sky-700">
+                      Enable this feature to let respondents upload a PDF or image. Claude AI will scan the document and automatically fill the form fields.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── TICKETING ── */}
+            {section === "ticketing" && (() => {
+              const tk = settings.ticketing || {};
+              const setTK = (k: string, v: any) => onSettingsChange({ ticketing: { ...tk, [k]: v } });
+              return (
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-800">Submission Receipt</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">After submission, replace the simple success message with a printable receipt showing submitted details.</p>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+                    <div className="flex items-center justify-between px-4 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                          <Ticket className="w-5 h-5 text-amber-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Enable Submission Receipt</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Show a printable receipt page after each submission</p>
+                        </div>
+                      </div>
+                      <Switch checked={!!tk.enabled} onCheckedChange={v => setTK("enabled", v)} />
+                    </div>
+
+                    {tk.enabled && (
+                      <div className="px-4 py-5 space-y-5">
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Prefix */}
+                          <div className="space-y-2">
+                            <Label className="text-xs font-medium">Application ID Prefix</Label>
+                            <Input
+                              value={tk.prefix || "APP"}
+                              onChange={e => setTK("prefix", e.target.value.toUpperCase())}
+                              maxLength={6}
+                              className="h-9 text-sm font-mono"
+                              placeholder="APP"
+                            />
+                            <p className="text-[11px] text-slate-400">e.g. APP, REF, SUB</p>
+                          </div>
+                          {/* Start number */}
+                          <div className="space-y-2">
+                            <Label className="text-xs font-medium">Start Number</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={tk.startNumber || 1}
+                              onChange={e => setTK("startNumber", Number(e.target.value))}
+                              className="h-9 text-sm"
+                            />
+                            <p className="text-[11px] text-slate-400">First application number</p>
+                          </div>
+                        </div>
+
+                        {/* Preview */}
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-600 mb-1">Application ID Preview</p>
+                          <p className="font-mono text-sm text-amber-800">
+                            {(tk.prefix || "APP").toUpperCase()}-{String(tk.startNumber || 1).padStart(4, "0")}
+                          </p>
+                          <p className="text-[11px] text-amber-600 mt-1">First submission will have this ID</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!tk.enabled && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-4 text-xs text-amber-700">
+                      Enable Submission Receipt to show a printable confirmation page after submission. Includes Application ID, submission date/time, status, and all submitted field values.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
           </div>
         </ScrollArea>
       </div>
@@ -1263,7 +1580,7 @@ function PaletteItem({ type, label, icon: Icon, color, onAdd, dark }: { type: st
       {...attributes}
       {...listeners}
       onClick={() => onAdd(type)}
-      style={{ opacity: isDragging ? 0.4 : 1 }}
+      style={{ opacity: isDragging ? 0.4 : 1, touchAction: 'none' }}
       className={cn(
         "flex flex-col items-center gap-1.5 py-3 px-1 rounded-xl transition-all duration-150 group text-center cursor-grab active:cursor-grabbing select-none",
         dark ? "hover:bg-white/10" : "hover:bg-indigo-50/80"
@@ -1289,6 +1606,59 @@ function CustomFieldPalette({ onAdd, dark = false }: { onAdd: (type: string) => 
   );
 }
 
+// ── Insertion Indicator ───────────────────────────────────────────────────────
+// Sits in the paddingTop space of the target field wrapper (position:absolute).
+// The wrapper's paddingTop animates 0→72px, creating room for this element.
+
+function InsertionIndicator({ activeId }: { activeId: string | null }) {
+  let label = "Drop here";
+  if (activeId?.startsWith("palette:")) {
+    const ft = CUSTOM_FIELD_TYPES.find(f => f.type === activeId.slice(8));
+    if (ft) label = `Add ${ft.label} here`;
+  } else if (activeId?.startsWith("sidebar:")) {
+    label = "Add field here";
+  }
+  return (
+    <div
+      className="absolute inset-x-0 top-2 h-14 rounded-xl border-2 border-dashed border-indigo-500 bg-indigo-50/80 flex items-center justify-center gap-2 text-indigo-600 text-sm font-medium select-none pointer-events-none"
+      style={{ zIndex: 10 }}
+    >
+      <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+        <Plus className="w-3 h-3" />
+      </div>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+// End-of-list drop indicator — sits below the grid, animates height 0↔72px.
+function EndOfListIndicator({ activeId, open }: { activeId: string | null; open: boolean }) {
+  let label = "Drop here";
+  if (activeId?.startsWith("palette:")) {
+    const ft = CUSTOM_FIELD_TYPES.find(f => f.type === activeId.slice(8));
+    if (ft) label = `Add ${ft.label} here`;
+  } else if (activeId?.startsWith("sidebar:")) {
+    label = "Add field here";
+  }
+  return (
+    <div
+      className="overflow-hidden"
+      style={{
+        height: open ? 72 : 0,
+        transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
+        pointerEvents: "none",
+      }}
+    >
+      <div className="mt-2 h-14 rounded-xl border-2 border-dashed border-indigo-500 bg-indigo-50/80 flex items-center justify-center gap-2 text-indigo-600 text-sm font-medium select-none">
+        <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+          <Plus className="w-3 h-3" />
+        </div>
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Unsectioned Fields Area (always on Page 1) ────────────────────────────────
 
 function UnsectionedArea({ fields, allCanvasModuleField, selectedFF, onFieldSelect, onFieldRemove, onLabelChange, isOver, isCustom, getColSpan, onToggleWidth }: {
@@ -1300,6 +1670,10 @@ function UnsectionedArea({ fields, allCanvasModuleField, selectedFF, onFieldSele
   onToggleWidth: (fieldId: string) => void;
 }) {
   const { setNodeRef: dropRef } = useDroppable({ id: "unsec", data: { type: "unsec-zone" } });
+  const { activeId: dragActiveId, overFieldId: dragOverFieldId, overTarget: dragOverTarget } = useContext(BuilderDragCtx);
+  const isPaletteSidebarDrag = !!(dragActiveId?.startsWith("palette:") || dragActiveId?.startsWith("sidebar:"));
+  const ownFieldIds = new Set(fields.map(f => f.id));
+  const placeholderBeforeId = (isPaletteSidebarDrag && dragOverFieldId && ownFieldIds.has(dragOverFieldId)) ? dragOverFieldId : null;
 
   if (fields.length === 0 && !isOver) {
     return (
@@ -1325,7 +1699,7 @@ function UnsectionedArea({ fields, allCanvasModuleField, selectedFF, onFieldSele
       "rounded-xl border-2 transition-all",
       isOver ? "border-indigo-400 bg-indigo-50/20 shadow-[0_0_0_3px_rgba(99,102,241,0.08)]" : "border-transparent"
     )}>
-      <div ref={dropRef} className="space-y-2">
+      <div ref={dropRef} className="space-y-2" data-zone-id="unsec">
         <SortableContext items={fields.map(f => f.id)} strategy={rectSortingStrategy}>
           {fields.length === 0 ? (
             <div className={cn("min-h-[64px] flex items-center justify-center rounded-xl border-2 border-dashed text-xs transition-colors",
@@ -1333,26 +1707,42 @@ function UnsectionedArea({ fields, allCanvasModuleField, selectedFF, onFieldSele
               {isOver ? "↓ Drop here" : "Drop fields here"}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {fields.map(ff => {
-                const span = getColSpan(ff.fieldId);
-                return (
-                  <div key={ff.id} className={span === "half" ? "col-span-1" : "col-span-2"}>
-                    <SortableFormFieldItem
-                      ff={ff}
-                      moduleField={allCanvasModuleField(ff.fieldId)}
-                      isSelected={selectedFF?.id === ff.id}
-                      onSelect={() => onFieldSelect(ff)}
-                      onRemove={() => onFieldRemove(ff)}
-                      onLabelChange={onLabelChange ? (l) => onLabelChange(ff.id, l) : undefined}
-                      isCustom={isCustom}
-                      colSpan={span}
-                      onToggleWidth={() => onToggleWidth(ff.fieldId)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {fields.map(ff => {
+                  const span = getColSpan(ff.fieldId);
+                  const isTarget = isPaletteSidebarDrag && placeholderBeforeId === ff.id;
+                  return (
+                    <div
+                      key={ff.id}
+                      className={cn(span === "half" ? "col-span-1" : "col-span-2", "relative")}
+                      data-field-id={ff.id}
+                      style={{
+                        paddingTop: isTarget ? 72 : 0,
+                        transition: "padding-top 0.18s cubic-bezier(0.4,0,0.2,1)",
+                      }}
+                    >
+                      {isTarget && <InsertionIndicator activeId={dragActiveId} />}
+                      <SortableFormFieldItem
+                        ff={ff}
+                        moduleField={allCanvasModuleField(ff.fieldId)}
+                        isSelected={selectedFF?.id === ff.id}
+                        onSelect={() => onFieldSelect(ff)}
+                        onRemove={() => onFieldRemove(ff)}
+                        onLabelChange={onLabelChange ? (l) => onLabelChange(ff.id, l) : undefined}
+                        isCustom={isCustom}
+                        colSpan={span}
+                        onToggleWidth={() => onToggleWidth(ff.fieldId)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <EndOfListIndicator
+                activeId={dragActiveId}
+                open={isPaletteSidebarDrag && !placeholderBeforeId}
+              />
+            </>
           )}
         </SortableContext>
       </div>
@@ -1383,6 +1773,10 @@ function SectionCard({
     id: `sec:${section.id}`,
     data: { type: "section", sectionId: section.id },
   });
+  const { activeId: dragActiveId, overFieldId: dragOverFieldId, overTarget: dragOverTarget } = useContext(BuilderDragCtx);
+  const isPaletteSidebarDrag = !!(dragActiveId?.startsWith("palette:") || dragActiveId?.startsWith("sidebar:"));
+  const ownFieldIds = new Set(fields.map(f => f.id));
+  const placeholderBeforeId = (isPaletteSidebarDrag && dragOverFieldId && ownFieldIds.has(dragOverFieldId)) ? dragOverFieldId : null;
 
   return (
     <div className={cn("transition-all duration-150", isOver ? "ring-2 ring-indigo-300 ring-offset-2 rounded-2xl" : "")}>
@@ -1426,7 +1820,7 @@ function SectionCard({
       )}
 
       {!collapsed && (
-        <div ref={dropRef} className="space-y-2">
+        <div ref={dropRef} className="space-y-2" data-zone-id={`sec:${section.id}`}>
           <SortableContext items={fields.map(f => f.id)} strategy={rectSortingStrategy}>
             {fields.length === 0 ? (
               <div className={cn("flex items-center justify-center h-16 rounded-xl border-2 border-dashed text-xs transition-colors",
@@ -1434,25 +1828,41 @@ function SectionCard({
                 {isOver ? "↓ Drop here" : "Drag fields here"}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {fields.map(ff => {
-                  const span = getColSpan(ff.fieldId);
-                  return (
-                    <div key={ff.id} className={span === "half" ? "col-span-1" : "col-span-2"}>
-                      <SortableFormFieldItem
-                        ff={ff} moduleField={allCanvasModuleField(ff.fieldId)}
-                        isSelected={selectedFF?.id === ff.id}
-                        onSelect={() => onFieldSelect(ff)}
-                        onRemove={() => onFieldRemove(ff)}
-                        onLabelChange={onLabelChange ? (l) => onLabelChange(ff.id, l) : undefined}
-                        isCustom={isCustom}
-                        colSpan={span}
-                        onToggleWidth={() => onToggleWidth(ff.fieldId)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {fields.map(ff => {
+                    const span = getColSpan(ff.fieldId);
+                    const isTarget = isPaletteSidebarDrag && placeholderBeforeId === ff.id;
+                    return (
+                      <div
+                        key={ff.id}
+                        className={cn(span === "half" ? "col-span-1" : "col-span-2", "relative")}
+                        data-field-id={ff.id}
+                        style={{
+                          paddingTop: isTarget ? 72 : 0,
+                          transition: "padding-top 0.18s cubic-bezier(0.4,0,0.2,1)",
+                        }}
+                      >
+                        {isTarget && <InsertionIndicator activeId={dragActiveId} />}
+                        <SortableFormFieldItem
+                          ff={ff} moduleField={allCanvasModuleField(ff.fieldId)}
+                          isSelected={selectedFF?.id === ff.id}
+                          onSelect={() => onFieldSelect(ff)}
+                          onRemove={() => onFieldRemove(ff)}
+                          onLabelChange={onLabelChange ? (l) => onLabelChange(ff.id, l) : undefined}
+                          isCustom={isCustom}
+                          colSpan={span}
+                          onToggleWidth={() => onToggleWidth(ff.fieldId)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <EndOfListIndicator
+                  activeId={dragActiveId}
+                  open={isPaletteSidebarDrag && !placeholderBeforeId}
+                />
+              </>
             )}
           </SortableContext>
           {!isCustom && availableFields.length > 0 && (
@@ -1640,9 +2050,20 @@ function SidebarFieldItem({ field, onAdd }: { field: any; onAdd: () => void }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function FormBuilderPage() {
+  return (
+    <DesktopOnlyGate
+      title="The Form Builder needs more room"
+      message="Drag-and-drop form building is designed for tablet and desktop screens. Switch to a bigger screen to keep editing — your form is safe either way."
+    >
+      <FormBuilderPageInner />
+    </DesktopOnlyGate>
+  );
+}
+
+function FormBuilderPageInner() {
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
-  const isCF = !!pathname?.startsWith("/cf");
+  const isCF = !!pathname?.startsWith("/cloudforms");
   const [form, setForm]                   = useState<any>(null);
   const [formFields, setFormFields]       = useState<any[]>([]);
   const [availableFields, setAvailableFields] = useState<any[]>([]);
@@ -1652,6 +2073,7 @@ export default function FormBuilderPage() {
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
   const [accessingForm, setAccessingForm] = useState(false);
+  const [shareForm, setShareForm] = useState<{ id: string; name: string } | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [mode, setMode]                   = useState<"builder" | "rules" | "settings">("builder");
   const [rightTab, setRightTab]           = useState<"properties" | "rules" | "autofill">("properties");
@@ -1668,6 +2090,11 @@ export default function FormBuilderPage() {
   // overFieldId tracked as ref (always current) + state (for renders that need it)
   const [overFieldId, setOverFieldId]     = useState<string | null>(null);
   const overFieldIdRef                    = useRef<string | null>(null);
+  // Always-current cursor position — updated by a global pointermove watcher
+  const lastPointerPosRef                 = useRef<{ x: number; y: number } | null>(null);
+  // Track which custom-field IDs have had their key manually edited this session.
+  // Per-field so switching between fields never accidentally re-enables auto-sync on a dirtied field.
+  const manualKeyEditedIds                = useRef<Set<string>>(new Set());
 
   // Builder-level toast
   const [builderToast, setBuilderToast]   = useState<{ text: string; ok: boolean } | null>(null);
@@ -1677,10 +2104,65 @@ export default function FormBuilderPage() {
     return () => clearTimeout(t);
   }, [builderToast]);
 
+
   // Booklet / normal page view
   const [pageView, setPageView]           = useState<"normal" | "booklet">("normal");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  // Always track cursor position so we have coordinates at drag-start and when
+  // the cursor is stationary (pointermove does not fire when not moving).
+  useEffect(() => {
+    const track = (e: PointerEvent) => { lastPointerPosRef.current = { x: e.clientX, y: e.clientY }; };
+    window.addEventListener("pointermove", track, { passive: true });
+    return () => window.removeEventListener("pointermove", track);
+  }, []);
+
+  // Detection logic extracted so it can be called from both the move handler
+  // and the polling interval.
+  const detectFieldAt = useCallback((x: number, y: number) => {
+    // elementFromPoint skips pointer-events:none elements (e.g. DragOverlay),
+    // so it returns the canvas field underneath the dragged preview.
+    let el = document.elementFromPoint(x, y) as HTMLElement | null;
+    let fid: string | null = null;
+    let zid: string | null = null;
+    while (el && el !== document.body) {
+      if (!fid && (el as HTMLElement).dataset?.fieldId) fid = (el as HTMLElement).dataset.fieldId!;
+      if (!zid && (el as HTMLElement).dataset?.zoneId) zid = (el as HTMLElement).dataset.zoneId!;
+      if (fid && zid) break;
+      el = el.parentElement;
+    }
+    // Sticky: never clear overFieldId mid-drag — clearing collapses the gap which
+    // moves the pointer back onto the field, causing a flicker loop.
+    if (fid && fid !== overFieldIdRef.current) {
+      overFieldIdRef.current = fid;
+      setOverFieldId(fid);
+    }
+    if (zid) setOverTarget(zid);
+  }, []);
+
+  // For palette/sidebar drags: detect via pointermove AND a 50ms interval.
+  // The interval handles the case where the cursor is stationary over a field —
+  // pointermove only fires on movement, so without polling the indicator would
+  // never appear until the user moves the cursor again.
+  useEffect(() => {
+    const isPanelDrag = activeId?.startsWith("palette:") || activeId?.startsWith("sidebar:");
+    if (!isPanelDrag) return;
+
+    // Immediate check at the position the drag started from
+    if (lastPointerPosRef.current) detectFieldAt(lastPointerPosRef.current.x, lastPointerPosRef.current.y);
+
+    const moveHandler = (e: PointerEvent) => detectFieldAt(e.clientX, e.clientY);
+    const intervalId  = setInterval(() => {
+      if (lastPointerPosRef.current) detectFieldAt(lastPointerPosRef.current.x, lastPointerPosRef.current.y);
+    }, 50);
+
+    window.addEventListener("pointermove", moveHandler, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", moveHandler);
+      clearInterval(intervalId);
+    };
+  }, [activeId, detectFieldAt]);
 
   // ── Load form ─────────────────────────────────────────────────────────────────
 
@@ -1760,13 +2242,27 @@ export default function FormBuilderPage() {
 
   const saveSettings = async () => {
     setSettingsSaving(true);
-    try { await api.patch(`/forms/${id}`, { settings: localSettings }); }
-    finally { setSettingsSaving(false); }
+    try {
+      await api.patch(`/forms/${id}`, { settings: localSettings });
+      setBuilderToast({ text: "Settings saved", ok: true });
+      setTimeout(() => setBuilderToast(null), 3000);
+    } catch {
+      setBuilderToast({ text: "Failed to save settings", ok: false });
+      setTimeout(() => setBuilderToast(null), 3000);
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   const saveSettingsPatch = async (patch: any) => {
-    const next = { ...localSettings, ...patch };
-    setLocalSettings(next);
+    // Merge via the functional setState form so this always builds on the freshest
+    // state — plain `{...localSettings, ...patch}` can clobber a just-applied change
+    // (e.g. a column-width toggle) if two saves fire in quick succession.
+    let next: any;
+    setLocalSettings((prev: any) => {
+      next = { ...prev, ...patch };
+      return next;
+    });
     try { await api.patch(`/forms/${id}`, { settings: next }); } catch {}
   };
 
@@ -1827,6 +2323,7 @@ export default function FormBuilderPage() {
     setAvailableFields(prev => prev.filter(f => f.id !== fieldId));
     setSelectedFF({ ...data, isCustom: false });
     setRightTab("properties");
+    return data;
   };
 
   const removeModuleField = async (ffId: string, fieldId: string) => {
@@ -1846,7 +2343,7 @@ export default function FormBuilderPage() {
 
   // ── Custom field helpers ──────────────────────────────────────────────────────
 
-  const addCustomField = async (type: string) => {
+  const addCustomField = async (type: string, insertBeforeId?: string | null, sectionId: string | null = null) => {
     const cfId = newUid();
     const count = customFieldDefs.length + 1;
     const typeLabel = CUSTOM_FIELD_TYPES.find(t => t.type === type)?.label || type;
@@ -1857,15 +2354,27 @@ export default function FormBuilderPage() {
       type,
       required: false,
       order: count - 1,
-      sectionId: null,
+      sectionId,
       options: OPTION_BEARING_TYPES.includes(type)
         ? [{ value: "option_1", label: "Option 1" }, { value: "option_2", label: "Option 2" }]
         : [],
     };
-    const newCFs = [...customFieldDefs, cf];
+
+    let newCFs: CustomFieldDef[];
+    const insertIdx = insertBeforeId ? customFieldDefs.findIndex(f => f.id === insertBeforeId) : -1;
+    if (insertIdx !== -1) {
+      newCFs = [
+        ...customFieldDefs.slice(0, insertIdx),
+        { ...cf, order: insertIdx },
+        ...customFieldDefs.slice(insertIdx),
+      ].map((f, i) => ({ ...f, order: i }));
+    } else {
+      newCFs = [...customFieldDefs, cf];
+    }
+
     await saveSettingsPatch({ customFields: newCFs });
-    // Auto-select the new field
-    const displayCF = { id: cf.id, fieldId: cf.id, sectionId: null, order: cf.order, isRequired: false, isHidden: false, isReadonly: false, customLabel: cf.label, isCustom: true };
+    const finalOrder = newCFs.findIndex(f => f.id === cfId);
+    const displayCF = { id: cf.id, fieldId: cf.id, sectionId, order: finalOrder, isRequired: false, isHidden: false, isReadonly: false, customLabel: cf.label, isCustom: true };
     setSelectedFF(displayCF);
     setRightTab("properties");
   };
@@ -1890,8 +2399,20 @@ export default function FormBuilderPage() {
     }
   };
 
+  const generateFieldKey = (label: string): string =>
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '') || 'field';
+
   const updateCustomFieldLabel = (cfId: string, label: string) => {
-    const newCFs = customFieldDefs.map(c => c.id === cfId ? { ...c, label } : c);
+    const autoKey = !manualKeyEditedIds.current.has(cfId) ? generateFieldKey(label) : undefined;
+    const newCFs = customFieldDefs.map(c =>
+      c.id === cfId ? { ...c, label, ...(autoKey !== undefined ? { name: autoKey } : {}) } : c
+    );
     setLocalSettings((prev: any) => ({ ...prev, customFields: newCFs }));
     setSelectedFF((prev: any) => prev?.id === cfId ? { ...prev, customLabel: label } : prev);
     // Debounced save
@@ -1945,18 +2466,27 @@ export default function FormBuilderPage() {
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     const draggedId = String(active.id);
-    if (draggedId.startsWith("sidebar:") || draggedId.startsWith("palette:")) return;
 
-    const target = resolveTarget(over);
-    setOverTarget(target);
-
-    // Track the last FIELD we hovered over (skip self and zone IDs)
+    // Track last hovered canvas field for ALL drag types
     const overId = over ? String(over.id) : null;
     const overHasSortable = !!(over as any)?.data?.current?.sortable;
     if (overId && overId !== draggedId && (overHasSortable || liveCanvasFields.find(f => f.id === overId))) {
       overFieldIdRef.current = overId;
       setOverFieldId(overId);
     }
+
+    const target = resolveTarget(over);
+
+    // Panel drags: update zone target for placeholder feedback, then stop.
+    // Only clear the field indicator when hovering over a bare zone (not a field).
+    if (draggedId.startsWith("sidebar:") || draggedId.startsWith("palette:")) {
+      setOverTarget(target);
+      const isOverField = overId && (overHasSortable || !!liveCanvasFields.find(f => f.id === overId));
+      if (target && !isOverField) setOverFieldId(null);
+      return;
+    }
+
+    setOverTarget(target);
 
     // Update sectionOverride for live visual feedback (skip for page-empty targets)
     if (target && !target.startsWith("page-empty:")) {
@@ -1983,8 +2513,35 @@ export default function FormBuilderPage() {
     // ── Palette type drop (standalone custom form mode) ──
     if (draggedId.startsWith("palette:")) {
       setSectionOverride({});
-      if (!over) return;
-      await addCustomField(draggedId.slice(8));
+      // cachedOverFieldId is set by the pointermove listener and is the most reliable
+      // insertion point (the last field the pointer was over during the drag).
+      // over.id at drop time is a secondary fallback for when the pointer happens to be
+      // exactly on a registered droppable.
+      const dropOverId = over ? String(over.id) : null;
+      const insertBeforeId = cachedOverFieldId
+        ?? (dropOverId && liveCanvasFields.find(f => f.id === dropOverId) ? dropOverId : null);
+
+      // Resolve which section/zone was actually dropped on — falling back to the
+      // section of the hovered field when the pointer landed exactly on a field.
+      let target = resolveTarget(over);
+      if (!target && insertBeforeId) {
+        const overFF = liveCanvasFields.find(f => f.id === insertBeforeId);
+        if (overFF) target = overFF.sectionId ? `sec:${overFF.sectionId}` : "unsec";
+      }
+
+      if (target?.startsWith("page-empty:")) {
+        // Auto-create a section in this empty page, then add the field to it
+        const targetPageId = target.slice(11);
+        const { data: newSec } = await api.post(`/forms/${id}/sections`, { label: "" });
+        setSections(prev => [...prev, newSec]);
+        const newPS = { ...pageSections, [newSec.id]: targetPageId };
+        await saveSettingsPatch({ pageSections: newPS });
+        await addCustomField(draggedId.slice(8), null, newSec.id);
+        return;
+      }
+
+      const targetSectionId = target === "unsec" ? null : target ? target.slice(4) : null;
+      await addCustomField(draggedId.slice(8), insertBeforeId, targetSectionId);
       return;
     }
 
@@ -2003,7 +2560,30 @@ export default function FormBuilderPage() {
         await addFieldToForm(draggedId.slice(8), newSec.id);
       } else {
         const targetSectionId = target === "unsec" ? null : target ? target.slice(4) : null;
-        await addFieldToForm(draggedId.slice(8), targetSectionId);
+        const newField = await addFieldToForm(draggedId.slice(8), targetSectionId);
+        // If dropped over a specific field, reorder so the new field lands there instead of at the end.
+        // Primary: over.id at drop time; fallback: last field tracked in handleDragOver.
+        const dropOverId = String(over.id);
+        const insertAtFieldId = (liveCanvasFields.find(f => f.id === dropOverId) ? dropOverId : null)
+          ?? cachedOverFieldId;
+        if (insertAtFieldId && newField) {
+          const containerFields = liveCanvasFields
+            .filter(f => (f.sectionId || null) === targetSectionId)
+            .sort((a, b) => a.order - b.order);
+          const insertIdx = containerFields.findIndex(f => f.id === insertAtFieldId);
+          if (insertIdx !== -1) {
+            const withNew = [
+              ...containerFields.slice(0, insertIdx),
+              { ...newField, order: insertIdx },
+              ...containerFields.slice(insertIdx),
+            ].map((f, i) => ({ ...f, order: i }));
+            setFormFields(prev => {
+              const others = prev.filter(f => (f.sectionId || null) !== targetSectionId);
+              return [...others, ...withNew];
+            });
+            try { await api.post(`/forms/${id}/fields/reorder`, { formFieldIds: withNew.map(f => f.id) }); } catch {}
+          }
+        }
       }
       return;
     }
@@ -2071,18 +2651,20 @@ export default function FormBuilderPage() {
 
       if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
         const reordered = arrayMove(containerFields, oldIdx, newIdx);
+        // Assign new order values so the sort-by-order render doesn't revert the result
+        const withOrders = reordered.map((f, i) => ({ ...f, order: i }));
         if (origFF.isCustom) {
           const newCFs = customFieldDefs.map(cf => {
-            const ri = reordered.findIndex(r => r.id === cf.id);
-            return ri !== -1 ? { ...cf, order: ri } : cf;
+            const updated = withOrders.find(r => r.id === cf.id);
+            return updated ? { ...cf, order: updated.order } : cf;
           });
           await saveSettingsPatch({ customFields: newCFs });
         } else {
           setFormFields(prev => {
             const others = prev.filter(f => (f.sectionId || null) !== finalSectionId);
-            return [...others, ...reordered];
+            return [...others, ...withOrders];
           });
-          try { await api.post(`/forms/${id}/fields/reorder`, { formFieldIds: reordered.map(f => f.id) }); } catch {}
+          try { await api.post(`/forms/${id}/fields/reorder`, { formFieldIds: withOrders.map(f => f.id) }); } catch {}
         }
       }
     }
@@ -2153,21 +2735,27 @@ export default function FormBuilderPage() {
           ? { background: "linear-gradient(90deg, #1e1b4b 0%, #3730a3 60%, #4c1d95 100%)", boxShadow: "0 2px 8px rgba(30,27,75,0.35)" }
           : { background: "#ffffff", borderBottom: "1px solid #e2e8f0" })
       }}>
-        <div className="flex items-center gap-3">
-          <Link href={isCF ? "/cf" : "/forms"}>
-            <Button variant="ghost" size="icon" className={cn("h-8 w-8", isCF && "text-white/70 hover:text-white hover:bg-white/10")}>
+        {/* LEFT: back + name + save */}
+        <div className="flex items-center gap-2 min-w-0">
+          <Link href={isCF ? "/cloudforms" : "/forms"}>
+            <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", isCF && "text-white/70 hover:text-white hover:bg-white/10")}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
-          <div>
-            <input value={form?.name || ""} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} className={cn("font-semibold bg-transparent border-0 outline-none text-sm", isCF ? "text-white placeholder:text-white/40" : "text-gray-900")} placeholder="Form name…" />
+          <div className="min-w-0 flex-1">
+            <input value={form?.name || ""} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} className={cn("font-semibold bg-transparent border-0 outline-none text-sm w-full", isCF ? "text-white placeholder:text-white/40" : "text-gray-900")} placeholder="Form name…" />
             <p className={cn("text-xs", isCF ? "text-white/50" : "text-gray-400")}>
               {liveCanvasFields.length} fields · {sections.length} sections · {pages.length} page{pages.length !== 1 ? "s" : ""}
               {isStandalone && <span className="ml-2 text-amber-600 font-medium">· standalone form</span>}
             </p>
           </div>
+          <Button size="sm" onClick={saveForm} disabled={saving}
+            className={cn("gap-2 shrink-0", isCF && "bg-violet-600 hover:bg-violet-500 border-violet-600 text-white")}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
+          </Button>
         </div>
-        <div className={cn("flex items-center gap-1 rounded-lg p-1", isCF ? "bg-white/10" : "bg-gray-100")}>
+        {/* CENTER: mode tabs */}
+        <div className={cn("flex items-center gap-1 rounded-lg p-1 shrink-0", isCF ? "bg-white/10" : "bg-gray-100")}>
           {[
             { key: "builder", label: "Fields" },
             { key: "rules", label: "Rules", icon: <Zap className="w-3.5 h-3.5" /> },
@@ -2182,20 +2770,15 @@ export default function FormBuilderPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        {/* RIGHT: preview + share */}
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" onClick={openForm} disabled={accessingForm}
             className={cn("gap-2", isCF && "border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white")}>
             {accessingForm ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />} Open Form
           </Button>
-          <Link href={isCF ? `/cf/forms/${id}/permissions` : `/forms/${id}/permissions`}>
-            <Button variant="outline" size="sm"
-              className={cn("gap-2", isCF && "border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white")}>
-              <LockIcon className="w-3.5 h-3.5" /> Permissions
-            </Button>
-          </Link>
-          <Button size="sm" onClick={saveForm} disabled={saving}
-            className={cn("gap-2", isCF && "bg-violet-600 hover:bg-violet-500 border-violet-600 text-white")}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
+          <Button variant="outline" size="sm" onClick={() => form && setShareForm({ id: form.id, name: form.name ?? "Form" })}
+            className={cn("gap-2", isCF && "border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white")}>
+            <Share2Icon className="w-3.5 h-3.5" /> Share
           </Button>
         </div>
       </div>
@@ -2210,12 +2793,13 @@ export default function FormBuilderPage() {
       {/* ── Settings Mode ───────────────────────────────────────────────────── */}
       {mode === "settings" && (
         <div style={{ flex: 1, overflow: "hidden", background: "#f8fafc" }}>
-          <FormSettingsPanel form={form} settings={localSettings} onSettingsChange={handleSettingsChange} onSave={saveSettings} saving={settingsSaving} />
+          <FormSettingsPanel form={form} settings={localSettings} onSettingsChange={handleSettingsChange} onSave={saveSettings} saving={settingsSaving} allModuleFields={allModuleFields} />
         </div>
       )}
 
       {/* ── Builder Mode ────────────────────────────────────────────────────── */}
       {mode === "builder" && (
+        <BuilderDragCtx.Provider value={{ activeId, overFieldId, overTarget }}>
         <DndContext sensors={sensors} collisionDetection={builderCollision} autoScroll={{ acceleration: 15, threshold: { x: 0, y: 0.15 } }} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
           {/* Three-column layout */}
           <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -2577,30 +3161,46 @@ export default function FormBuilderPage() {
                                 <Input value={selectedCF.description || ""} onChange={e => updateCanvasField(selectedFF, { description: e.target.value })} placeholder="Shown below the field…" />
                               </div>
                               {/* Options for dropdown/radio/multi-select */}
-                              {OPTION_BEARING_TYPES.includes(selectedCF.type) && (
-                                <div className="space-y-2">
-                                  <Label className="text-xs">Options</Label>
-                                  {(selectedCF.options || []).map((opt, oi) => (
-                                    <div key={oi} className="flex items-center gap-1.5">
-                                      <Input value={opt.label} onChange={e => {
-                                        const newOpts = (selectedCF.options || []).map((o, i) => i === oi ? { ...o, label: e.target.value, value: e.target.value.toLowerCase().replace(/\s+/g, "_") } : o);
-                                        updateCanvasField(selectedFF, { options: newOpts });
-                                      }} placeholder={`Option ${oi + 1}`} className="h-7 text-xs flex-1" />
-                                      <button onClick={() => {
-                                        const newOpts = (selectedCF.options || []).filter((_, i) => i !== oi);
-                                        updateCanvasField(selectedFF, { options: newOpts });
-                                      }} className="text-gray-300 hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
-                                    </div>
-                                  ))}
-                                  <button onClick={() => {
-                                    const n = (selectedCF.options || []).length + 1;
-                                    const newOpts = [...(selectedCF.options || []), { value: `option_${n}`, label: `Option ${n}` }];
-                                    updateCanvasField(selectedFF, { options: newOpts });
-                                  }} className="text-xs text-indigo-600 flex items-center gap-1 hover:text-indigo-700">
-                                    <Plus className="w-3 h-3" /> Add Option
-                                  </button>
-                                </div>
-                              )}
+                              {OPTION_BEARING_TYPES.includes(selectedCF.type) && (() => {
+                                const opts = selectedCF.options || [];
+                                const addOpt = () => {
+                                  const n = opts.length + 1;
+                                  updateCanvasField(selectedFF, { options: [...opts, { value: `option_${n}`, label: `Option ${n}` }] });
+                                };
+                                return (
+                                  <div className="space-y-2">
+                                    <Label className="text-xs">Options</Label>
+                                    {opts.length === 0 ? (
+                                      <button onClick={addOpt} className="text-xs text-indigo-600 flex items-center gap-1 hover:text-indigo-700">
+                                        <Plus className="w-3 h-3" /> Add Option
+                                      </button>
+                                    ) : opts.map((opt, oi) => (
+                                      <div key={oi} className="flex items-center gap-1.5">
+                                        <Input value={opt.label} onChange={e => {
+                                          const newOpts = opts.map((o, i) => i === oi ? { ...o, label: e.target.value, value: e.target.value.toLowerCase().replace(/\s+/g, "_") } : o);
+                                          updateCanvasField(selectedFF, { options: newOpts });
+                                        }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOpt(); } }}
+                                          placeholder={`Option ${oi + 1}`} className="h-7 text-xs flex-1" />
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button type="button" onClick={addOpt} title="Add option"
+                                            className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors">
+                                            <Plus className="w-3.5 h-3.5" />
+                                          </button>
+                                          {opts.length > 1 && (
+                                            <button type="button" onClick={() => {
+                                              const newOpts = opts.filter((_, i) => i !== oi);
+                                              updateCanvasField(selectedFF, { options: newOpts });
+                                            }} title="Remove option"
+                                              className="w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors">
+                                              <Minus className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                               <Separator />
                               <div className="space-y-1.5">
                                 <Label className="text-xs">Width</Label>
@@ -2621,9 +3221,34 @@ export default function FormBuilderPage() {
                                 <Switch checked={selectedCF.required || false} onCheckedChange={v => updateCanvasField(selectedFF, { required: v })} />
                               </div>
                               <Separator />
-                              <div className="p-2.5 bg-gray-50 rounded-lg text-xs text-gray-400">
-                                <p>Field key: <span className="font-mono text-gray-600">{selectedCF.name}</span></p>
-                                <p>Type: <span className="font-mono text-gray-600">{selectedCF.type}</span></p>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs">Field Key</Label>
+                                <Input
+                                  value={selectedCF.name}
+                                  onChange={e => {
+                                    manualKeyEditedIds.current.add(selectedCF.id);
+                                    const newName = e.target.value
+                                      .toLowerCase()
+                                      .replace(/[^a-z0-9_]/g, '')
+                                      .replace(/_+/g, '_');
+                                    setLocalSettings((prev: any) => ({
+                                      ...prev,
+                                      customFields: (prev.customFields || []).map((c: any) =>
+                                        c.id === selectedCF.id ? { ...c, name: newName } : c
+                                      ),
+                                    }));
+                                    clearTimeout((window as any).__cfNameTimer);
+                                    (window as any).__cfNameTimer = setTimeout(() => {
+                                      updateCanvasField(selectedFF, { name: newName });
+                                    }, 600);
+                                  }}
+                                  placeholder="field_key"
+                                  className="h-8 text-xs font-mono"
+                                />
+                                <p className="text-[10px] text-gray-400">Auto-generated from label · edit to customize</p>
+                              </div>
+                              <div className="px-2.5 py-1.5 bg-gray-50 rounded-lg text-xs text-gray-400">
+                                <span className="font-medium">Type:</span> <span className="font-mono text-gray-600">{selectedCF.type}</span>
                               </div>
                             </>
                           ) : (
@@ -2765,7 +3390,7 @@ export default function FormBuilderPage() {
                           { icon: LayoutTemplate, label: "Change Theme",  action: () => setMode("settings") },
                           { icon: ExternalLink,   label: "Open Form",     action: () => openForm() },
                           { icon: Copy,           label: "Copy Link",     action: () => { if (form?.token) navigator.clipboard.writeText(`${window.location.origin}/f/${form.token}`); } },
-                          { icon: LockIcon,       label: "Permissions",   href: `/cf/forms/${id}/permissions` },
+                          { icon: Share2Icon,     label: "Share",         action: () => form && setShareForm({ id: form.id, name: form.name ?? "Form" }) },
                           { icon: Settings,       label: "Settings",      action: () => setMode("settings") },
                         ] as const).map(({ icon: Ic, label, action, href }: any) => (
                           href ? (
@@ -2873,14 +3498,23 @@ export default function FormBuilderPage() {
               const ff = liveCanvasFields.find(f => f.id === activeId);
               if (!ff) return null;
               const mf = allCanvasModuleField(ff.fieldId);
+              const span = getColSpan(ff.fieldId);
+              const typeLabel = CUSTOM_FIELD_TYPES.find(t => t.type === mf?.type)?.label || mf?.type || "Field";
               return (
-                <div className="flex items-center gap-3 p-3 rounded-lg border-2 border-indigo-400 bg-white shadow-2xl cursor-grabbing rotate-1 scale-105 opacity-95">
-                  <GripVertical className="w-4 h-4 text-indigo-400" />
-                  <div className="w-6 h-6 rounded bg-indigo-100 flex items-center justify-center text-xs font-mono text-indigo-600">{FIELD_TYPE_ICONS[mf?.type || ""] || "?"}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{ff.customLabel || mf?.label || ff.fieldId}</p>
-                    <p className="text-xs text-indigo-400">{mf?.type}</p>
+                <div className={cn(
+                  "rounded-xl border-2 border-indigo-400 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.22)] cursor-grabbing rotate-[0.6deg] ring-2 ring-indigo-200/60 overflow-hidden",
+                  span === "half" ? "w-64" : "w-[480px]"
+                )}>
+                  <div className="px-4 pt-3 pb-2 flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{ff.customLabel || mf?.label || ff.fieldId}</p>
+                    </div>
+                    <span className="shrink-0 text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{typeLabel}</span>
                   </div>
+                  <div className="px-4 pb-3 opacity-50 pointer-events-none">
+                    <FieldTypePreview type={mf?.type || ""} options={mf?.options} />
+                  </div>
+                  <div className="h-0.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500" />
                 </div>
               );
             })() : activeId?.startsWith("sidebar:") ? (() => {
@@ -2896,8 +3530,10 @@ export default function FormBuilderPage() {
           </DragOverlay>
 
         </DndContext>
+        </BuilderDragCtx.Provider>
       )}
 
+      {shareForm && <FormSharePanel form={shareForm} onClose={() => setShareForm(null)} />}
     </div>
   );
 }

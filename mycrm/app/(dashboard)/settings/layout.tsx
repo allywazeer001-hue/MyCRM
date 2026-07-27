@@ -3,8 +3,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   User, Building2, Shield, Globe, Users, Mail, Zap,
-  BarChart3, FileText, Layers, ChevronRight, LayoutGrid, Blocks, UserCog, LayoutList,
-  Calendar,
+  FileText, Layers, ChevronRight, LayoutGrid, Blocks, UserCog, LayoutList,
+  Calendar, SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth.store";
@@ -25,12 +25,12 @@ const CONFIG_NAV = [
   { href: "/forms",                label: "Forms",          icon: FileText },
   { href: "/settings/email",       label: "Email",          icon: Mail },
   { href: "/settings/automation",  label: "Automation",     icon: Zap },
-  { href: "/settings/analytics",   label: "Analytics",      icon: BarChart3 },
   { href: "/settings/modules",     label: "Module Config",  icon: Layers },
   { href: "/settings/portal",      label: "Portal Settings", icon: LayoutGrid },
   { href: "/settings/portal/users", label: "Portal Users",    icon: UserCog },
   { href: "/apps/portal-builder",   label: "Portal Builder",  icon: Blocks },
   { href: "/settings/task-panels",  label: "Task Panels",     icon: LayoutList },
+  { href: "/settings/field-rules",  label: "Field Rules",     icon: SlidersHorizontal },
 ];
 
 function NavSection({ title, items, pathname }: {
@@ -88,9 +88,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         </nav>
       </aside>
 
-      {/* Content area — automation page gets full width + height */}
-      {(pathname === "/settings/automation" || pathname === "/settings/email") ? (
-        <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Content area — automation/email/field-rules get full width + height */}
+      {(pathname === "/settings/automation" || pathname === "/settings/email" || pathname.startsWith("/settings/field-rules") || pathname === "/settings/blueprints") ? (
+        <div className="flex-1 overflow-auto">
           {children}
         </div>
       ) : (

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 function ModuleStatusBadge({ isActive }: { isActive: boolean }) {
   return (
@@ -94,7 +95,7 @@ export default function ModulesConfigPage() {
                 <div className="flex items-start gap-4">
                   {/* Icon */}
                   <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-lg shrink-0">
-                    {mod.icon || <Layers className="w-5 h-5 text-blue-600" />}
+                    {mod.icon ? <ModuleIcon icon={mod.icon} slug={mod.slug} className="w-5 h-5" /> : <Layers className="w-5 h-5 text-blue-600" />}
                   </div>
 
                   {/* Info */}

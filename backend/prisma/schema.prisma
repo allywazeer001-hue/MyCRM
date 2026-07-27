@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  engineType    = "binary"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "debian-openssl-1.1.x", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -164,6 +166,9 @@ model Organization {
   savedFilters         SavedFilter[]
   blueprints           Blueprint[]
   savedReports         SavedReport[]
+  reportFolders        ReportFolder[]
+  visualizationTemplates VisualizationTemplate[]
+  scheduledConfigurations ScheduledConfiguration[]
   portalUsers          PortalUser[]
   portalAnnouncements  PortalAnnouncement[]
   portalSettings       PortalSettings?
@@ -188,6 +193,8 @@ model Organization {
   requestBlueprints       RequestBlueprint[]
   emailTemplates          EmailTemplate[]    @relation("OrgEmailTemplates")
   emailLogs               EmailLog[]         @relation("OrgEmailLogs")
+  scheduledEmails         ScheduledEmail[]   @relation("OrgScheduledEmails")
+  routingConfigs          RecordRoutingConfig[]
 
   @@map("organizations")
 }
@@ -212,6 +219,7 @@ model User {
   lastLoginAt        DateTime?
   organizationId     String
   departmentId       String?
+  teamRole           String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -231,6 +239,9 @@ model User {
   analyticsViews      AnalyticsView[]
   savedFilters        SavedFilter[]
   savedReports        SavedReport[]
+  reportFolders       ReportFolder[]
+  visualizationTemplates VisualizationTemplate[]
+  scheduledConfigurations ScheduledConfiguration[]
   userPreferences     UserPreference[]
   permissionOverrides UserPermissionOverride[]  @relation("UserOverrides")
   grantedOverrides    UserPermissionOverride[]  @relation("PermissionGranter")
@@ -256,10 +267,29 @@ model User {
   requestEvents          RequestEvent[]          @relation("RequestEventActor")
   emailTemplatesCreated  EmailTemplate[]         @relation("EmailTemplateCreator")
   emailLogsSent          EmailLog[]              @relation("EmailLogSender")
-
+  scheduledEmailsSent    ScheduledEmail[]        @relation("ScheduledEmailSender")
+  passwordRecoveryChallenges PasswordRecoveryChallenge[]
   @@index([email])
   @@index([organizationId])
   @@map("users")
+}
+
+model PasswordRecoveryChallenge {
+  id            String    @id @default(cuid())
+  userId        String
+  questionKeys  Json
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(2)
+  verified      Boolean   @default(false)
+  used          Boolean   @default(false)
+  resetToken    String?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_recovery_challenges")
 }
 
 model DynamicModule {
@@ -340,6 +370,26 @@ model FieldOption {
 
   @@index([fieldId])
   @@map("field_options")
+}
+
+model FieldRule {
+  id             String   @id @default(cuid())
+  organizationId String
+  moduleId       String
+  name           String
+  description    String?
+  priority       Int      @default(0)
+  isEnabled      Boolean  @default(true)
+  logic          String   @default("AND")
+  conditions     Json     @default("[]")
+  actions        Json     @default("[]")
+  stopOnMatch    Boolean  @default(false)
+  runOnLoad      Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([moduleId, organizationId])
+  @@map("field_rules")
 }
 
 model Record {
@@ -465,13 +515,21 @@ model Workflow {
   moduleId       String?
   organizationId String
   isActive       Boolean             @default(true)
+  isRepeatable   Boolean             @default(true)
   tags           Json                @default("[]")
+  // Set when a Blueprint transition links to this workflow (see
+  // BlueprintsService.syncWorkflowLinks) — a linked workflow only fires through
+  // that specific transition, never via its own native trigger, so it can't
+  // "override" things by firing at an unrelated phase.
+  linkedBlueprintId  String?
+  linkedTransitionId String?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
   module       DynamicModule? @relation(fields: [moduleId], references: [id])
   organization Organization   @relation(fields: [organizationId], references: [id])
   executions   WorkflowExecution[]
+  ruleGroups   WorkflowRuleGroup[]
 
   @@index([organizationId])
   @@map("workflows")
@@ -486,14 +544,32 @@ model WorkflowAction {
   recipientUsers Json               @default("[]")
   recipientDepts Json               @default("[]")
 
-  workflow Workflow @relation(fields: [workflowId], references: [id])
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@map("workflow_actions")
+}
+
+model WorkflowRuleGroup {
+  id         String   @id @default(cuid())
+  workflowId String
+  name       String   @default("Rule 1")
+  order      Int      @default(0)
+  isActive   Boolean  @default(true)
+  conditions Json     @default("{}")
+  actions    Json     @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("workflow_rule_groups")
 }
 
 model WorkflowExecution {
   id         String   @id @default(cuid())
   workflowId String
+  recordId   String?
   status     String   @default("PENDING")
   input      Json     @default("{}")
   output     Json     @default("{}")
@@ -501,8 +577,9 @@ model WorkflowExecution {
   startedAt  DateTime @default(now())
   finishedAt DateTime?
 
-  workflow Workflow @relation(fields: [workflowId], references: [id])
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
+  @@index([workflowId, recordId])
   @@map("workflow_executions")
 }
 
@@ -547,6 +624,51 @@ model DashboardWidget {
 
   @@index([dashboardId])
   @@map("dashboard_widgets")
+}
+
+// A reusable, self-contained dashboard "recipe" — layoutConfiguration holds full chart
+// definitions (moduleId/groupByField/filterGroup/etc. per widget, same shape AnalyticsView.config
+// already uses), not pointers into another record the way Dashboard.config.widgets does. Instantiating
+// a template creates a brand-new AnalyticsView + Dashboard via the existing creation code paths, so
+// nothing about how dashboards/charts normally work is touched by this feature.
+model VisualizationTemplate {
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  // Anchor module shown by default when picking a context field in the builder — informational
+  // only, individual widgets inside layoutConfiguration carry their own moduleId.
+  moduleId            String?
+  layoutConfiguration Json     @default("{}")
+  isPublic            Boolean  @default(false)
+  sharedRoles         Json     @default("[]")
+  sharedDepartments   Json     @default("[]")
+  sharedUsers         Json     @default("[]")
+  organizationId      String
+  createdById         String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  createdBy    User                   @relation(fields: [createdById], references: [id])
+  contexts     VisualizationContext[]
+
+  @@index([organizationId])
+  @@map("visualization_templates")
+}
+
+// The field a template's widgets are filtered by when instantiated — stored by Field.name (not
+// id), since every existing filter/groupBy/record lookup in this codebase is name-keyed already.
+model VisualizationContext {
+  id           String   @id @default(cuid())
+  templateId   String
+  fieldName    String
+  defaultValue String?
+  createdAt    DateTime @default(now())
+
+  template VisualizationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@map("visualization_contexts")
 }
 
 model Notification {
@@ -770,6 +892,11 @@ model AnalyticsView {
   config         Json     @default("{}")
   isDefault      Boolean  @default(false)
   isPinned       Boolean  @default(false)
+  // Per-view access control ("who can see") — mirrors Dashboard's sharing model
+  isPublic          Boolean  @default(false)
+  sharedRoles       Json     @default("[]")
+  sharedDepartments Json     @default("[]")
+  sharedUsers       Json     @default("[]")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -822,14 +949,15 @@ model AnalyticsTarget {
 }
 
 model FormSubmission {
-  id        String   @id @default(cuid())
-  formId    String
-  data      Json     @default("{}")
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  formId       String
+  data         Json     @default("{}")
+  ipAddress    String?
+  userAgent    String?
+  ticketNumber String?
+  createdAt    DateTime @default(now())
 
-  form      Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  form         Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
 
   @@index([formId])
   @@map("form_submissions")
@@ -892,6 +1020,7 @@ model Blueprint {
   module          DynamicModule  @relation(fields: [moduleId], references: [id])
   organization    Organization   @relation(fields: [organizationId], references: [id])
   blueprintTasks  BlueprintTask[]
+  scheduledTransitions BlueprintScheduledTransition[]
 
   @@index([organizationId])
   @@index([moduleId])
@@ -899,7 +1028,7 @@ model Blueprint {
 }
 
 model BlueprintTask {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   blueprintId    String
   recordId       String
   moduleId       String
@@ -909,11 +1038,19 @@ model BlueprintTask {
   toStage        String
   assignedToId   String?
   assignedRole   String?
-  status         String   @default("pending")
+  assignedDept   String?
+  status         String    @default("pending")
   comment        String?
   organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  requestType    String    @default("approval")
+  sentNote       String?   @db.Text
+  title          String?
+  priority       String?   @default("medium")
+  dueDate        DateTime?
+  seenAt         DateTime?
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
 
@@ -921,7 +1058,108 @@ model BlueprintTask {
   @@index([recordId])
   @@index([assignedToId])
   @@index([organizationId])
+  @@index([requestType])
   @@map("blueprint_tasks")
+}
+
+model BlueprintScheduledTransition {
+  id             String    @id @default(cuid())
+  blueprintId    String
+  recordId       String
+  transitionId   String
+  organizationId String
+  fireAt         DateTime
+  executed       Boolean   @default(false)
+  cancelled      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  blueprint Blueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([fireAt, executed, cancelled])
+  @@index([recordId])
+  @@map("blueprint_scheduled_transitions")
+}
+
+// ── Scheduled Configuration Engine ──────────────────────────────────────────────
+// Schedules a future CONFIG change (a field's default value, a dropdown's options, a
+// saved filter's conditions, a workflow's on/off state) to apply automatically at a
+// future date/time — one-time or on a simple Daily/Weekly/Monthly repeat. Deliberately
+// avoids a full cron-expression engine (nothing else in this codebase has one either —
+// even Blueprint's own 'cron' transition mode is left unimplemented on purpose, per its
+// own comment, to avoid silent misfires) in favor of the same explicit polling pattern
+// already used by BlueprintScheduledTransition/WorkflowScheduleLog: a 5-minute @Cron job
+// finds rows whose `nextRunAt` has passed and executes them.
+model ScheduledConfiguration {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  createdById    String
+
+  isActive    Boolean @default(true) // pause/resume; a one-time config also flips this off once it has fired
+  isRecurring Boolean @default(false)
+
+  // Recurrence — only meaningful when isRecurring; kept to three simple patterns rather
+  // than a cron expression (see file-level comment above).
+  recurrencePattern    String? // 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  recurrenceDayOfWeek  Int?    // 0 (Sun) - 6 (Sat), WEEKLY only
+  recurrenceDayOfMonth Int?    // 1-31, MONTHLY only
+  timeOfDay            String  // "HH:MM", 24h — the time-of-day component for every mode
+
+  runAt     DateTime? // one-time only: the exact date+time originally picked (kept for display even after nextRunAt advances)
+  nextRunAt DateTime  // what the scheduler polls against — always populated
+  lastRunAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization  Organization                @relation(fields: [organizationId], references: [id])
+  createdBy     User                        @relation(fields: [createdById], references: [id])
+  actions       ConfigurationAction[]
+  executionLogs ConfigurationExecutionLog[]
+
+  @@index([organizationId])
+  @@index([nextRunAt, isActive])
+  @@map("scheduled_configurations")
+}
+
+// One config change to apply when the parent fires. `targetId` is a Field id, SavedFilter
+// id, or Workflow id depending on `type`; `config` carries the actual new value(s) — see
+// ScheduledConfigurationsService.executeAction for the exact shape expected per type.
+model ConfigurationAction {
+  id                       String   @id @default(cuid())
+  scheduledConfigurationId String
+  type                     String   // 'SET_FIELD_DEFAULT' | 'UPDATE_FIELD_OPTIONS' | 'UPDATE_SAVED_FILTER' | 'SET_WORKFLOW_ACTIVE'
+  targetId                 String
+  config                   Json     @default("{}")
+  order                    Int      @default(0)
+  createdAt                DateTime @default(now())
+
+  scheduledConfiguration ScheduledConfiguration @relation(fields: [scheduledConfigurationId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledConfigurationId])
+  @@map("configuration_actions")
+}
+
+// One row per firing — this table IS the execution history the builder UI shows, the same
+// convention as BlueprintScheduledTransition's own executed/cancelled flags rather than
+// routing through the generic AuditLog (a summary AuditLog entry is still written
+// alongside, for the org-wide audit trail).
+model ConfigurationExecutionLog {
+  id                       String   @id @default(cuid())
+  scheduledConfigurationId String
+  organizationId           String
+  status                   String   // 'success' | 'partial' | 'failed'
+  ranAt                    DateTime @default(now())
+  details                  Json     @default("[]") // [{ actionId, type, targetId, status, error? }]
+  errorMessage             String?
+
+  scheduledConfiguration ScheduledConfiguration @relation(fields: [scheduledConfigurationId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledConfigurationId])
+  @@index([organizationId])
+  @@map("configuration_execution_logs")
 }
 
 // ── Portal Models ──────────────────────────────────────────────────────────────
@@ -1392,15 +1630,41 @@ model SavedReport {
   canEdit        Json     @default("[]")
   rolesView      Json     @default("[]")
   rolesEdit      Json     @default("[]")
+  folderId       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  folder       ReportFolder? @relation(fields: [folderId], references: [id])
 
   @@index([organizationId])
   @@index([createdById])
+  @@index([folderId])
   @@map("saved_reports")
+}
+
+// A folder groups SavedReports for organization; access control mirrors
+// Dashboard (isPublic + sharedRoles/Departments/Users), enforced via the
+// shared PermissionCheckService.canViewResource/enforceCanEditResource.
+model ReportFolder {
+  id                String   @id @default(cuid())
+  name              String
+  organizationId    String
+  createdById       String
+  isPublic          Boolean  @default(false)
+  sharedRoles       Json     @default("[]")
+  sharedDepartments Json     @default("[]")
+  sharedUsers       Json     @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  reports      SavedReport[]
+
+  @@index([organizationId])
+  @@map("report_folders")
 }
 
 // ── Workspace: Tasks & Notes ───────────────────────────────────────────────
@@ -1872,6 +2136,25 @@ model SmtpSettings {
   @@map("smtp_settings")
 }
 
+// Singleton row (fixed id "global") — a platform-wide announcement banner shown
+// on every page, configured from /land-admin. Not tied to an organization since
+// it announces changes to the platform itself, not org-specific data.
+model PlatformAnnouncement {
+  id             String    @id @default("global")
+  message        String    @db.Text
+  isActive       Boolean   @default(false)
+  // Optional schedule — when set, the banner (while isActive) only shows within
+  // this date range, and only during this time-of-day window on each day in it.
+  // Any of these left null means "no restriction" on that dimension.
+  startDate      DateTime?
+  endDate        DateTime?
+  dailyStartTime String?   // "HH:MM", server-local time
+  dailyEndTime   String?   // "HH:MM", server-local time
+  updatedAt      DateTime  @updatedAt
+
+  @@map("platform_announcements")
+}
+
 model ApiKey {
   id             String    @id @default(cuid())
   name           String
@@ -2114,6 +2397,7 @@ model EmailTemplate {
   name           String
   subject        String
   body           String   @db.LongText
+  design         String?  @db.LongText
   isActive       Boolean  @default(true)
   createdById    String
   createdAt      DateTime @default(now())
@@ -2132,12 +2416,25 @@ model EmailLog {
   organizationId String
   templateId     String?
   sentById       String
+  // Optional — which record this email was about, so a record's detail page can
+  // show its own email history. Plain string (no relation) since records live in
+  // a dynamic per-module table, not a single typed model.
+  recordId       String?
+  // Groups every recipient of one "send" call into a single campaign/report row —
+  // one batchId per compose-and-send action, shared across all its recipients.
+  batchId        String?
   toEmail        String
   toName         String?
   subject        String
   body           String   @db.LongText
-  status         String   @default("sent")
+  replyTo        String?
+  // Free-text note a user can attach (e.g. to a batch of unopened emails) —
+  // shown alongside this email on the record's own Emails tab, for follow-up tracking.
+  remark         String?  @db.Text
+  status         String   @default("sent") // sent | failed | bounced
   errorMsg       String?
+  openedAt       DateTime?
+  clickedAt      DateTime?
   sentAt         DateTime @default(now())
 
   organization Organization   @relation("OrgEmailLogs", fields: [organizationId], references: [id])
@@ -2146,5 +2443,134 @@ model EmailLog {
 
   @@index([organizationId])
   @@index([sentById])
+  @@index([batchId])
+  @@index([recordId])
   @@map("email_logs")
 }
+
+// A compose-and-send action deferred to a future time. A cron job picks up rows
+// where sendAt <= now and status = 'pending', sends them the same way an
+// immediate send works, then marks them 'sent' (or 'failed' on an error before
+// any recipient attempt, e.g. template lookup failure).
+model ScheduledEmail {
+  id             String    @id @default(cuid())
+  organizationId String
+  sentById       String
+  recipients     Json      // Recipient[] snapshot — email/name/mergeData/recordId per person
+  subject        String
+  body           String    @db.LongText
+  templateId     String?
+  replyTo        String?
+  sendAt         DateTime
+  status         String    @default("pending") // pending | sent | cancelled | failed
+  errorMsg       String?
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+
+  organization Organization @relation("OrgScheduledEmails", fields: [organizationId], references: [id])
+  sentBy       User         @relation("ScheduledEmailSender", fields: [sentById], references: [id])
+
+  @@index([organizationId])
+  @@index([status, sendAt])
+  @@map("scheduled_emails")
+}
+
+model RecordRoutingConfig {
+  id               String    @id @default(cuid())
+  name             String
+  description      String?
+  moduleId         String
+  organizationId   String
+  isEnabled        Boolean   @default(true)
+  priority         Int       @default(0)
+  targetRoles      Json      @default("[]")
+  filterConditions Json      @default("[]")
+  conditionsLogic  String    @default("AND")
+  displayFields    Json      @default("[]")
+  actions          Json      @default("[]")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([moduleId, organizationId])
+  @@map("record_routing_configs")
+}
+
+// ── Data Quality Models ───────────────────────────────────────────────────────
+
+model DataQualityConfig {
+  id                String   @id @default(cuid())
+  organizationId    String   @unique
+  autoMode          Boolean  @default(false)
+  schedule          String   @default("DISABLED")
+  scheduledHour     Int      @default(2)
+  duplicateRules    Json     @default("[]")
+  missingDataRules  Json     @default("[]")
+  notifyDuplicate   Boolean  @default(true)
+  notifyMissing     Boolean  @default(true)
+  notifyInvalid     Boolean  @default(false)
+  includedModules   Json     @default("[]")
+  notifyRoles       Json     @default("[\"ADMIN\",\"SUPER_ADMIN\"]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("data_quality_configs")
+}
+
+model DataQualityScan {
+  id             String    @id @default(cuid())
+  organizationId String
+  initiatedById  String?
+  status         String    @default("RUNNING")
+  scanType       String    @default("MANUAL")
+  moduleId       String?
+  moduleName     String?
+  summary        Json      @default("{}")
+  duration       Int?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  issues         DataQualityIssue[]
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("data_quality_scans")
+}
+
+model DataQualityIssue {
+  id             String    @id @default(cuid())
+  scanId         String
+  scan           DataQualityScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  organizationId String
+  issueType      String
+  severity       String    @default("MEDIUM")
+  moduleId       String
+  moduleName     String    @default("")
+  moduleSlug     String    @default("")
+  recordId       String
+  fieldName      String?
+  details        Json      @default("{}")
+  isResolved     Boolean   @default(false)
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdAt      DateTime  @default(now())
+
+  @@index([scanId])
+  @@index([organizationId])
+  @@index([moduleId])
+  @@index([recordId])
+  @@map("data_quality_issues")
+}
+
+model WorkflowScheduleLog {
+  id         String   @id @default(cuid())
+  workflowId String
+  triggerKey String
+  executedAt DateTime @default(now())
+
+  @@unique([workflowId, triggerKey])
+  @@index([workflowId])
+  @@map("workflow_schedule_logs")
+}
+

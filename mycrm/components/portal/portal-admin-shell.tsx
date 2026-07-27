@@ -66,7 +66,7 @@ export function PortalAdminShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-dvh bg-gray-50 overflow-hidden">
+    <div className="flex h-full bg-gray-50 overflow-hidden">
 
       {/* Mobile backdrop */}
       {mobileOpen && (

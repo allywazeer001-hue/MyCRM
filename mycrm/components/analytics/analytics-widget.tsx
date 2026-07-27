@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { reportFiltersToFilterGroup } from "@/lib/report-viz-suggestions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,13 @@ export interface AnalyticsWidget {
   aggregateField?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   filterGroup?: any;
+  // When set, this widget is live-linked to a saved Report: its filter is not
+  // an independent copy — every load re-reads the report's CURRENT filters
+  // (see loadWidgetData below), so editing the report's filters instantly
+  // changes every widget linked to it. The report stays the single source of
+  // truth for "which records"; the widget still owns its own chart type/
+  // grouping/aggregation choices on top of that data.
+  sourceReportId?: string;
   targetId?: string;
   targetValue?: number;  // inline target — no separate target entity needed
   // Layout position (react-grid-layout format)
@@ -146,10 +154,69 @@ export function widgetW(w: AnalyticsWidget): number {
 
 // ── Data loader ───────────────────────────────────────────────────────────────
 
+/**
+ * Report-linked widgets never keep their own independent filter copy — every
+ * load re-reads the source report's CURRENT filters, so editing the report
+ * (e.g. narrowing it to "Only Active Patients") instantly changes every chart
+ * linked to it, with no manual re-sync step.
+ */
+async function resolveLiveFilterGroup(widget: AnalyticsWidget): Promise<any> {
+  if (!widget.sourceReportId) return widget.filterGroup;
+  try {
+    const { data: report } = await api.get(`/reports/${widget.sourceReportId}`);
+    const { filterGroup } = reportFiltersToFilterGroup(report.filters ?? []);
+    return filterGroup;
+  } catch {
+    // Report deleted/inaccessible — fall back to the last-known filter rather than failing the widget.
+    return widget.filterGroup;
+  }
+}
+
+/** A dashboard-level global filter (Dynamic Analytics Context Engine) — e.g. "Camp Name = Singida". */
+export interface ContextFilter {
+  field: string;
+  value: string;
+}
+
+/**
+ * AND-merges a context condition into an existing filter tree. Mirrors the backend's
+ * VisualizationTemplatesService.mergeContextCondition exactly (same shape convention:
+ * `logic`, not `operator`, and `{field, operator:'is', value}` conditions) so a chart
+ * looks identical whether its filter came from a template instantiation or a live
+ * dashboard context filter. Callers must only pass a context whose field actually
+ * exists on the widget's module — this function does not check that itself.
+ */
+function mergeContextFilter(filterGroup: any, context?: ContextFilter): any {
+  if (!context) return filterGroup;
+  const condition = { id: `ctx-${context.field}`, field: context.field, operator: "is", value: context.value };
+  const hasExisting = filterGroup && ((filterGroup.conditions?.length ?? 0) > 0 || (filterGroup.groups?.length ?? 0) > 0);
+  if (!hasExisting) {
+    return { id: "ctx-fg", logic: "AND", conditions: [condition], groups: [] };
+  }
+  return {
+    id: "ctx-fg-wrap",
+    logic: "AND",
+    conditions: [],
+    groups: [filterGroup, { id: "ctx-fg-inner", logic: "AND", conditions: [condition], groups: [] }],
+  };
+}
+
 export async function loadWidgetData(
   widget: AnalyticsWidget,
   targets: AnalyticsTarget[] = [],
+  context?: ContextFilter,
 ): Promise<AnalyticsWidget> {
+  // baseFilterGroup is the widget's TRUE authored/resolved filter (report-linked widgets
+  // re-resolve it live, everyone else keeps their own). It's what gets returned/stored —
+  // requestFilterGroup (base + context merged in) is used ONLY for this one network call.
+  // Returning the merged version here would contaminate the caller's stored widget state,
+  // so a later call with a DIFFERENT context value would merge on top of the previous
+  // one instead of the original — two AND'd conditions on the same field that can never
+  // both match, silently producing "no data" on every context switch after the first.
+  const baseFilterGroup = await resolveLiveFilterGroup(widget);
+  const requestFilterGroup = mergeContextFilter(baseFilterGroup, context);
+  widget = { ...widget, filterGroup: baseFilterGroup };
+
   if (widget.type === "target") {
     // Inline target: fetch current aggregate value from analytics endpoint
     if (widget.targetValue !== undefined && widget.moduleId) {
@@ -157,7 +224,7 @@ export async function loadWidgetData(
         const body: any = {
           aggregation: widget.aggregation || "COUNT",
           aggregateField: widget.aggregateField,
-          filterGroup: widget.filterGroup,
+          filterGroup: requestFilterGroup,
         };
         const { data } = await api.post(`/analytics/data/${widget.moduleId}`, body);
         const currentValue = Array.isArray(data)
@@ -179,7 +246,7 @@ export async function loadWidgetData(
     const body: any = {
       aggregation: widget.aggregation,
       aggregateField: widget.aggregateField,
-      filterGroup: widget.filterGroup,
+      filterGroup: requestFilterGroup,
     };
     if (widget.groupByField) body.groupByField = widget.groupByField;
     if (widget.secondaryGroupByField) body.secondaryGroupByField = widget.secondaryGroupByField;
@@ -508,7 +575,8 @@ export function AnalyticsWidgetBody({ widget, targets = [], colSpan, rowSpan, co
               cursor={onSegmentClick ? "pointer" : undefined}>
               {data.map((_: any, i: number) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
             </Pie>
-            <Tooltip /><Legend />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} iconSize={8} iconType="circle" />
           </PieChart>
         </ResponsiveContainer>
       );
@@ -565,7 +633,7 @@ export function AnalyticsWidgetBody({ widget, targets = [], colSpan, rowSpan, co
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Legend />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} iconSize={8} iconType="circle" />
               {widget.secondaryKeys.map((sk, i) => (
                 <Bar key={sk} dataKey={sk} stackId={barMode === "stacked" ? "a" : undefined}
                   fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]}

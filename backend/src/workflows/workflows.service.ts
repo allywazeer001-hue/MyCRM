@@ -1,6 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppGateway } from '../websocket/app.gateway';
+import { normalizeConditionTree, evaluateNode, validateConditionTree } from './condition-tree';
+import { getLockInfoForRecordData } from '../blueprints/field-lock';
 
 const _executingSet = new Map<string, Set<string>>();
 
@@ -13,7 +15,8 @@ export class WorkflowsService {
   ) {}
 
   async create(orgId: string, data: any) {
-    const { actions = [], ...rest } = data;
+    const { actions = [], ruleGroups, ...rest } = data;
+    if (ruleGroups !== undefined) this.validateRuleGroups(ruleGroups);
     return this.prisma.workflow.create({
       data: {
         ...rest,
@@ -27,16 +30,48 @@ export class WorkflowsService {
             order: a.order ?? i,
           })),
         },
+        ...(ruleGroups !== undefined
+          ? { ruleGroups: { create: this.toRuleGroupCreateInput(ruleGroups) } }
+          : {}),
       },
-      include: { actions: { orderBy: { order: 'asc' } } },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
     });
+  }
+
+  private validateRuleGroups(ruleGroups: any[]): void {
+    if (!Array.isArray(ruleGroups)) {
+      throw new BadRequestException('ruleGroups must be an array');
+    }
+    for (const group of ruleGroups) {
+      try {
+        validateConditionTree(normalizeConditionTree(group.conditions));
+      } catch (err: any) {
+        throw new BadRequestException(`Invalid rule group "${group.name ?? ''}": ${err.message}`);
+      }
+    }
+  }
+
+  private toRuleGroupCreateInput(ruleGroups: any[]) {
+    return ruleGroups.map((g: any, i: number) => ({
+      name: g.name || `Rule ${i + 1}`,
+      order: g.order ?? i,
+      isActive: g.isActive ?? true,
+      conditions: normalizeConditionTree(g.conditions) as any,
+      actions: (Array.isArray(g.actions) ? g.actions : []) as any,
+    }));
   }
 
   async findAll(orgId: string) {
     const where = { organizationId: orgId };
     const workflows = await this.prisma.workflow.findMany({
       where,
-      include: { actions: { orderBy: { order: 'asc' } } },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
       orderBy: { createdAt: 'desc' },
     });
     // Attach last execution to each workflow
@@ -54,7 +89,10 @@ export class WorkflowsService {
   async findOne(id: string, orgId: string) {
     const wf = await this.prisma.workflow.findFirst({
       where: { id, organizationId: orgId },
-      include: { actions: { orderBy: { order: 'asc' } } },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
     });
     if (!wf) throw new NotFoundException('Workflow not found');
     return wf;
@@ -62,7 +100,7 @@ export class WorkflowsService {
 
   async update(id: string, orgId: string, data: any) {
     await this.findOne(id, orgId);
-    const { actions, ...rest } = data;
+    const { actions, ruleGroups, ...rest } = data;
     if (actions !== undefined) {
       await this.prisma.workflowAction.deleteMany({ where: { workflowId: id } });
       await this.prisma.workflowAction.createMany({
@@ -76,10 +114,20 @@ export class WorkflowsService {
         })),
       });
     }
+    if (ruleGroups !== undefined) {
+      this.validateRuleGroups(ruleGroups);
+      await this.prisma.workflowRuleGroup.deleteMany({ where: { workflowId: id } });
+      await this.prisma.workflowRuleGroup.createMany({
+        data: this.toRuleGroupCreateInput(ruleGroups).map(g => ({ ...g, workflowId: id })),
+      });
+    }
     return this.prisma.workflow.update({
       where: { id },
       data: rest,
-      include: { actions: { orderBy: { order: 'asc' } } },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
     });
   }
 
@@ -112,19 +160,68 @@ export class WorkflowsService {
         moduleId,
         isActive: true,
         trigger,
+        // A workflow linked to a Blueprint transition (see BlueprintsService
+        // .syncWorkflowLinks) only runs through that specific transition, via
+        // executeWorkflowById — never via its own native trigger. Otherwise it
+        // could fire "anywhere" a record is saved, regardless of which phase/
+        // transition is actually active, silently overriding unrelated saves.
+        linkedTransitionId: null,
       },
-      include: { actions: { orderBy: { order: 'asc' } } },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
     });
 
     for (const wf of workflows) {
-      const conditions = (wf.conditions as any[]) || [];
-      if (!this.evaluateConditions(conditions, record.data, previousData)) continue;
+      // FIELD_CHANGED additionally requires the ONE field it watches to have actually
+      // changed — without this gate it would fire on every edit exactly like
+      // RECORD_UPDATED, defeating the reason someone picks this trigger over that one.
+      // A workflow with no fieldName configured yet is intentionally never matched,
+      // rather than falling back to "any field" — that would silently misfire the
+      // moment it's created, before the field has been picked in the builder.
+      if (trigger === 'FIELD_CHANGED') {
+        const fieldName = (wf.triggerConfig as any)?.fieldName;
+        if (!fieldName) continue;
+        const before = previousData?.[fieldName];
+        const after = record?.data?.[fieldName];
+        if (before === after) continue;
+      }
+
+      const ruleGroups = (wf as any).ruleGroups ?? [];
+      let matchedGroups: any[] | undefined;
+
+      if (ruleGroups.length > 0) {
+        // This workflow has adopted rule groups — it no longer consults the legacy
+        // conditions/actions fields at all, even if every group happens to be inactive.
+        const activeGroups = ruleGroups.filter((g: any) => g.isActive);
+        matchedGroups = activeGroups.filter((g: any) =>
+          evaluateNode(normalizeConditionTree(g.conditions), record.data, previousData),
+        );
+        if (matchedGroups.length === 0) continue;
+      } else {
+        const tree = normalizeConditionTree(wf.conditions);
+        if (!evaluateNode(tree, record.data, previousData)) continue;
+      }
+
+      // One-time guard: skip if this workflow already ran for this record
+      if (!wf.isRepeatable && record.id) {
+        const alreadyRan = await this.prisma.workflowExecution.findFirst({
+          where: { workflowId: wf.id, recordId: record.id },
+          select: { id: true },
+        });
+        if (alreadyRan) {
+          this.logger.log(`Workflow ${wf.id} skipped — one-time, already ran for record ${record.id}`);
+          continue;
+        }
+      }
+
       const orgSet = _executingSet.get(orgId) ?? new Set<string>();
       if (orgSet.has(wf.id)) { this.logger.warn('Circular workflow skip: ' + wf.id); continue; }
       orgSet.add(wf.id);
       _executingSet.set(orgId, orgSet);
       try {
-        await this.executeWorkflow(wf, record, orgId);
+        await this.executeWorkflow(wf, record, orgId, record.id ?? undefined, matchedGroups);
       } finally {
         orgSet.delete(wf.id);
         if (orgSet.size === 0) _executingSet.delete(orgId);
@@ -132,68 +229,29 @@ export class WorkflowsService {
     }
   }
 
-  private evaluateConditions(conditions: any[], data: any, previousData?: any): boolean {
-    if (conditions.length === 0) return true;
-    const logic = conditions[0]?.logic || 'AND';
-    const checks = conditions.map(c => this.evaluateCondition(c, data, previousData));
-    return logic === 'OR' ? checks.some(Boolean) : checks.every(Boolean);
-  }
-
-  private evaluateCondition(cond: any, data: any, previousData?: any): boolean {
-    const raw = data?.[cond.field];
-    const val = raw === null || raw === undefined ? '' : String(raw);
-    const cv = cond.value != null ? String(cond.value) : '';
-
-    switch (cond.operator) {
-      case 'is':
-      case 'equals':        return val === cv;
-      case 'is_not':
-      case 'not_equals':    return val !== cv;
-      case 'contains':      return val.toLowerCase().includes(cv.toLowerCase());
-      case 'not_contains':  return !val.toLowerCase().includes(cv.toLowerCase());
-      case 'empty':         return val === '' || raw == null;
-      case 'not_empty':     return val !== '' && raw != null;
-      case 'gt':            return Number(raw) > Number(cv);
-      case 'gte':           return Number(raw) >= Number(cv);
-      case 'lt':            return Number(raw) < Number(cv);
-      case 'lte':           return Number(raw) <= Number(cv);
-      case 'changed':       return previousData != null && String(previousData[cond.field]) !== val;
-      case 'between': {
-        const parts = String(cond.value || '').split(',');
-        const minVal = Number(parts[0]?.trim() ?? 0);
-        const maxVal = Number(parts[1]?.trim() ?? 0);
-        return Number(raw) >= minVal && Number(raw) <= maxVal;
-      }
-      case 'is_one_of': {
-        const opts = String(cond.value || '').split(',').map((s: string) => s.trim().toLowerCase());
-        return opts.includes(val.toLowerCase());
-      }
-      case 'changed_from': {
-        if (!previousData) return false;
-        const prevVal = String(previousData[cond.field] ?? '');
-        return prevVal === cv && val !== cv;
-      }
-      case 'changed_to': {
-        if (!previousData) return false;
-        const prevVal = String(previousData[cond.field] ?? '');
-        return val === cv && prevVal !== cv;
-      }
-      default: return true;
-    }
-  }
-
-  async executeWorkflow(wf: any, record: any, orgId: string) {
+  async executeWorkflow(wf: any, record: any, orgId: string, recordId?: string, matchedRuleGroups?: any[]) {
     const execution = await this.prisma.workflowExecution.create({
       data: {
         workflowId: wf.id,
+        recordId: recordId ?? record.id ?? undefined,
         status: 'RUNNING',
         input: { recordId: record.id, data: record.data },
       },
     });
 
     try {
-      for (const action of wf.actions) {
-        await this.executeAction(action, record, orgId);
+      if (matchedRuleGroups !== undefined) {
+        for (const group of matchedRuleGroups) {
+          const groupActions = Array.isArray(group.actions) ? group.actions : [];
+          const sorted = [...groupActions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          for (const action of sorted) {
+            await this.executeAction(action, record, orgId);
+          }
+        }
+      } else {
+        for (const action of wf.actions) {
+          await this.executeAction(action, record, orgId);
+        }
       }
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
@@ -213,6 +271,11 @@ export class WorkflowsService {
     switch (action.type) {
       case 'SET_FIELD': {
         if (!cfg.field) break;
+        if (!cfg.allowLockOverride) {
+          const lock = await getLockInfoForRecordData(this.prisma, record.moduleId, orgId, (record.data as any) || {});
+          if (lock && lock.fields.includes(cfg.field)) break;
+        }
+        const previousData = { ...(record.data as any) };
         const value = cfg.value === '__NOW__' ? new Date().toISOString() : cfg.value;
         const newData = { ...(record.data as any), [cfg.field]: value };
         const setResult = await this.prisma.record.update({
@@ -222,13 +285,25 @@ export class WorkflowsService {
         record.data = newData;
         this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: newData });
         this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: newData, updatedAt: setResult.updatedAt });
+        // Chain into any other workflow watching the field this action just set —
+        // without this, a SET_FIELD action changing e.g. application_status never
+        // notifies a FIELD_CHANGED workflow watching that same field (awaited, not
+        // fire-and-forget, so the circular-execution guard above stays accurate for
+        // the whole chain rather than racing against it).
+        await this.executeForRecord('RECORD_UPDATED', record.moduleId, orgId, record, previousData).catch(() => {});
+        await this.executeForRecord('FIELD_CHANGED', record.moduleId, orgId, record, previousData).catch(() => {});
         break;
       }
 
       case 'UPDATE_RECORD': {
         if (!cfg.updates || !Array.isArray(cfg.updates)) break;
+        const lock = cfg.allowLockOverride
+          ? null
+          : await getLockInfoForRecordData(this.prisma, record.moduleId, orgId, (record.data as any) || {});
+        const previousData = { ...(record.data as any) };
         const patch: Record<string, any> = {};
         for (const u of cfg.updates) {
+          if (lock && lock.fields.includes(u.field)) continue;
           patch[u.field] = u.value === '__NOW__' ? new Date().toISOString() : u.value;
         }
         const updated = { ...(record.data as any), ...patch };
@@ -239,6 +314,9 @@ export class WorkflowsService {
         record.data = updated;
         this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, data: updated });
         this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: upResult.updatedAt });
+        // Same chaining as SET_FIELD above.
+        await this.executeForRecord('RECORD_UPDATED', record.moduleId, orgId, record, previousData).catch(() => {});
+        await this.executeForRecord('FIELD_CHANGED', record.moduleId, orgId, record, previousData).catch(() => {});
         break;
       }
 
@@ -294,8 +372,10 @@ export class WorkflowsService {
       case 'ASSIGN_USER': {
         if (!cfg.field || !cfg.userId) break;
         const newData = { ...(record.data as any), [cfg.field]: cfg.userId };
-        await this.prisma.record.update({ where: { id: record.id }, data: { data: newData } });
+        const assignResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: newData } });
         record.data = newData;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: newData, updatedAt: assignResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: newData, updatedAt: assignResult.updatedAt });
         break;
       }
 
@@ -306,8 +386,59 @@ export class WorkflowsService {
           ? (record.data as any).tags : [];
         const merged = Array.from(new Set([...existingTags, ...tagsToAdd]));
         const taggedData = { ...(record.data as any), tags: merged };
-        await this.prisma.record.update({ where: { id: record.id }, data: { data: taggedData } });
+        const tagResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: taggedData } });
         record.data = taggedData;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: taggedData, updatedAt: tagResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: taggedData, updatedAt: tagResult.updatedAt });
+        break;
+      }
+
+      case 'ADD_TAG': {
+        type TagObj = { name: string; color: string };
+        const toAdd: TagObj[] = Array.isArray(cfg.tags) ? cfg.tags : [];
+        if (!toAdd.length) break;
+        const existing: TagObj[] = Array.isArray((record.data as any)._tags) ? (record.data as any)._tags : [];
+        const existingNames = new Set(existing.map((t: TagObj) => t.name));
+        const merged = [...existing, ...toAdd.filter((t: TagObj) => t.name && !existingNames.has(t.name))];
+        const updated = { ...(record.data as any), _tags: merged };
+        const addTagResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: updated } });
+        record.data = updated;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: addTagResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: addTagResult.updatedAt });
+        break;
+      }
+
+      case 'REMOVE_TAG': {
+        type TagObj = { name: string; color: string };
+        const namesToRemove: string[] = (cfg.tagNames ?? (cfg.tags ?? []).map((t: any) => (typeof t === 'string' ? t : t?.name))).filter(Boolean);
+        if (!namesToRemove.length) break;
+        const existing: TagObj[] = Array.isArray((record.data as any)._tags) ? (record.data as any)._tags : [];
+        const filtered = existing.filter((t: TagObj) => !namesToRemove.includes(t.name));
+        const updated = { ...(record.data as any), _tags: filtered };
+        const removeTagResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: updated } });
+        record.data = updated;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: removeTagResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: removeTagResult.updatedAt });
+        break;
+      }
+
+      case 'REPLACE_TAGS': {
+        type TagObj = { name: string; color: string };
+        const newTags: TagObj[] = Array.isArray(cfg.tags) ? cfg.tags : [];
+        const updated = { ...(record.data as any), _tags: newTags };
+        const replaceTagsResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: updated } });
+        record.data = updated;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: replaceTagsResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: replaceTagsResult.updatedAt });
+        break;
+      }
+
+      case 'CLEAR_TAGS': {
+        const updated = { ...(record.data as any), _tags: [] };
+        const clearTagsResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: updated } });
+        record.data = updated;
+        this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: clearTagsResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: updated, updatedAt: clearTagsResult.updatedAt });
         break;
       }
 
@@ -355,9 +486,15 @@ export class WorkflowsService {
 
       case 'CHANGE_STATUS':
         if (cfg.fieldName && cfg.value !== undefined) {
+          const previousStatusData = { ...(record.data as any) };
           const merged = { ...(record.data as any), [cfg.fieldName]: cfg.value };
-          await this.prisma.record.update({ where: { id: record.id }, data: { data: merged } });
-          this.gateway.server?.to('module:' + record.moduleId).emit('record:updated', { recordId: record.id });
+          const statusResult = await this.prisma.record.update({ where: { id: record.id }, data: { data: merged } });
+          record.data = merged;
+          this.gateway.emitToModule(record.moduleId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: merged, updatedAt: statusResult.updatedAt });
+          this.gateway.emitToOrg(orgId, 'record:updated', { id: record.id, moduleId: record.moduleId, data: merged, updatedAt: statusResult.updatedAt });
+          // Same chaining as SET_FIELD/UPDATE_RECORD above.
+          await this.executeForRecord('RECORD_UPDATED', record.moduleId, orgId, record, previousStatusData).catch(() => {});
+          await this.executeForRecord('FIELD_CHANGED', record.moduleId, orgId, record, previousStatusData).catch(() => {});
         }
         break;
 
@@ -395,10 +532,13 @@ export class WorkflowsService {
         if (!relRecord) break;
         const existingData = (relRecord.data as Record<string, any>) || {};
         const resolved = this.resolveTemplate(String(targetValue ?? ''), record.data as any);
-        await this.prisma.record.update({
+        const relatedData = { ...existingData, [targetField]: resolved };
+        const relatedResult = await this.prisma.record.update({
           where: { id: relId },
-          data: { data: { ...existingData, [targetField]: resolved } },
+          data: { data: relatedData },
         });
+        this.gateway.emitToModule(relRecord.moduleId, 'record:updated', { id: relId, moduleId: relRecord.moduleId, data: relatedData, updatedAt: relatedResult.updatedAt });
+        this.gateway.emitToOrg(orgId, 'record:updated', { id: relId, moduleId: relRecord.moduleId, data: relatedData, updatedAt: relatedResult.updatedAt });
         break;
       }
 
@@ -447,13 +587,20 @@ export class WorkflowsService {
         }
         const targetWf = await this.prisma.workflow.findFirst({
           where: { id: targetId, organizationId: orgId, isActive: true },
-          include: { actions: { orderBy: { order: 'asc' } } },
+          include: {
+            actions: { orderBy: { order: 'asc' } },
+            ruleGroups: { orderBy: { order: 'asc' } },
+          },
         });
         if (!targetWf) break;
         orgSet.add(targetId);
         _executingSet.set(orgId, orgSet);
         try {
-          await this.executeWorkflow(targetWf, record, orgId);
+          const targetRuleGroups = (targetWf as any).ruleGroups ?? [];
+          const activeGroups = targetRuleGroups.length > 0
+            ? targetRuleGroups.filter((g: any) => g.isActive)
+            : undefined;
+          await this.executeWorkflow(targetWf, record, orgId, undefined, activeGroups);
         } finally {
           orgSet.delete(targetId);
           if (orgSet.size === 0) _executingSet.delete(orgId);
@@ -526,5 +673,51 @@ export class WorkflowsService {
       orderBy: { startedAt: 'desc' },
       take: 50,
     });
+  }
+
+  async executeScheduledWorkflow(wf: any, orgId: string, record?: any): Promise<void> {
+    const placeholder = record ?? {
+      id: `sched-${wf.id}`,
+      data: {},
+      moduleId: wf.moduleId || '',
+      organizationId: orgId,
+      createdById: null,
+    };
+    const ruleGroups = wf.ruleGroups ?? [];
+    const activeGroups = ruleGroups.length > 0 ? ruleGroups.filter((g: any) => g.isActive) : undefined;
+    await this.executeWorkflow(wf, placeholder as any, orgId, undefined, activeGroups);
+  }
+
+  /**
+   * Directly executes one specific, explicitly-linked workflow (e.g. a Blueprint
+   * transition's `workflowId`) — bypassing this workflow's own trigger-type
+   * matching, since the caller already decided *when* to check. The workflow's
+   * own rule-group (or legacy) conditions still gate whether its actions fire.
+   */
+  async executeWorkflowById(workflowId: string, orgId: string, record: any, previousData?: any): Promise<void> {
+    const wf = await this.prisma.workflow.findFirst({
+      where: { id: workflowId, organizationId: orgId, isActive: true },
+      include: {
+        actions: { orderBy: { order: 'asc' } },
+        ruleGroups: { orderBy: { order: 'asc' } },
+      },
+    });
+    if (!wf) return;
+
+    const ruleGroups = (wf as any).ruleGroups ?? [];
+    let matchedGroups: any[] | undefined;
+
+    if (ruleGroups.length > 0) {
+      const activeGroups = ruleGroups.filter((g: any) => g.isActive);
+      matchedGroups = activeGroups.filter((g: any) =>
+        evaluateNode(normalizeConditionTree(g.conditions), record.data, previousData),
+      );
+      if (matchedGroups.length === 0) return;
+    } else {
+      const tree = normalizeConditionTree(wf.conditions);
+      if (!evaluateNode(tree, record.data, previousData)) return;
+    }
+
+    await this.executeWorkflow(wf, record, orgId, record.id ?? undefined, matchedGroups);
   }
 }

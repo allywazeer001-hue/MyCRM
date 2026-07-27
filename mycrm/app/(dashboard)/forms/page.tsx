@@ -4,6 +4,6 @@ import { useRouter } from "next/navigation";
 
 export default function FormsRedirect() {
   const router = useRouter();
-  useEffect(() => { router.replace("/cf"); }, [router]);
+  useEffect(() => { router.replace("/cloudforms"); }, [router]);
   return null;
 }

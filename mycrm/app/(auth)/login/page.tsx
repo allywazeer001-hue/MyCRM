@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -143,9 +143,11 @@ function SplashScreen({ fading }: { fading: boolean }) {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-export default function LoginPage() {
+// ── Page inner (needs Suspense boundary for useSearchParams) ─────────────────
+function LoginPageInner() {
   const router   = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/workspace";
   const { login, isLoading } = useAuthStore();
   const [error,        setError]        = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -171,7 +173,7 @@ export default function LoginPage() {
       if (parts.length !== 3) return;
       const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
       const expired = payload.exp && payload.exp * 1000 < Date.now();
-      if (!expired) router.replace("/dashboard");
+      if (!expired) router.replace(redirectTo);
     } catch { /* ignore */ }
   }, []); // eslint-disable-line
 
@@ -185,7 +187,7 @@ export default function LoginPage() {
     setError(""); setErrorType("");
     try {
       await login(data.email, data.password);
-      router.push("/workspace");
+      router.push(redirectTo);
     } catch (err: any) {
       const msg: string = err?.response?.data?.message || "Invalid credentials. Please try again.";
       setError(msg);
@@ -202,7 +204,7 @@ export default function LoginPage() {
     <>
       {showSplash && <SplashScreen fading={splashFading} />}
 
-      <div className="h-dvh flex overflow-hidden" style={{ fontFamily: "inherit" }}>
+      <div className="h-full flex overflow-hidden" style={{ fontFamily: "inherit" }}>
 
         {/* ── LEFT: Dark artistic panel ── */}
         <div className="hidden lg:flex lg:w-[46%] xl:w-[44%] relative overflow-hidden select-none">
@@ -446,5 +448,14 @@ export default function LoginPage() {
 
       </div>
     </>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   );
 }

@@ -45,6 +45,17 @@ export class RecordsController {
     return this.recordsService.findAll(moduleId, user.organizationId, query);
   }
 
+  // Registered before the ':id' route below — Nest matches in declaration order, and 'id' would
+  // otherwise swallow this literal path.
+  @Get('field-values/:fieldName')
+  distinctFieldValues(
+    @Param('moduleId') moduleId: string,
+    @Param('fieldName') fieldName: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.recordsService.distinctFieldValues(moduleId, user.organizationId, fieldName);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.recordsService.findOne(id, user.organizationId);
@@ -53,7 +64,11 @@ export class RecordsController {
   @Patch(':id')
   async update(@Param('moduleId') moduleId: string, @Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
     await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canEdit');
-    return this.recordsService.update(id, user.organizationId, user.id, body);
+    const { lockOverrideReason, ...data } = body ?? {};
+    return this.recordsService.update(id, user.organizationId, user.id, data, {
+      role: user.role,
+      lockOverrideReason,
+    });
   }
 
   @Delete(':id')

@@ -24,22 +24,23 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { title, type, contextSummary, messages = [] } = await req.json();
+    const { title, type, contextSummary, messages = [], documentBase64, documentMediaType, documentName } = await req.json();
 
-    // Create client per-request so it always picks up the current env var
     const anthropic = new Anthropic({ apiKey });
 
     const system = `You are an expert data analyst embedded in Cloudbox, an enterprise CRM/ERP platform.
 Analyze the business data provided and give clear, actionable insights in a professional tone.
 Use markdown formatting: ## headings, **bold**, bullet lists where helpful.
-Be concise but thorough. When the user asks follow-up questions, reference the original data.`;
+Be concise but thorough. When the user asks follow-up questions, reference the original data.
+When presenting chart/graph data, use this exact format so it can be rendered as a visual chart:
+\`\`\`chart-bar
+{"title":"Chart Title","labels":["A","B","C"],"values":[10,20,30]}
+\`\`\`
+For line charts use \`\`\`chart-line with the same JSON structure.`;
 
-    const allMessages: Anthropic.MessageParam[] =
-      messages.length === 0
-        ? [
-            {
-              role: "user",
-              content: `Analyze the following ${type} data and provide comprehensive business insights.
+    let allMessages: Anthropic.MessageParam[];
+
+    const initialText = `Analyze the following ${type} data and provide comprehensive business insights.
 
 ## ${title}
 
@@ -48,10 +49,49 @@ ${contextSummary}
 Please structure your response with:
 ## Key Insights
 ## Trends & Patterns
-## Recommendations`,
-            },
-          ]
-        : messages;
+## Recommendations`;
+
+    if (messages.length === 0) {
+      if (documentBase64 && documentMediaType) {
+        const isImage = documentMediaType.startsWith("image/");
+        allMessages = [{
+          role: "user",
+          content: [
+            {
+              type: isImage ? "image" : "document",
+              source: { type: "base64", media_type: documentMediaType, data: documentBase64 },
+            } as any,
+            { type: "text", text: `${documentName ? `[Document: ${documentName}]\n\n` : ""}${initialText}` },
+          ],
+        }];
+      } else {
+        allMessages = [{ role: "user", content: initialText }];
+      }
+    } else if (documentBase64 && documentMediaType) {
+      // Attach document to the last user message
+      const idx = [...messages].map((m: any, i: number) => m.role === "user" ? i : -1).filter(i => i >= 0).at(-1) ?? -1;
+      if (idx >= 0) {
+        const isImage = documentMediaType.startsWith("image/");
+        allMessages = (messages as any[]).map((m: any, i: number) => {
+          if (i !== idx) return m;
+          const text = typeof m.content === "string" ? m.content : "";
+          return {
+            role: "user",
+            content: [
+              {
+                type: isImage ? "image" : "document",
+                source: { type: "base64", media_type: documentMediaType, data: documentBase64 },
+              } as any,
+              { type: "text", text: `${documentName ? `[Attached: ${documentName}] ` : ""}${text}` },
+            ],
+          };
+        });
+      } else {
+        allMessages = messages;
+      }
+    } else {
+      allMessages = messages;
+    }
 
     const encoder = new TextEncoder();
 
@@ -65,7 +105,6 @@ Please structure your response with:
             messages: allMessages,
           });
 
-          // Event-based streaming — more reliable than for-await in Next.js
           stream.on("text", (text) => {
             controller.enqueue(encoder.encode(text));
           });

@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -418,7 +419,7 @@ function PermissionsEditor({ unitId }: { unitId: string }) {
               {data.modulePermissions.map(({ module, permission }) => (
                 <div key={module.id} className="flex items-center px-6 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
                   <div className="flex items-center gap-2 w-48 shrink-0">
-                    <span className="text-base">{module.icon || "📦"}</span>
+                    <ModuleIcon icon={module.icon} slug={module.slug} className="w-4 h-4" />
                     <span className="text-sm font-medium text-gray-800 truncate">{module.name}</span>
                   </div>
                   <div className="flex gap-0 flex-1">

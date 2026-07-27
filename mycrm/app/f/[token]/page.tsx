@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
-import { Loader2, CheckCircle2, AlertCircle, X, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, X, Search, ChevronLeft, ChevronRight, Upload, FileText, ScanSearch, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, parseFieldSettings } from "@/lib/utils";
+import { DateFieldInput } from "@/components/ui/date-field-input";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,19 @@ function evalFieldState(ff: any, data: Record<string, any>, formOverrides?: Reco
   }
 
   return { visible, required, readonly };
+}
+
+function computeAutoPopulateValue(mf: any): string | undefined {
+  const settings = parseFieldSettings(mf?.settings);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  if (mf?.type === "DATE" && settings.autoPopulate === "currentDate") {
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+  if (mf?.type === "DATETIME" && settings.autoPopulate === "currentDateTime") {
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  }
+  return undefined;
 }
 
 function matchModuleCond(cond: any, data: Record<string, any>): boolean {
@@ -479,7 +493,7 @@ function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: 
     case "DROPDOWN": case "STATUS": {
       const opts = mf.options || [];
       return wrapReadonly(
-        <Select value={value || ""} onValueChange={v => !readonly && onChange(v)} disabled={readonly}>
+        <Select value={(Array.isArray(value) ? value[0] : value) || ""} onValueChange={v => !readonly && onChange(v)} disabled={readonly}>
           <SelectTrigger className="h-11 rounded-lg border-slate-200"><SelectValue placeholder="Choose an option…" /></SelectTrigger>
           <SelectContent>
             {opts.map((o: any) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
@@ -491,24 +505,34 @@ function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: 
     case "RADIO": {
       const opts = mf.options || [];
       return (
-        <div className="space-y-2 pt-1">
-          {opts.map((o: any) => (
-            <label key={o.value} className={cn(
-              "flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-all",
-              value === o.value ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50",
-              readonly && "opacity-55 cursor-not-allowed"
-            )}>
-              <div className={cn(
-                "w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
-                value === o.value ? "border-indigo-600 bg-indigo-600" : "border-slate-300"
-              )}>
-                {value === o.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+        <div className="space-y-2 pt-1" role="radiogroup">
+          {opts.map((o: any) => {
+            const selected = value === o.value;
+            return (
+              <div
+                key={o.value}
+                role="radio"
+                aria-checked={selected}
+                tabIndex={readonly ? -1 : 0}
+                onClick={() => !readonly && onChange(o.value)}
+                onKeyDown={e => { if ((e.key === " " || e.key === "Enter") && !readonly) onChange(o.value); }}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-lg border transition-all select-none",
+                  selected ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white",
+                  !readonly && "cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40",
+                  readonly && "opacity-55 cursor-not-allowed"
+                )}
+              >
+                <div className={cn(
+                  "w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
+                  selected ? "border-indigo-600 bg-indigo-600" : "border-slate-300"
+                )}>
+                  {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <span className="text-sm text-slate-700 font-medium">{o.label}</span>
               </div>
-              <input type="radio" value={o.value} checked={value === o.value}
-                onChange={() => !readonly && onChange(o.value)} disabled={readonly} className="sr-only" />
-              <span className="text-sm text-slate-700 font-medium">{o.label}</span>
-            </label>
-          ))}
+            );
+          })}
         </div>
       );
     }
@@ -547,11 +571,8 @@ function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: 
       );
     }
 
-    case "DATE":
-      return wrapReadonly(<Input type="date" value={value || ""} onChange={e => !readonly && onChange(e.target.value)} readOnly={readonly} className={inputCls} />);
-
-    case "DATETIME":
-      return wrapReadonly(<Input type="datetime-local" value={value || ""} onChange={e => !readonly && onChange(e.target.value)} readOnly={readonly} className={inputCls} />);
+    case "DATE": case "DATETIME":
+      return wrapReadonly(<DateFieldInput field={mf} value={value} onChange={v => !readonly && onChange(v)} readOnly={readonly} className={inputCls} />);
 
     case "RATING":
       return (
@@ -584,14 +605,28 @@ export default function PublicFormPage() {
   const { token } = useParams<{ token: string }>();
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [loadErr, setLoadErr] = useState<{ code: string; message: string } | null>(null);
+  const [loadErr, setLoadErr] = useState<{ code: string; message: string; unavailableMessage?: string } | null>(null);
   const [formData, setFormData] = useState<Record<string, any>>({});
+  // Set when a lookup field's autofill selects an existing CRM record — submitting
+  // then updates that record instead of creating a duplicate.
+  const [matchedRecordId, setMatchedRecordId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [redirectTimer, setRedirectTimer] = useState<number | null>(null);
+  const [appId, setAppId] = useState<string | null>(null);
+  const [submittedSnapshot, setSubmittedSnapshot] = useState<Record<string, any>>({});
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   const prevSetValues = useRef<Record<string, any>>({});
+
+  // OCR Upload state
+  const [ocrPhase, setOcrPhase] = useState<"landing" | "form">("landing");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docExtracting, setDocExtracting] = useState(false);
+  const [docFillCount, setDocFillCount] = useState(0);
+  const [docError, setDocError] = useState<string | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-page navigation
   const [pageHistory, setPageHistory] = useState<number[]>([0]);
@@ -604,12 +639,32 @@ export default function PublicFormPage() {
     api.get(`/public/forms/${token}`)
       .then(r => { setForm(r.data); setLoading(false); })
       .catch(err => {
-        const code = err?.response?.data?.message || "UNKNOWN";
-        const msg  = err?.response?.data?.message || "Form not found or unavailable.";
-        setLoadErr({ code, message: msg });
+        const body = err?.response?.data;
+        const code = (typeof body?.message === 'string' ? body.message : null) || "UNKNOWN";
+        const unavailableMessage = body?.unavailableMessage || "";
+        setLoadErr({ code, message: code, unavailableMessage });
         setLoading(false);
       });
   }, [token]);
+
+  // Seed defaultValue / auto-populate values once the form loads, so hidden
+  // fields (e.g. "Created Date") still carry a value through to submission
+  // even though no input is ever rendered for them.
+  useEffect(() => {
+    if (!form || !(form as any).moduleId) return;
+    const rawFieldsForDefaults: any[] = (form as any).resolvedFields || (form as any).fields || [];
+    const defaults: Record<string, any> = {};
+    rawFieldsForDefaults.forEach((ff: any) => {
+      const mf = ff.moduleField || ff;
+      if (!mf?.name) return;
+      if (mf.defaultValue !== undefined && mf.defaultValue !== null) { defaults[mf.name] = mf.defaultValue; return; }
+      const auto = computeAutoPopulateValue(mf);
+      if (auto !== undefined) defaults[mf.name] = auto;
+    });
+    if (Object.keys(defaults).length > 0) {
+      setFormData(prev => ({ ...defaults, ...prev }));
+    }
+  }, [form]);
 
   useEffect(() => {
     if (!submitted) return;
@@ -808,15 +863,20 @@ export default function PublicFormPage() {
     }
     // Validate only current page — previous pages were validated on each "Next" click
     if (!validateCurrentPage()) return;
+    const snap = { ...formData };
+    setSubmittedSnapshot(snap);
+    setSubmittedAt(new Date());
     setSubmitting(true);
     try {
-      await api.post(`/public/forms/${token}/submit`, formData);
+      const payload = matchedRecordId ? { ...formData, __matchedRecordId: matchedRecordId } : formData;
+      const result = await api.post(`/public/forms/${token}/submit`, payload);
+      if (result.data?.ticketNumber) setAppId(result.data.ticketNumber);
       setSubmitted(true);
     } catch (err: any) {
       const code = err?.response?.data?.message;
-      if (code === "FORM_EXPIRED")            setSubmitError(settings.expiredMessage        || "This form has expired.");
-      else if (code === "FORM_LIMIT_REACHED") setSubmitError(settings.limitReachedMessage   || "This form has reached its submission limit.");
-      else if (code === "FORM_CLOSED")        setSubmitError(settings.closedMessage         || "This form is currently closed.");
+      if (code === "FORM_EXPIRED")            setSubmitError(settings.unavailableMessage || settings.expiredMessage        || "This form has expired.");
+      else if (code === "FORM_LIMIT_REACHED") setSubmitError(settings.unavailableMessage || settings.limitReachedMessage   || "This form has reached its submission limit.");
+      else if (code === "FORM_CLOSED")        setSubmitError(settings.unavailableMessage || settings.closedMessage         || "This form is currently closed.");
       else setSubmitError("Submission failed. Please try again.");
     } finally {
       setSubmitting(false);
@@ -831,7 +891,7 @@ export default function PublicFormPage() {
     else doSubmit();
   };
 
-  const handleLookupAutoFill = (ff: any, _recordId: string, recordData: Record<string, any>) => {
+  const handleLookupAutoFill = (ff: any, recordId: string, recordData: Record<string, any>) => {
     const autoFillMap: { sourceField: string; targetFieldKey: string }[] =
       (ff.conditionalLogic as any)?.lookupAutoFill || [];
     if (autoFillMap.length === 0) return;
@@ -842,6 +902,71 @@ export default function PublicFormPage() {
       }
     }
     if (Object.keys(updates).length > 0) setFormData(prev => ({ ...prev, ...updates }));
+    // Data came from this existing record — submitting should update it, not
+    // create a duplicate.
+    setMatchedRecordId(recordId);
+  };
+
+  const handleDocExtract = async () => {
+    if (!docFile) return;
+    setDocExtracting(true);
+    setDocError(null);
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => { const r = reader.result as string; res(r.split(",")[1]); };
+        reader.onerror = rej;
+        reader.readAsDataURL(docFile);
+      });
+      const result = await api.post(`/public/forms/${token}/extract-document`, {
+        fileBase64: base64,
+        mediaType: docFile.type,
+      });
+      if (result.data?.fieldValues) {
+        const vals = result.data.fieldValues as Record<string, any>;
+
+        // Normalize option-based fields: OCR may return label text instead of the
+        // exact stored value. Try exact → case-insensitive value → case-insensitive label → partial label.
+        const allFormFields: any[] = form?.resolvedFields || form?.fields || [];
+        const OPTION_TYPES = new Set(["RADIO", "SELECT", "DROPDOWN", "STATUS", "MULTI_SELECT"]);
+
+        const normalized: Record<string, any> = {};
+        for (const [key, rawVal] of Object.entries(vals)) {
+          const ff = allFormFields.find((f: any) => {
+            const mf = f.moduleField || f;
+            return (mf?.name === key) || (f?.name === key);
+          });
+          const mf = ff?.moduleField || ff;
+          const opts: { value: string; label: string }[] = mf?.options || [];
+
+          if (opts.length && OPTION_TYPES.has(mf?.type)) {
+            const raw = String(rawVal ?? "").trim();
+            const lo = raw.toLowerCase();
+            const match =
+              opts.find(o => o.value === raw) ||
+              opts.find(o => o.value.toLowerCase() === lo) ||
+              opts.find(o => o.label.toLowerCase() === lo) ||
+              opts.find(o => o.label.toLowerCase().includes(lo) || lo.includes(o.label.toLowerCase()));
+            normalized[key] = match ? match.value : rawVal;
+          } else {
+            normalized[key] = rawVal;
+          }
+        }
+
+        setFormData(prev => ({ ...prev, ...normalized }));
+        setDocFillCount(Object.keys(normalized).length);
+      }
+      setOcrPhase("form");
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not extract data from the document.";
+      setDocError(msg);
+    } finally {
+      setDocExtracting(false);
+    }
   };
 
   // ── Loading ──
@@ -861,10 +986,10 @@ export default function PublicFormPage() {
   // ── Load errors ──
   if (loadErr) {
     const codeToScreen: Record<string, { icon: "check" | "error" | "clock"; title: string; msg: string; type: StatusType }> = {
-      FORM_CLOSED:        { icon: "error", title: "Form Closed",            msg: settings.closedMessage        || "This form is currently closed.",                           type: "error"   },
-      FORM_EXPIRED:       { icon: "error", title: "Submissions Ended",      msg: settings.expiredMessage       || "This form is no longer accepting submissions.",            type: "error"   },
-      FORM_LIMIT_REACHED: { icon: "error", title: "Response Limit Reached", msg: settings.limitReachedMessage  || "This form has reached its maximum number of responses.", type: "warning" },
-      FORM_NOT_STARTED:   { icon: "clock", title: "Not Yet Open",           msg: settings.notStartedMessage    || "This form is not yet open. Please check back later.",     type: "info"    },
+      FORM_CLOSED:        { icon: "error", title: "Form Closed",            msg: loadErr.unavailableMessage || "This form is currently closed.",                           type: "error"   },
+      FORM_EXPIRED:       { icon: "error", title: "Submissions Ended",      msg: loadErr.unavailableMessage || "This form is no longer accepting submissions.",            type: "error"   },
+      FORM_LIMIT_REACHED: { icon: "error", title: "Response Limit Reached", msg: loadErr.unavailableMessage || "This form has reached its maximum number of responses.", type: "warning" },
+      FORM_NOT_STARTED:   { icon: "clock", title: "Not Yet Open",           msg: loadErr.unavailableMessage || "This form is not yet open. Please check back later.",     type: "info"    },
     };
     const screen = codeToScreen[loadErr.code] || {
       icon: "error" as const, title: "Form Unavailable",
@@ -873,10 +998,244 @@ export default function PublicFormPage() {
     return <StatusScreen icon={screen.icon} title={screen.title} message={screen.msg} type={screen.type} />;
   }
 
+  // ── OCR Upload landing page ──
+  const ocrEnabled = !!(form && settings.documentIntelligence?.enabled);
+  if (ocrEnabled && ocrPhase === "landing") {
+    const acceptedTypes: string[] = settings.documentIntelligence.acceptedTypes || ["pdf", "docx", "jpg", "jpeg", "png"];
+    const acceptAttr = acceptedTypes.map((t: string) => t === "pdf" ? ".pdf" : t === "docx" ? ".docx" : `image/${t}`).join(",");
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4"
+        style={{ background: settings.style?.pageBg || "linear-gradient(to bottom, #f8fafc, #ffffff)" }}
+      >
+        <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.ocr-card{animation:fadeUp .3s ease both}`}</style>
+        <div className="max-w-md w-full space-y-4 ocr-card">
+          {/* Form identity */}
+          {(settings.header?.logoUrl || form?.name) && (
+            <div className="text-center mb-2">
+              {settings.header?.logoUrl && (
+                <img src={settings.header.logoUrl} alt="Logo" className="h-10 mx-auto mb-2 object-contain" />
+              )}
+              <h1 className="text-xl font-bold text-slate-900">{form?.name}</h1>
+              {form?.description && <p className="text-sm text-slate-500 mt-1">{form.description}</p>}
+            </div>
+          )}
+
+          {/* Option 1 — upload */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_4px_24px_rgba(0,0,0,0.06)] overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                  <ScanSearch className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-base font-semibold text-slate-900">Upload Document</p>
+                  <p className="text-sm text-slate-500 mt-0.5">Upload your CV, resume, or any relevant document. AI will extract and fill matching fields automatically.</p>
+                  <p className="text-xs text-slate-400 mt-1.5">
+                    Supported: {acceptedTypes.map(t => `.${t}`).join(", ")}
+                  </p>
+                </div>
+              </div>
+
+              <input
+                ref={docFileInputRef}
+                type="file"
+                className="hidden"
+                accept={acceptAttr}
+                onChange={e => {
+                  if (e.target.files?.[0]) { setDocFile(e.target.files[0]); setDocError(null); }
+                  e.target.value = "";
+                }}
+              />
+
+              {/* File drop zone */}
+              <div
+                onClick={() => docFileInputRef.current?.click()}
+                className={cn(
+                  "mt-4 border-2 border-dashed rounded-xl px-5 py-5 text-center cursor-pointer transition-all",
+                  docFile ? "border-indigo-400 bg-indigo-50" : "border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30"
+                )}
+              >
+                {docFile ? (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <FileText className="w-7 h-7 text-indigo-500" />
+                    <p className="text-sm font-medium text-indigo-700">{docFile.name}</p>
+                    <p className="text-xs text-indigo-400">{(docFile.size / 1024 / 1024).toFixed(2)} MB · Click to change</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1.5 text-slate-400">
+                    <Upload className="w-7 h-7" />
+                    <p className="text-sm font-medium text-slate-600">Click to select a file</p>
+                  </div>
+                )}
+              </div>
+
+              {docError && (
+                <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{docError}</p>
+              )}
+
+              <button
+                onClick={handleDocExtract}
+                disabled={!docFile || docExtracting}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {docExtracting
+                  ? <><Loader2 className="w-4 h-4 animate-spin" />Processing document…</>
+                  : <><ScanSearch className="w-4 h-4" />Extract &amp; Open Form</>}
+              </button>
+            </div>
+          </div>
+
+          {/* Option 2 — manual */}
+          <button
+            onClick={() => setOcrPhase("form")}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm"
+          >
+            <FileText className="w-4 h-4 text-slate-400" />
+            Open Form Manually
+          </button>
+
+          <p className="text-center text-xs text-slate-400">
+            Powered by <span className="font-medium text-slate-500">CRM Platform</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // ── Success screen ──
   if (submitted) {
     const ps = settings.postSubmit || {};
     const message = ps.message || "Thank you! Your response has been recorded.";
+    const showReceipt = !!(settings.ticketing?.enabled);
+
+    if (showReceipt) {
+      // Build receipt rows from submitted snapshot in form-field order
+      const allFormFields = (form?.resolvedFields || form?.fields || []) as any[];
+      const receiptRows = allFormFields
+        .map((ff: any) => {
+          const mf = ff.moduleField;
+          const label = ff.customLabel || mf?.label || mf?.name || ff.label || ff.name || "";
+          const key = mf?.name || ff.name || ff.fieldId || "";
+          const raw = submittedSnapshot[key];
+          if (!label || raw === undefined || raw === null || raw === "") return null;
+          return { label, value: Array.isArray(raw) ? raw.join(", ") : String(raw) };
+        })
+        .filter(Boolean) as { label: string; value: string }[];
+
+      const dateStr = submittedAt
+        ? submittedAt.toLocaleDateString(undefined, { day: "2-digit", month: "long", year: "numeric" })
+        : new Date().toLocaleDateString(undefined, { day: "2-digit", month: "long", year: "numeric" });
+      const timeStr = submittedAt
+        ? submittedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+        : new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 print:bg-white print:block print:p-0"
+          style={{ background: settings.style?.pageBg || "linear-gradient(to bottom, #f0f4ff, #ffffff)" }}>
+          <style>{`@media print{body{margin:0;padding:0}.no-print{display:none!important}#submission-receipt{box-shadow:none!important;border:1px solid #e2e8f0!important;max-width:100%!important}}`}</style>
+
+          <div className="max-w-lg w-full mx-auto">
+            {/* Success banner */}
+            <div className="no-print flex items-center gap-3 mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-2xl">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Submission Successful</p>
+                <p className="text-xs text-emerald-600">Your response has been recorded successfully.</p>
+              </div>
+            </div>
+
+            {/* Receipt */}
+            <div id="submission-receipt" className="bg-white shadow-[0_4px_32px_rgba(0,0,0,0.10)] border border-slate-200 rounded-2xl overflow-hidden print:rounded-none">
+              {/* Accent bar */}
+              <div className="h-1.5 bg-gradient-to-r from-indigo-500 to-indigo-600" />
+
+              {/* Receipt header */}
+              <div className="px-8 pt-6 pb-5 border-b border-slate-100 text-center">
+                {settings.header?.logoUrl && (
+                  <img src={settings.header.logoUrl} alt="Logo" className="h-9 mx-auto mb-3 object-contain" />
+                )}
+                <h2 className="text-base font-bold text-slate-900">{form?.name}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Submission Receipt</p>
+              </div>
+
+              {/* Field rows */}
+              <div className="px-8 py-5 space-y-0 divide-y divide-slate-50">
+                {/* App ID row — only if backend provided one */}
+                {appId && (
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="text-xs font-medium text-slate-500 w-40 shrink-0">Application ID</span>
+                    <span className="text-xs font-bold text-slate-900 font-mono text-right">{appId}</span>
+                  </div>
+                )}
+                {/* Submission date & time */}
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-xs font-medium text-slate-500 w-40 shrink-0">Submission Date</span>
+                  <span className="text-xs text-slate-800 font-medium text-right">{dateStr}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-xs font-medium text-slate-500 w-40 shrink-0">Submission Time</span>
+                  <span className="text-xs text-slate-800 font-medium text-right">{timeStr}</span>
+                </div>
+                {/* Status */}
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-xs font-medium text-slate-500 w-40 shrink-0">Status</span>
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Received</span>
+                </div>
+                {/* Submitted field values */}
+                {receiptRows.map((row, i) => (
+                  <div key={i} className="flex items-start justify-between py-2.5 gap-4">
+                    <span className="text-xs font-medium text-slate-500 w-40 shrink-0 pt-0.5">{row.label}</span>
+                    <span className="text-xs text-slate-900 font-medium text-right flex-1 break-words">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Divider */}
+              <div className="mx-8 border-t border-dashed border-slate-200" />
+
+              {/* Message */}
+              <div className="px-8 py-4 text-center">
+                <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-line">{message}</p>
+              </div>
+
+              {/* Footer note */}
+              <div className="px-8 py-3 bg-slate-50 text-center border-t border-slate-100">
+                <p className="text-[10px] uppercase tracking-widest text-slate-400">Please keep this receipt for your reference</p>
+                {ps.redirectUrl && redirectTimer !== null && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Redirecting in {redirectTimer}s…
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action buttons — hidden on print */}
+            <div className="no-print flex flex-col sm:flex-row gap-3 mt-4">
+              <button
+                onClick={() => window.print()}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                Print Receipt
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium transition-colors"
+              >
+                Submit Another Response
+              </button>
+            </div>
+
+            <p className="no-print text-center text-xs text-slate-400 mt-4">
+              Powered by <span className="font-medium text-slate-500">CRM Platform</span>
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Default success screen (receipt disabled) — unchanged ──
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50/30 flex items-center justify-center p-4">
         <div className="max-w-sm w-full">
@@ -1013,6 +1372,16 @@ export default function PublicFormPage() {
                 transition: "opacity 180ms ease, transform 180ms ease",
               }}
             >
+              {/* OCR fill confirmation banner */}
+              {docFillCount > 0 && (
+                <div className="mb-4 flex items-center gap-2.5 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <p className="text-xs font-medium text-indigo-700">
+                    {docFillCount} field{docFillCount !== 1 ? "s" : ""} pre-filled from document — review and adjust below
+                  </p>
+                </div>
+              )}
+
               {/* Rule messages */}
               {formRuleResult.messages.length > 0 && (
                 <div className="space-y-2 mb-5">
@@ -1074,6 +1443,9 @@ export default function PublicFormPage() {
                           const readonly = ff._state.readonly;
                           const err = fieldErrors[mf.name];
                           const colSpan = getFieldColSpan(ff.fieldId || ff.id);
+                          const rawVal = formData[mf.name];
+                          const isFilled = rawVal !== null && rawVal !== undefined && rawVal !== ""
+                            && !(Array.isArray(rawVal) && rawVal.length === 0);
 
                           return (
                             <div
@@ -1083,19 +1455,26 @@ export default function PublicFormPage() {
                                 colSpan === "half" ? "col-span-1" : "col-span-2",
                                 err
                                   ? "border-red-300 bg-red-50/20 shadow-[0_0_0_3px_rgba(239,68,68,0.06)]"
-                                  : "border-slate-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.04)] focus-within:border-indigo-300 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.06)]"
+                                  : isFilled
+                                    ? "border-emerald-300 bg-emerald-50/20 shadow-[0_0_0_3px_rgba(16,185,129,0.05)] focus-within:border-emerald-400"
+                                    : "border-slate-200 bg-white shadow-[0_1px_4px_rgba(0,0,0,0.04)] focus-within:border-indigo-300 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.06)]"
                               )}
                             >
                               <div className="flex items-start justify-between gap-4 mb-3">
-                                <Label htmlFor={mf.name} className="text-sm font-semibold text-slate-800 leading-tight cursor-default">
+                                <Label htmlFor={mf.name} className="text-sm font-semibold text-slate-800 leading-tight cursor-default flex items-center gap-1.5">
                                   {label}
-                                  {required && <span className="text-red-500 font-bold ml-1 text-xs">*</span>}
+                                  {required && <span className="text-red-500 font-bold text-xs">*</span>}
                                 </Label>
-                                {readonly && (
-                                  <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 rounded px-2 py-0.5 uppercase tracking-wide shrink-0 mt-0.5">
-                                    Read only
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {isFilled && !err && (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                  )}
+                                  {readonly && (
+                                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 rounded px-2 py-0.5 uppercase tracking-wide">
+                                      Read only
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               {mf.helpText && (
                                 <p className="text-xs text-slate-400 leading-relaxed -mt-1.5 mb-3">{mf.helpText}</p>

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Loader2, GitBranch, CheckCircle2, Clock, AlertCircle,
   ChevronRight, X, Info, Play, Upload, File as FileIcon, Trash2,
-  CheckCheck,
+  CheckCheck, Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -439,13 +439,48 @@ function TransitionButton({ transition, onExecute, executing }: {
   transition: BlueprintTransition; onExecute: (t: BlueprintTransition) => void; executing: boolean;
 }) {
   const color = transition.buttonColor || "#3b82f6";
+  const [hov, setHov] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
   return (
-    <button onClick={() => onExecute(transition)} disabled={executing} title={transition.description}
-      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold border transition-all shadow-sm hover:opacity-90 hover:shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-      style={{ backgroundColor: color + "15", borderColor: color + "55", color }}>
-      {executing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
-      {transition.name}
-      {transition.requiresApproval && <Clock className="w-3 h-3 ml-0.5 opacity-70" aria-label="Requires approval" />}
+    <button
+      onClick={() => onExecute(transition)}
+      disabled={executing}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => { setHov(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      title={transition.description || undefined}
+      className="relative inline-flex items-center gap-2.5 overflow-hidden rounded-xl text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed select-none"
+      style={{
+        padding: "10px 22px",
+        backgroundColor: color,
+        boxShadow: pressed
+          ? `0 1px 3px ${color}25`
+          : hov
+            ? `0 6px 20px ${color}50, 0 2px 8px ${color}30`
+            : `0 2px 8px ${color}30`,
+        transform: pressed ? "translateY(1px)" : hov ? "translateY(-2px)" : "translateY(0)",
+        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+      }}
+    >
+      {/* shimmer overlay */}
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 55%)",
+          opacity: hov ? 1 : 0,
+          transition: "opacity 0.15s ease",
+        }}
+      />
+      {executing
+        ? <Loader2 className="w-4 h-4 animate-spin shrink-0 relative z-10" />
+        : <ChevronRight className="w-4 h-4 shrink-0 relative z-10" />
+      }
+      <span className="relative z-10">{transition.name}</span>
+      {transition.requiresApproval && (
+        <Clock className="w-3.5 h-3.5 shrink-0 opacity-80 relative z-10" />
+      )}
     </button>
   );
 }
@@ -524,6 +559,7 @@ export function BlueprintActions({ recordId, moduleFields = [], onStageChanged, 
   if (!isLoading && !state?.blueprint) return null;
 
   if (isLoading) {
+    if (compact) return <div className="h-8 w-48 rounded-lg bg-gray-100 animate-pulse" />;
     return (
       <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden animate-pulse">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
@@ -540,6 +576,61 @@ export function BlueprintActions({ recordId, moduleFields = [], onStageChanged, 
   const borderColor = currentStage?.color ? currentStage.color + "50" : "#e5e7eb";
   const accentColor = currentStage?.color || "#6366f1";
 
+  // ── Compact mode: just the transition buttons, no card ─────────────────────
+  if (compact) {
+    return (
+      <>
+        {toast && (
+          <div className={cn(
+            "fixed top-4 right-4 z-[9999] flex items-center gap-2 px-4 py-3 rounded-xl shadow-xl text-sm font-medium border",
+            toast.type === "success" ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"
+          )}>
+            {toast.type === "success" ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <AlertCircle className="w-4 h-4 text-red-500" />}
+            {toast.msg}
+          </div>
+        )}
+        {pendingTransition && (
+          <TransitionDialog
+            transition={pendingTransition}
+            fields={moduleFields}
+            onConfirm={formData => runTransition(pendingTransition, formData)}
+            onCancel={() => setPendingTransition(null)}
+            executing={executing}
+          />
+        )}
+        {showInitDialog && blueprint && (
+          <InitializeDialog
+            blueprintName={blueprint.name}
+            phases={phases || []}
+            onConfirm={handleInitialize}
+            onCancel={() => setShowInitDialog(false)}
+            saving={executing}
+          />
+        )}
+        {/* Transition buttons */}
+        <div className="flex flex-wrap items-center gap-3">
+          {availableTransitions.length > 0 ? (
+            availableTransitions.map(t => (
+              <TransitionButton key={t.id} transition={t} onExecute={handleTransitionClick} executing={executing} />
+            ))
+          ) : canInitialize ? (
+            <TransitionButton
+              transition={{
+                id: "__init__",
+                name: "Start Process",
+                toPhaseId: "",
+                buttonColor: "#4f46e5",
+              } as any}
+              onExecute={() => setShowInitDialog(true)}
+              executing={executing}
+            />
+          ) : null}
+        </div>
+      </>
+    );
+  }
+
+  // ── Full card mode ─────────────────────────────────────────────────────────
   return (
     <>
       {/* Toast */}
@@ -609,19 +700,27 @@ export function BlueprintActions({ recordId, moduleFields = [], onStageChanged, 
         )}
 
         {/* Action row */}
-        <div className="px-4 py-3 flex flex-wrap items-center gap-2.5">
+        <div className="px-4 py-3 flex flex-wrap items-center gap-3">
           {availableTransitions.length > 0 ? (
             availableTransitions.map(t => (
               <TransitionButton key={t.id} transition={t} onExecute={handleTransitionClick} executing={executing} />
             ))
           ) : canInitialize ? (
-            <button onClick={() => setShowInitDialog(true)} disabled={executing}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors shadow-sm disabled:opacity-50">
-              {executing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              Start Process
-            </button>
+            <TransitionButton
+              transition={{
+                id: "__init__",
+                name: "Start Process",
+                toPhaseId: "",
+                buttonColor: "#4f46e5",
+              } as any}
+              onExecute={() => setShowInitDialog(true)}
+              executing={executing}
+            />
           ) : currentStage ? (
-            <span className="text-xs text-gray-400 italic">No transitions available at this stage</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-gray-400 italic px-3 py-2 rounded-lg bg-gray-50 border border-gray-200">
+              <Lock className="w-3.5 h-3.5 text-gray-300" />
+              No transitions available or restricted for your role
+            </span>
           ) : null}
         </div>
 

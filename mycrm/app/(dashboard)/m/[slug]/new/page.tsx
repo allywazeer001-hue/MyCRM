@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Save, Search, X, ChevronDown, Plus, Trash2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, Save, Search, X, ChevronDown, Plus, Minus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { Field } from "@/store/modules.store";
 import Link from "next/link";
-import { cn, generateId } from "@/lib/utils";
+import { cn, generateId, parseFieldSettings } from "@/lib/utils";
 import { FormSectionRenderer } from "@/components/ui/form-section-renderer";
 import { DEFAULT_MODULE_LAYOUT } from "@/lib/layout-templates";
 import { evaluateModuleRules } from "@/lib/evaluate-layout-rules";
@@ -22,6 +22,8 @@ import { DependentGlobalListInput, GlobalListInput } from "@/components/ui/depen
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { useGlobalListDependency } from "@/hooks/use-global-list-dependency";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
+import { DateFieldInput } from "@/components/ui/date-field-input";
+import { recomputeFormulaFields, formatFormulaDisplayValue } from "@/lib/formula-engine";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // All field-input components are identical to the existing new/edit pages.
@@ -90,7 +92,7 @@ function GlobalSourceDropdown({ field, value, onChange, externalOptions }: {
   const rawId = value && typeof value === "object" && value.id ? String(value.id) : (value || "__none__");
   return (
     <Select value={rawId} onValueChange={v => onChange(v === "__none__" ? "" : v)}>
-      <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+      <SelectTrigger><SelectValue placeholder="--select--" /></SelectTrigger>
       <SelectContent>
         <SelectItem value="__none__">— Select —</SelectItem>
         {displayOpts.map(o => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
@@ -165,7 +167,7 @@ function GlobalRelationInput({ field, value, onChange }: { field: Field; value: 
   );
 }
 
-interface SubformColumn { id: string; name: string; label: string; type: string; required: boolean; options?: { label: string; value: string }[]; formula?: string; lookupModuleId?: string; lookupDisplayField?: string; }
+interface SubformColumn { id: string; name: string; label: string; type: string; required: boolean; options?: { label: string; value: string }[]; formula?: string; lookupModuleId?: string; lookupDisplayField?: string; aggregate?: boolean; }
 interface SubformRow { _id: string; [key: string]: any }
 
 function evalFormula(expr: string, row: SubformRow): number {
@@ -178,25 +180,44 @@ function evalFormula(expr: string, row: SubformRow): number {
   } catch { return 0; }
 }
 
-function evalTopLevelFormula(expr: string, data: Record<string, any>): number {
-  try {
-    let s = expr.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n) => { const v = Number(data[n]); return isFinite(v) ? String(v) : "0"; });
-    s = s.replace(/\{([^}]+)\}/g, (_, n) => { const v = Number(data[n]); return isFinite(v) ? String(v) : "0"; });
-    if (!/^[\d\s+\-*/().]+$/.test(s)) return 0;
-    // eslint-disable-next-line no-new-func
-    return Number(Function(`"use strict"; return (${s})`)());
-  } catch { return 0; }
+const SUBFORM_AGGREGATE_FN = /\b(SUM|AVG|MIN|MAX|COUNT)\(([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\)/g;
+
+function computeSubformAggregate(fn: string, rows: any[], column: string): number {
+  const values = rows
+    .map(r => r?.[column])
+    .filter(v => v !== undefined && v !== null && v !== "")
+    .map(Number)
+    .filter(v => isFinite(v));
+  switch (fn) {
+    case "SUM":   return values.reduce((a, b) => a + b, 0);
+    case "AVG":   return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    case "MIN":   return values.length ? Math.min(...values) : 0;
+    case "MAX":   return values.length ? Math.max(...values) : 0;
+    case "COUNT": return values.length;
+    default:      return 0;
+  }
 }
 
-function recomputeFormulaFields(data: Record<string, any>, fields: Field[]): Record<string, any> {
-  const result = { ...data };
-  fields.forEach(f => {
-    if (f.type !== "FORMULA") return;
-    const expr = (f as any).settings?.formula as string | undefined;
-    if (expr) result[f.name] = evalTopLevelFormula(expr, result);
+function applySubformAggregates(expr: string, data: Record<string, any>): string {
+  return expr.replace(SUBFORM_AGGREGATE_FN, (_, fn, fieldName, column) => {
+    const rows = Array.isArray(data[fieldName]) ? data[fieldName] : [];
+    return String(computeSubformAggregate(fn, rows, column));
   });
-  return result;
 }
+
+function computeAutoPopulateValue(field: Field): string | undefined {
+  const settings = parseFieldSettings((field as any).settings);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  if (field.type === "DATE" && settings.autoPopulate === "currentDate") {
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+  if (field.type === "DATETIME" && settings.autoPopulate === "currentDateTime") {
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  }
+  return undefined;
+}
+
 
 function SubformLookupCell({ col, value, onChange }: { col: SubformColumn; value: any; onChange: (v: any) => void }) {
   const [search, setSearch] = useState(""); const [results, setResults] = useState<any[]>([]); const [open, setOpen] = useState(false); const ref = useRef<HTMLDivElement>(null);
@@ -224,31 +245,62 @@ function SubformCell({ col, value, onChange }: { col: SubformColumn; value: any;
 }
 
 function SubformInput({ field, value, onChange }: { field: Field; value: any; onChange: (v: any) => void }) {
-  const settings = (field as any).settings || {};
+  const settings = parseFieldSettings((field as any).settings);
   const columns: SubformColumn[] = settings.columns || [];
   const rows: SubformRow[] = Array.isArray(value) ? value : [];
   const recompute = (row: SubformRow): SubformRow => { const u = { ...row }; columns.forEach(c => { if (c.type === "FORMULA" && c.formula) u[c.name] = evalFormula(c.formula, row); }); return u; };
   const updateCell = (rowId: string, col: string, v: any) => onChange(rows.map(r => r._id !== rowId ? r : recompute({ ...r, [col]: v })));
+  const addRow = () => onChange([...rows, recompute({ _id: generateId() })]);
+  const removeRow = (rowId: string) => onChange(rows.filter(r => r._id !== rowId));
+
+  // A subform always has a default first row present — auto-seed one blank
+  // row the moment columns exist but no rows have been added yet.
+  useEffect(() => {
+    if (columns.length > 0 && rows.length === 0) addRow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns.length, rows.length]);
+
   if (columns.length === 0) return <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg"><p className="text-sm text-gray-400">No columns configured</p></div>;
   return (
     <div className="space-y-2">
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
-            <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="w-8 px-2 py-2 text-gray-400">#</th>{columns.map(c => <th key={c.id} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{c.label}{c.required && <span className="text-red-400 ml-0.5">*</span>}</th>)}<th className="w-9" /></tr></thead>
-            <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + 2} className="px-4 py-8 text-center text-gray-400">No rows yet — click Add Row to begin</td></tr> : rows.map((row, i) => <tr key={row._id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 group"><td className="px-3 py-1.5 text-gray-400 font-mono text-[10px]">{i + 1}</td>{columns.map(c => <td key={c.id} className="px-1.5 py-1.5"><SubformCell col={c} value={row[c.name]} onChange={v => updateCell(row._id, c.name, v)} /></td>)}<td className="px-1.5 py-1.5"><button type="button" onClick={() => onChange(rows.filter(r => r._id !== row._id))} className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button></td></tr>)}</tbody>
+            <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="w-8 px-2 py-2 text-gray-400">#</th>{columns.map(c => <th key={c.id} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{c.label}{c.required && <span className="text-red-400 ml-0.5">*</span>}</th>)}<th className="w-14" /></tr></thead>
+            <tbody>{rows.map((row, i) => <tr key={row._id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 group"><td className="px-3 py-1.5 text-gray-400 font-mono text-[10px]">{i + 1}</td>{columns.map(c => <td key={c.id} className="px-1.5 py-1.5"><SubformCell col={c} value={row[c.name]} onChange={v => updateCell(row._id, c.name, v)} /></td>)}<td className="px-1.5 py-1.5"><div className="flex items-center gap-1"><button type="button" onClick={addRow} title="Add row" className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0"><Plus className="w-3.5 h-3.5" /></button>{i > 0 && <button type="button" onClick={() => removeRow(row._id)} title="Remove row" className="w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors shrink-0"><Minus className="w-3.5 h-3.5" /></button>}</div></td></tr>)}</tbody>
+            {rows.length > 0 && columns.some(c => c.aggregate) && (
+              <tfoot><tr className="border-t-2 border-gray-200 bg-gray-50/70 font-semibold">
+                <td className="px-3 py-1.5" />
+                {columns.map(c => (
+                  <td key={c.id} className="px-2 py-1.5 text-gray-700">
+                    {c.aggregate ? computeSubformAggregate("SUM", rows, c.name).toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+                  </td>
+                ))}
+                <td className="px-1.5 py-1.5" />
+              </tr></tfoot>
+            )}
           </table>
         </div>
       </div>
-      <button type="button" onClick={() => onChange([...rows, recompute({ _id: generateId() })])} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-xs text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/40 transition-all flex items-center justify-center gap-2"><Plus className="w-3.5 h-3.5" />Add Row</button>
     </div>
   );
 }
 
 function DynamicFieldInput({ field, value, onChange, externalOptions }: { field: Field; value: any; onChange: (v: any) => void; externalOptions?: Record<string, any[]> }) {
+  const readonly = !!(field as any).isReadonly;
+  const inner = renderDynamicFieldInput({ field, value, onChange, externalOptions });
+  return readonly ? <div className="pointer-events-none opacity-60 select-none">{inner}</div> : <>{inner}</>;
+}
+
+function renderDynamicFieldInput({ field, value, onChange, externalOptions }: { field: Field; value: any; onChange: (v: any) => void; externalOptions?: Record<string, any[]> }) {
   switch (field.type) {
     case "AUTO_NUMBER": return <Input value="(auto-generated)" readOnly disabled className="font-mono text-gray-400 bg-gray-50" />;
-    case "FORMULA": return <div className="flex items-center gap-2 h-10 px-3 bg-blue-50/60 border border-blue-100 rounded-md"><span className="text-[10px] font-mono text-blue-400 shrink-0">fx</span><span className="text-sm font-mono font-semibold text-blue-700">{value !== undefined && value !== null && value !== "" ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 }) : <span className="text-blue-300 font-normal">calculated</span>}</span></div>;
+    case "FORMULA": {
+      const rawFS = (field as any).settings;
+      const parsedFS = typeof rawFS === "string" ? (() => { try { return JSON.parse(rawFS); } catch { return {}; } })() : (rawFS || {});
+      const displayVal = formatFormulaDisplayValue(value, parsedFS.thousandsSeparator !== false);
+      return <div className="flex items-center gap-2 h-10 px-3 bg-blue-50/60 border border-blue-100 rounded-md"><span className="text-sm font-mono font-semibold text-blue-700">{displayVal || <span className="text-blue-300 font-normal">calculated</span>}</span></div>;
+    }
     case "LOOKUP": return <LookupInput field={field} value={value} onChange={onChange} />;
     case "GLOBAL_RELATION": {
       const role = (field as any).settings?.fieldRole;
@@ -287,13 +339,12 @@ function DynamicFieldInput({ field, value, onChange, externalOptions }: { field:
         const extOptsN = Array.isArray(depExtN) ? depExtN : (isDependentN ? [] : null);
         return <GlobalSourceDropdown field={field} value={value} onChange={onChange} externalOptions={extOptsN} />;
       }
-      return <Select value={value || ""} onValueChange={onChange}><SelectTrigger><SelectValue placeholder={field.placeholder || `Select ${field.label}`} /></SelectTrigger><SelectContent>{field.options?.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;
+      return <Select value={(Array.isArray(value) ? value[0] : value) || ""} onValueChange={onChange}><SelectTrigger><SelectValue placeholder={field.placeholder || "--select--"} /></SelectTrigger><SelectContent>{field.options?.map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;
     }
-    case "RADIO": return <div className="flex flex-col gap-2">{field.options?.map(opt => <label key={opt.value} className="flex items-center gap-2.5 cursor-pointer"><input type="radio" name={field.name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} className="w-4 h-4 accent-blue-600" /><span className="text-sm text-gray-700">{opt.label}</span></label>)}</div>;
-    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map(o => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.value} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>{o.label}</button>; })}</div>;
+    case "RADIO": return <div className="flex flex-col gap-2">{field.options?.map((opt, i) => <label key={opt.id ?? `${opt.value}-${i}`} className="flex items-center gap-2.5 cursor-pointer"><input type="radio" name={field.name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} className="w-4 h-4 accent-blue-600" /><span className="text-sm text-gray-700">{opt.label}</span></label>)}</div>;
+    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map((o, i) => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.id ?? `${o.value}-${i}`} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>{o.label}</button>; })}</div>;
     case "NUMBER": case "DECIMAL": case "CURRENCY": return <Input type="number" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} step={field.type === "DECIMAL" ? "0.01" : "1"} />;
-    case "DATE": return <Input type="date" value={value || ""} onChange={e => onChange(e.target.value)} />;
-    case "DATETIME": return <Input type="datetime-local" value={value || ""} onChange={e => onChange(e.target.value)} />;
+    case "DATE": case "DATETIME": return <DateFieldInput field={field} value={value} onChange={onChange} />;
     case "EMAIL": return <Input type="email" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "email@example.com"} />;
     case "PHONE": return <Input type="tel" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "+1 (555) 000-0000"} />;
     case "URL": return <Input type="url" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "https://"} />;
@@ -344,6 +395,7 @@ export default function NewRecordPage() {
   const [errors, setErrors]    = useState<Record<string, string>>({});
   const formScrollRef = useRef<HTMLDivElement>(null);
   const [saveError, setSaveError] = useState("");
+  const [blueprintStatusField, setBlueprintStatusField] = useState<string | null>(null);
 
   const { fieldOptions, onDependencyFieldChange } = useGlobalListDependency(
     (mod?.fields ?? []) as any[],
@@ -356,8 +408,23 @@ export default function NewRecordPage() {
       .then(({ data }) => {
         setMod(data);
         console.debug("[NewRecord] loaded module — layout rules:", (data as any)?.settings?.layout?.rules ?? "none");
+        api.get(`/blueprints/module/${data.id}`)
+          .then(r => setBlueprintStatusField(r.data?.statusFieldName ?? null))
+          .catch(() => setBlueprintStatusField(null));
         const defaults: Record<string, any> = {};
-        data.fields?.forEach((f: Field) => { if (f.defaultValue !== undefined) defaults[f.name] = f.defaultValue; });
+        data.fields?.forEach((f: Field) => {
+          // Fields without an explicit default come back as `defaultValue: null` (JSON has
+          // no `undefined`) — a strict `!== undefined` check treats that as "has a default"
+          // and skips auto-populate entirely, which is why a DATE/DATETIME field configured
+          // to auto-fill the current date & time never did: every field's default is null
+          // until a user actually sets one.
+          if (f.defaultValue !== undefined && f.defaultValue !== null && f.defaultValue !== "") {
+            defaults[f.name] = f.defaultValue;
+            return;
+          }
+          const auto = computeAutoPopulateValue(f);
+          if (auto !== undefined) defaults[f.name] = auto;
+        });
         setFormData(recomputeFormulaFields(defaults, data.fields || []));
       })
       .catch(() => setSaveError("Module not found"))
@@ -414,16 +481,22 @@ export default function NewRecordPage() {
     .filter(f => !f.isHidden && f.type !== "AUTO_NUMBER")
     .map(f => {
       const state = evaluateFieldState(f, formData);
+      const isBlueprintStatusField = !!blueprintStatusField && f.name === blueprintStatusField;
       return {
         ...f,
         _state: {
           visible:  state.visible && !ruleEffects.hiddenFields.has(f.name),
-          required: ruleEffects.requiredFields.has(f.name)
+          required: isBlueprintStatusField
+            ? false
+            : ruleEffects.requiredFields.has(f.name)
+              ? true
+              : ruleEffects.unrequiredFields.has(f.name)
+                ? false
+                : state.required,
+          readonly: isBlueprintStatusField
             ? true
-            : ruleEffects.unrequiredFields.has(f.name)
-              ? false
-              : state.required,
-          readonly: ruleEffects.readonlyFields.has(f.name) ? true : state.readonly,
+            : ruleEffects.readonlyFields.has(f.name) ? true : state.readonly,
+          isBlueprintStatusField,
         },
       };
     })
@@ -573,12 +646,13 @@ export default function NewRecordPage() {
       <div className="flex-1 flex flex-col overflow-hidden bg-gray-50/40">
 
         {/* Sticky form header */}
-        <div className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 shrink-0">
-          <div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center px-8 py-4 bg-white border-b border-gray-100 shrink-0">
+          <div />
+          <div className="text-center">
             <h2 className="text-sm font-semibold text-gray-800">Record Details</h2>
             <p className="text-xs text-gray-400 mt-0.5">All required fields are marked with *</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2">
             <Link href={`/m/${slug}`}>
               <Button variant="outline" size="sm" className="gap-2">
                 <X className="w-4 h-4" /> Cancel
@@ -617,7 +691,7 @@ export default function NewRecordPage() {
               </Link>
             </div>
           ) : (
-            <div className="max-w-xl">
+            <div className="max-w-6xl">
               <FormSectionRenderer
                 layout={(mod as any)?.settings?.layout ?? DEFAULT_MODULE_LAYOUT}
                 fields={computedFields}
@@ -632,6 +706,7 @@ export default function NewRecordPage() {
                     >
                       {field.label}
                       {field._state.required && <span className="text-red-500 ml-0.5">*</span>}
+                      {field._state.isBlueprintStatusField && <span className="ml-1.5 normal-case text-gray-400">(process-managed)</span>}
                     </label>
                     <DynamicFieldInput
                       field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
@@ -645,6 +720,9 @@ export default function NewRecordPage() {
                         if (isSrc) onDependencyFieldChange(field.name, v);
                       }}
                     />
+                    {field._state.isBlueprintStatusField && (
+                      <p className="mt-1 text-xs text-gray-400">Set automatically when the record is created; change it afterwards using the process actions on the record page.</p>
+                    )}
                     {field.helpText && (
                       <p className="mt-1 text-xs text-gray-400">{field.helpText}</p>
                     )}

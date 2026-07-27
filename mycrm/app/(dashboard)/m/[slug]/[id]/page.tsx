@@ -6,7 +6,7 @@ import {
   ArrowLeft, Edit, Trash2, Loader2, AlertCircle, MessageSquare,
   Send, Clock, User, Calendar, Printer, MoreHorizontal, ExternalLink,
   Layers, ChevronRight, UserPlus, CheckCircle, RefreshCw, Save, X, FileText,
-  Copy, Archive, Lock, Unlock, History, Plus,
+  Archive, Lock, Unlock, History, Plus, Mail, CheckCircle2, XCircle, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,12 +22,59 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate, cn, parseFieldSettings } from "@/lib/utils";
 import { Field, useModulesStore } from "@/store/modules.store";
+import { useAuthStore } from "@/store/auth.store";
+import { getSocket } from "@/store/notifications.store";
 import { DependentGlobalListInput, GlobalListCombobox } from "@/components/ui/dependent-global-list-input";
 import { useGlobalListDependency } from "@/hooks/use-global-list-dependency";
+import { DateFieldInput } from "@/components/ui/date-field-input";
+import { formatDateFieldValue } from "@/lib/date-field-format";
+import { formatFormulaDisplayValue } from "@/lib/formula-engine";
+import { useFieldRules } from "@/hooks/use-field-rules";
 import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
 import { BlueprintActions } from "@/components/blueprints/blueprint-actions";
+import { SendEmailModal } from "@/components/email/send-email-modal";
+import { useBlueprintRuntimeStore } from "@/store/blueprint-runtime.store";
+import { ModuleIcon } from "@/components/ui/module-icon";
+import { DEFAULT_MODULE_LAYOUT, type LayoutSection, type LayoutTab } from "@/lib/layout-templates";
+
+// ── Field-lock override reason prompt ───────────────────────────────────────
+
+function UnlockReasonDialog({ fieldLabel, onConfirm, onCancel }: {
+  fieldLabel: string;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-gray-200">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center"><Lock className="w-4 h-4 text-amber-600" /></div>
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">Override Locked Field</h3>
+              <p className="text-xs text-gray-500 mt-0.5">{fieldLabel}</p>
+            </div>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-2">
+          <p className="text-sm text-gray-600">This field is locked at the record&apos;s current stage. Enter a reason to edit it anyway — this will be recorded in the audit trail.</p>
+          <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason for override…" rows={3} autoFocus />
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+          <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" disabled={!reason.trim()} onClick={() => onConfirm(reason.trim())} className="bg-amber-600 hover:bg-amber-700 text-white border-0">
+            Unlock &amp; Edit
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Thin wrapper so the import doesn't cause the whole page to re-render on every state change
 function BlueprintActionsSection({
@@ -41,10 +88,160 @@ function BlueprintActionsSection({
 }) {
   return (
     <BlueprintActions
+      compact
       recordId={recordId}
       moduleFields={moduleFields}
       onStageChanged={onStageChanged}
     />
+  );
+}
+
+// ── Tags ─────────────────────────────────────────────────────────────────────
+
+type Tag = { name: string; color: string };
+
+function normalizeTags(raw: any[]): Tag[] {
+  return (raw ?? []).map(t => typeof t === "string" ? { name: t, color: "#1d4ed8" } : t);
+}
+
+function TagChips({
+  tags: rawTags,
+  editMode = false,
+  managedTags = [],
+  onRemove,
+}: {
+  tags: any[];
+  editMode?: boolean;
+  managedTags?: string[];
+  onRemove?: (name: string) => void;
+}) {
+  const tags = normalizeTags(rawTags);
+  if (!tags.length) return null;
+  return (
+    <>
+      {tags.map(tag => {
+        const isManaged = managedTags.includes(tag.name);
+        return (
+          <span
+            key={tag.name}
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-white text-xs font-semibold select-none"
+            style={{ backgroundColor: tag.color }}
+          >
+            {tag.name}
+            {editMode && (
+              isManaged ? (
+                <span title="Managed by active blueprint — toggle off or delete the blueprint to remove this tag" className="opacity-60 cursor-not-allowed text-[10px]">🔒</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRemove?.(tag.name)}
+                  className="hover:opacity-70 transition-opacity ml-0.5 leading-none"
+                  title="Remove tag"
+                >
+                  ×
+                </button>
+              )
+            )}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// ── Remarks (pinned notes visible at every stage) ───────────────────────────
+
+type Remark = { id: string; text: string; authorName: string; createdAt: string; stage?: string };
+
+function RemarksSection({
+  remarks, currentStage, onAdd, onRemove,
+}: {
+  remarks: Remark[];
+  currentStage?: string;
+  onAdd: (r: Remark) => void;
+  onRemove: (id: string) => void;
+}) {
+  const { user } = useAuthStore();
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const post = () => {
+    const val = text.trim();
+    if (!val) return;
+    onAdd({
+      id: Math.random().toString(36).slice(2, 9),
+      text: val,
+      authorName: user ? `${user.firstName} ${user.lastName}` : "Unknown",
+      createdAt: new Date().toISOString(),
+      stage: currentStage,
+    });
+    setText("");
+    setOpen(false);
+  };
+
+  const fmt = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+            <MessageSquare className="w-4 h-4 text-gray-400" />
+            Remarks
+            {remarks.length > 0 && (
+              <span className="text-[11px] bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5 font-semibold">{remarks.length}</span>
+            )}
+          </CardTitle>
+          {!open && (
+            <button type="button" onClick={() => { setOpen(true); setTimeout(() => textareaRef.current?.focus(), 40); }}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Add
+            </button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {remarks.length === 0 && !open && (
+          <p className="text-[11px] text-gray-400 italic">No remarks yet.</p>
+        )}
+
+        {[...remarks].reverse().map(r => (
+          <div key={r.id} className="flex items-start gap-2 bg-gray-50 rounded-lg border border-gray-100 px-3 py-2">
+            <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap flex-1">{r.text}</p>
+            <button type="button" onClick={() => onRemove(r.id)}
+              className="text-gray-300 hover:text-red-500 transition-colors shrink-0 mt-0.5"
+              title="Remove">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+
+        {open && (
+          <div className="space-y-1.5">
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && e.ctrlKey) post(); if (e.key === "Escape") { setOpen(false); setText(""); } }}
+              placeholder="Write a remark… (Ctrl+Enter to post)"
+              rows={3}
+              className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+            />
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={post} disabled={!text.trim()}
+                className="px-3 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors">
+                Post
+              </button>
+              <button type="button" onClick={() => { setOpen(false); setText(""); }}
+                className="px-3 py-1 text-xs text-gray-400 hover:text-gray-600">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -60,6 +257,16 @@ interface SubformColumn {
   options?: { label: string; value: string }[];
   lookupModuleId?: string;
   lookupDisplayField?: string;
+  aggregate?: boolean;
+}
+
+function computeSubformAggregate(rows: Record<string, any>[], column: string): number {
+  const values = rows
+    .map(r => r?.[column])
+    .filter(v => v !== undefined && v !== null && v !== "")
+    .map(Number)
+    .filter(v => isFinite(v));
+  return values.reduce((a, b) => a + b, 0);
 }
 
 interface RelatedModuleTab {
@@ -117,7 +324,7 @@ function SubformCellValue({ value, col }: { value: any; col: SubformColumn }) {
 function SubformReadOnly({ value, field }: { value: any; field: Field }) {
   const [collapsed, setCollapsed] = useState(false);
   const rows: Record<string, any>[] = Array.isArray(value) ? value : [];
-  const cols = ((field.settings?.columns || []) as SubformColumn[]);
+  const cols = (parseFieldSettings((field as any).settings).columns || []) as SubformColumn[];
 
   if (rows.length === 0) {
     return (
@@ -208,6 +415,18 @@ function SubformReadOnly({ value, field }: { value: any; field: Field }) {
                 </tr>
               ))}
             </tbody>
+            {cols.some(c => c.aggregate) && (
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50/70 font-semibold">
+                  <td className="px-3 py-2.5" />
+                  {cols.map((col, ci) => (
+                    <td key={col.id || `col-${ci}`} className={cn("px-3 py-2.5 text-gray-700", COL_TYPE_ALIGN[col.type] || "")}>
+                      {col.aggregate ? computeSubformAggregate(rows, col.name).toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
@@ -300,7 +519,7 @@ function LookupDisplay({ value, field, resolvedLabel }: { value: any; field: Fie
 
   return (
     <div className="flex items-center gap-1.5">
-      {targetMod && <span className="text-sm">{targetMod.icon || "📦"}</span>}
+      {targetMod && <ModuleIcon icon={targetMod.icon} slug={targetMod.slug} className="w-3.5 h-3.5" />}
       <span className="text-sm text-gray-800">{label ?? String(value)}</span>
       {targetMod && value && (
         <Link href={`/m/${targetMod.slug}/${value}`} className="text-blue-400 hover:text-blue-600 transition-colors" title="Open linked record">
@@ -393,7 +612,7 @@ function RecordFieldValue({ value, field, resolvedLabel }: { value: any; field: 
     return <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm truncate max-w-xs block">{value}</a>;
   }
   if (field.type === "DATE" || field.type === "DATETIME") {
-    return <span className="text-sm text-gray-700">{formatDate(value)}</span>;
+    return <span className="text-sm text-gray-700">{formatDateFieldValue(value, field)}</span>;
   }
   if (field.type === "CURRENCY") {
     return <span className="text-sm font-semibold text-gray-800">${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>;
@@ -413,7 +632,9 @@ function RecordFieldValue({ value, field, resolvedLabel }: { value: any; field: 
     return <span className="text-sm font-mono font-medium text-blue-600">{value}</span>;
   }
   if (field.type === "FORMULA") {
-    return <span className="text-sm font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{value}</span>;
+    const rawFS = (field as any).settings;
+    const parsedFS = typeof rawFS === "string" ? (() => { try { return JSON.parse(rawFS); } catch { return {}; } })() : (rawFS || {});
+    return <span className="text-sm font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{formatFormulaDisplayValue(value, parsedFS.thousandsSeparator !== false)}</span>;
   }
   if (field.type === "FILE" || field.type === "IMAGE" || field.type === "SIGNATURE") {
     if (typeof value !== "string" || !value) return <span className="text-gray-400 italic text-sm">—</span>;
@@ -506,6 +727,105 @@ const ACTION_LABEL: Record<string, string> = {
   RECORD_UNLOCKED:   "unlocked this record",
   COMMENT_ADDED:     "commented",
 };
+
+// ── Emails Tab ─────────────────────────────────────────────────────────────
+
+function EmailLogList({ recordId }: { recordId: string }) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/emails/by-record/${recordId}`).then(r => setLogs(r.data || [])).catch(() => {}).finally(() => setLoading(false));
+  }, [recordId]);
+
+  if (loading) return (
+    <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+  );
+  if (logs.length === 0) return (
+    <p className="text-sm text-gray-400 text-center py-10">No emails sent to this record yet.</p>
+  );
+
+  return (
+    <div className="space-y-3">
+      {logs.map((log: any) => (
+        <div key={log.id} className="flex gap-3.5 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+          <span className={cn(
+            "w-9 h-9 rounded-full flex items-center justify-center shrink-0",
+            log.status === "sent" ? "bg-green-100" : "bg-red-100"
+          )}>
+            {log.status === "sent" ? <CheckCircle2 className="w-4.5 h-4.5 text-green-600" /> : <XCircle className="w-4.5 h-4.5 text-red-600" />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-gray-800 truncate">{log.subject}</span>
+              <span className="text-xs text-gray-400 ml-auto shrink-0" title={log.sentAt}>{relativeTime(log.sentAt)}</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              To {log.toName ? `${log.toName} · ` : ""}{log.toEmail}
+              {log.sentBy && <span className="text-gray-400"> · sent by {log.sentBy.firstName} {log.sentBy.lastName}</span>}
+            </p>
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              {log.status !== "sent" && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">{log.errorMsg || "Failed to send"}</span>
+              )}
+              {log.status === "sent" && (
+                log.openedAt
+                  ? <span className="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex items-center gap-1"><Eye className="w-3 h-3" /> Opened {relativeTime(log.openedAt)}</span>
+                  : <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100">Not opened yet</span>
+              )}
+              {log.clickedAt && <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-100">Clicked</span>}
+            </div>
+            {log.remark && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-2">📝 {log.remark}</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmailInsights({ recordId }: { recordId: string }) {
+  const [stats, setStats] = useState<{ total: number; delivered: number; opened: number; notOpened: number; openRate: number } | null>(null);
+
+  useEffect(() => {
+    api.get(`/emails/by-record/${recordId}/stats`).then(r => setStats(r.data)).catch(() => {});
+  }, [recordId]);
+
+  if (!stats || stats.total === 0) {
+    return <p className="text-xs text-gray-400">No emails sent yet — use Send Email above to reach out.</p>;
+  }
+
+  return (
+    <>
+      <div className="text-center py-1.5 border-b border-gray-100 mb-1">
+        <p className={cn("text-3xl font-bold leading-none", stats.openRate >= 50 ? "text-emerald-600" : "text-gray-700")}>{stats.openRate}%</p>
+        <p className="text-xs text-gray-400 mt-1.5">Open rate</p>
+      </div>
+      <div className="flex items-start gap-2.5">
+        <Mail className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-xs text-gray-500">Total sent</p>
+          <p className="text-sm font-medium text-gray-800">{stats.total}</p>
+        </div>
+      </div>
+      <div className="flex items-start gap-2.5">
+        <Eye className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-xs text-gray-500">Opened</p>
+          <p className="text-sm font-medium text-gray-800">{stats.opened}</p>
+        </div>
+      </div>
+      <div className="flex items-start gap-2.5">
+        <EyeOff className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-xs text-gray-500">Unopened</p>
+          <p className="text-sm font-medium text-gray-800">{stats.notOpened}</p>
+        </div>
+      </div>
+    </>
+  );
+}
 
 function ActivityTab({ moduleId, recordId }: { moduleId: string; recordId: string }) {
   const [entries, setEntries] = useState<any[]>([]);
@@ -657,6 +977,9 @@ function RelatedRecordsTable({ tab, currentRecordId }: { tab: RelatedModuleTab; 
                   {f.label}
                 </th>
               ))}
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-violet-500 uppercase tracking-wide whitespace-nowrap">
+                Tags
+              </th>
               <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">
                 Actions
               </th>
@@ -670,6 +993,27 @@ function RelatedRecordsTable({ tab, currentRecordId }: { tab: RelatedModuleTab; 
                     <RecordFieldValue value={rec.data?.[f.name]} field={f} resolvedLabel={rec.data?.[f.name + "__label"]} />
                   </td>
                 ))}
+                <td className="px-4 py-2.5">
+                  {Array.isArray(rec.data?._tags) && rec.data._tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {(rec.data._tags as string[]).slice(0, 3).map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-semibold border border-violet-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {(rec.data._tags as string[]).length > 3 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-50 text-violet-500 text-[11px] border border-violet-100">
+                          +{(rec.data._tags as string[]).length - 3}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-gray-300 text-xs">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-2.5 text-right">
                   <Link href={`/m/${tab.module.slug}/${rec.id}`}>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600">
@@ -770,22 +1114,12 @@ function InlineFieldEditor({
         <Switch checked={!!value} onCheckedChange={onChange} />
       );
 
-    case "DATE":
+    case "DATE": case "DATETIME":
       return (
-        <Input
-          type="date"
-          value={value ? String(value).split("T")[0] : ""}
-          onChange={(e) => onChange(e.target.value || null)}
-          className="h-8 text-sm"
-        />
-      );
-
-    case "DATETIME":
-      return (
-        <Input
-          type="datetime-local"
-          value={value ? String(value).replace("Z", "").slice(0, 16) : ""}
-          onChange={(e) => onChange(e.target.value || null)}
+        <DateFieldInput
+          field={field}
+          value={value}
+          onChange={(v) => onChange(v || null)}
           className="h-8 text-sm"
         />
       );
@@ -823,7 +1157,7 @@ function InlineFieldEditor({
         <Select value={value ?? ""} onValueChange={handleChange}>
           <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select…" /></SelectTrigger>
           <SelectContent>
-            {opts.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            {opts.map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>)}
           </SelectContent>
         </Select>
       );
@@ -835,11 +1169,11 @@ function InlineFieldEditor({
       const opts = field.options || [];
       return (
         <div className="flex flex-wrap gap-1.5">
-          {opts.map((o) => {
+          {opts.map((o, i) => {
             const active = current.includes(o.value);
             return (
               <button
-                key={o.value}
+                key={o.id ?? `${o.value}-${i}`}
                 type="button"
                 onClick={() => onChange(active ? current.filter((v) => v !== o.value) : [...current, o.value])}
                 className={cn(
@@ -861,9 +1195,9 @@ function InlineFieldEditor({
       const opts = field.options || [];
       return (
         <div className="flex flex-wrap gap-2">
-          {opts.map((o) => (
+          {opts.map((o, i) => (
             <button
-              key={o.value}
+              key={o.id ?? `${o.value}-${i}`}
               type="button"
               onClick={() => onChange(value === o.value ? null : o.value)}
               className={cn(
@@ -911,13 +1245,13 @@ export default function RecordDetailPage() {
   const [record, setRecord] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [comment, setComment] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState("details");
   // ── Inline edit state ──────────────────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
   const [draftData, setDraftData] = useState<Record<string, any>>({});
+  const [draftTags, setDraftTags] = useState<any[]>([]);
+  const [managedTags, setManagedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingSectionTitle, setEditingSectionTitle] = useState(false);
   const [sectionTitleValue, setSectionTitleValue] = useState("");
@@ -925,16 +1259,18 @@ export default function RecordDetailPage() {
   // Per-field double-click editing (does not require entering full editMode)
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [fieldDraft, setFieldDraft] = useState<any>(null);
+  // Blueprint stage field locks — fields the current stage marks read-only,
+  // plus (if the current user is authorized) a reason-prompted override flow.
+  const stageLockInfo = useBlueprintRuntimeStore(s => (id ? s.recordStates[id] : undefined));
+  const stageLockedFields = stageLockInfo?.lockedFields ?? [];
+  const canOverrideStageLock = stageLockInfo?.canOverrideLockedFields ?? false;
+  const [unlockedFields, setUnlockedFields] = useState<Set<string>>(new Set());
+  const [overrideReason, setOverrideReason] = useState("");
+  const [unlockPromptField, setUnlockPromptField] = useState<Field | null>(null);
   // Portal user state
   const [portalStatus, setPortalStatus] = useState<{ portalEnabled: boolean; portalLabel?: string; portalUser: any } | null>(null);
-  // Duplicate / Archive / Lock
-  const [duplicating, setDuplicating] = useState(false);
-  // @mention state for comments
-  const commentInputRef = useRef<HTMLInputElement>(null);
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [mentionStart, setMentionStart] = useState(-1);
+  // Archive / Lock
+  const [sendEmailOpen, setSendEmailOpen] = useState(false);
   const [creatingPortalUser, setCreatingPortalUser] = useState(false);
   const [portalMsg, setPortalMsg] = useState("");
 
@@ -945,6 +1281,9 @@ export default function RecordDetailPage() {
     draftData,
     setDraftData,
   );
+
+  // Field rules engine — auto-populate values, hide/disable/require fields
+  const { evaluate: evaluateFieldRules } = useFieldRules(record?.module?.id);
 
   const load = async () => {
     try {
@@ -972,30 +1311,58 @@ export default function RecordDetailPage() {
   }, [slug, id]);
 
   useEffect(() => {
+    if (id) useBlueprintRuntimeStore.getState().loadForRecord(id);
+  }, [id]);
+
+  // Live-refresh when a blueprint transition (manual or automatic) moves this
+  // record's stage in the background — otherwise the page only reflects it
+  // after a manual reload.
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !id) return;
+    const handler = (payload: { recordId?: string }) => {
+      if (payload?.recordId === id) load();
+    };
+    socket.on("blueprint:stage:changed", handler);
+
+    // Live-refresh: a workflow (or another user/tab) may change this record's
+    // data in the background — reload the resolved record on the spot instead
+    // of waiting for a manual page refresh.
+    let reloading = false;
+    const recordUpdatedHandler = (payload: { id?: string }) => {
+      if (payload?.id !== id || reloading) return;
+      reloading = true;
+      load().finally(() => { reloading = false; });
+    };
+    socket.on("record:updated", recordUpdatedHandler);
+
+    return () => {
+      socket.off("blueprint:stage:changed", handler);
+      socket.off("record:updated", recordUpdatedHandler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
     if (id) loadPortalStatus(id);
   }, [id]);
 
-  // Fetch user list once for @mentions
+  // Auto-populate fields based on field rules whenever draftData changes in editMode
   useEffect(() => {
-    api.get("/users", { params: { limit: 200 } })
-      .then(r => setAllUsers(Array.isArray(r.data) ? r.data : (r.data?.data ?? [])))
-      .catch(() => {});
-  }, []);
-
-  // ── Duplicate / Archive / Lock ──────────────────────────────────────────
-
-  const handleDuplicate = async () => {
-    if (!record) return;
-    setDuplicating(true);
-    try {
-      const { data: newRec } = await api.post(`/modules/${record.module.id}/records/${id}/duplicate`);
-      router.push(`/m/${slug}/${newRec.id}`);
-    } catch {
-      alert("Failed to duplicate record");
-    } finally {
-      setDuplicating(false);
+    if (!editMode || !record) return;
+    const currentLive = { ...(record.data as Record<string, any> || {}), ...draftData };
+    const effects = evaluateFieldRules(currentLive);
+    if (!Object.keys(effects.values).length) return;
+    const toApply: Record<string, any> = {};
+    for (const [field, value] of Object.entries(effects.values)) {
+      if (currentLive[field] !== value) toApply[field] = value;
     }
-  };
+    if (Object.keys(toApply).length > 0) {
+      setDraftData(prev => ({ ...prev, ...toApply }));
+    }
+  }, [editMode, draftData, evaluateFieldRules, record]);
+
+  // ── Archive / Lock ───────────────────────────────────────────────────────
 
   const handleArchive = async () => {
     if (!record) return;
@@ -1019,32 +1386,6 @@ export default function RecordDetailPage() {
     }
   };
 
-  // ── @mentions ────────────────────────────────────────────────────────────
-
-  const handleCommentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setComment(val);
-    const cursor = e.target.selectionStart ?? val.length;
-    const upToCursor = val.slice(0, cursor);
-    const lastAt = upToCursor.lastIndexOf("@");
-    if (lastAt >= 0 && !upToCursor.slice(lastAt + 1).includes(" ")) {
-      setMentionStart(lastAt);
-      setMentionQuery(upToCursor.slice(lastAt + 1).toLowerCase());
-      setMentionOpen(true);
-    } else {
-      setMentionOpen(false);
-    }
-  };
-
-  const insertMention = (user: any) => {
-    const name = `${user.firstName} ${user.lastName}`;
-    const before = comment.slice(0, mentionStart);
-    const after = comment.slice(mentionStart + 1 + mentionQuery.length);
-    setComment(`${before}@${name}${after}`);
-    setMentionOpen(false);
-    setTimeout(() => commentInputRef.current?.focus(), 0);
-  };
-
   const handleDelete = async () => {
     if (!confirm("Delete this record? This cannot be undone.")) return;
     setDeleting(true);
@@ -1053,19 +1394,6 @@ export default function RecordDetailPage() {
       router.push(`/m/${slug}`);
     } catch {
       setDeleting(false);
-    }
-  };
-
-  const handleAddComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!comment.trim()) return;
-    setSubmittingComment(true);
-    try {
-      const { data } = await api.post(`/modules/${record.module.id}/records/${id}/comments`, { content: comment });
-      setRecord((prev: any) => ({ ...prev, comments: [data, ...(prev.comments || [])] }));
-      setComment("");
-    } finally {
-      setSubmittingComment(false);
     }
   };
 
@@ -1098,16 +1426,47 @@ export default function RecordDetailPage() {
   const handleStartEdit = () => {
     const initialData = { ...(record.data as Record<string, any>) };
     setDraftData(initialData);
+    setDraftTags(Array.isArray(initialData._tags) ? [...initialData._tags] : []);
     setEditError("");
     setEditMode(true);
-    // Pre-load filtered options for dependent fields that already have a parent value
     bootstrapDependencies(initialData);
+    // Fetch which tags are managed by active blueprints/workflows for this module
+    const moduleId = record?.module?.id;
+    if (moduleId) {
+      api.get(`/blueprints/managed-tags/${moduleId}`)
+        .then(r => setManagedTags(Array.isArray(r.data) ? r.data : []))
+        .catch(() => setManagedTags([]));
+    }
   };
 
   const handleCancelEdit = () => {
     setEditMode(false);
     setDraftData({});
+    setDraftTags([]);
+    setManagedTags([]);
     setEditError("");
+    setUnlockedFields(new Set());
+    setOverrideReason("");
+  };
+
+  // A locked field is only editable once its stage's authorized override is
+  // confirmed with a reason — requestFieldUnlock opens that prompt; confirmFieldUnlock
+  // records the reason and, outside bulk edit mode, opens the double-click editor directly.
+  const requestFieldUnlock = (field: Field) => {
+    if (unlockedFields.has(field.name)) return;
+    setUnlockPromptField(field);
+  };
+
+  const confirmFieldUnlock = (reason: string) => {
+    const field = unlockPromptField;
+    if (!field) return;
+    setUnlockedFields(prev => new Set(prev).add(field.name));
+    setOverrideReason(reason);
+    setUnlockPromptField(null);
+    if (!editMode) {
+      setEditingFieldId(field.id);
+      setFieldDraft(record?.data?.[field.name]);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -1115,10 +1474,16 @@ export default function RecordDetailPage() {
     setEditError("");
     try {
       const mod = record.module;
-      await api.patch(`/modules/${mod.id}/records/${id}`, draftData);
-      setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), ...draftData } }));
+      const payload: Record<string, any> = { ...draftData, _tags: draftTags };
+      if (unlockedFields.size > 0) payload.lockOverrideReason = overrideReason;
+      await api.patch(`/modules/${mod.id}/records/${id}`, payload);
+      setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), ...draftData, _tags: draftTags } }));
       setEditMode(false);
       setDraftData({});
+      setDraftTags([]);
+      setManagedTags([]);
+      setUnlockedFields(new Set());
+      setOverrideReason("");
     } catch (err: any) {
       setEditError(err?.response?.data?.message || "Failed to save. Please try again.");
     } finally {
@@ -1126,12 +1491,39 @@ export default function RecordDetailPage() {
     }
   };
 
+  // Remarks
+  const handleRemarkAdd = async (remark: Remark) => {
+    const current = Array.isArray(record.data?._remarks) ? record.data._remarks : [];
+    const updated = [...current, remark];
+    setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), _remarks: updated } }));
+    try {
+      await api.patch(`/modules/${record.module.id}/records/${id}`, { _remarks: updated });
+    } catch {
+      setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), _remarks: current } }));
+    }
+  };
+
+  const handleRemarkRemove = async (remarkId: string) => {
+    const current = Array.isArray(record.data?._remarks) ? record.data._remarks : [];
+    const updated = current.filter((r: Remark) => r.id !== remarkId);
+    setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), _remarks: updated } }));
+    try {
+      await api.patch(`/modules/${record.module.id}/records/${id}`, { _remarks: updated });
+    } catch {
+      setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), _remarks: current } }));
+    }
+  };
+
   // Save a single field edited via double-click
   const saveFieldEdit = async (field: Field) => {
     const mod = record.module;
+    const isOverride = unlockedFields.has(field.name);
     try {
-      await api.patch(`/modules/${mod.id}/records/${id}`, { [field.name]: fieldDraft });
+      const payload: Record<string, any> = { [field.name]: fieldDraft };
+      if (isOverride) payload.lockOverrideReason = overrideReason;
+      await api.patch(`/modules/${mod.id}/records/${id}`, payload);
       setRecord((prev: any) => ({ ...prev, data: { ...(prev.data || {}), [field.name]: fieldDraft } }));
+      if (isOverride) setUnlockedFields(prev => { const next = new Set(prev); next.delete(field.name); return next; });
     } catch { /* silent — keep editing */ }
     setEditingFieldId(null);
     setFieldDraft(null);
@@ -1154,7 +1546,6 @@ export default function RecordDetailPage() {
   const mod = record.module;
   const fields: Field[] = mod?.fields || [];
   const data = record.data as Record<string, any>;
-  const comments = record.comments || [];
 
   const titleField = fields.find(f => ["TEXT", "AUTO_NUMBER", "EMAIL"].includes(f.type));
   const titleValue = titleField ? data[titleField.name] : record.id.slice(0, 8);
@@ -1200,9 +1591,16 @@ export default function RecordDetailPage() {
 
   // Use the live data (draftData in edit mode, record.data otherwise) for evaluation
   const liveData = editMode ? { ...data, ...draftData } : data;
+
+  // Compute field rule effects from the current live data
+  const fieldRuleEffects = editMode ? evaluateFieldRules(liveData) : null;
+
   const displayFields = baseFields.filter(f => {
     const result = evalLayoutRule((f as any).settings, liveData);
-    return !result.hidden;
+    if (result.hidden) return false;
+    // Also apply field-rule hide effects
+    if (fieldRuleEffects?.hidden.has((f as any).name)) return false;
+    return true;
   });
 
   // Discover related modules: other modules with a LOOKUP field pointing to this module
@@ -1214,69 +1612,242 @@ export default function RecordDetailPage() {
         .map((f: Field) => ({ module: m, linkField: f }))
     );
 
+  // Module Builder's layout config — a configured tab becomes its OWN top-level
+  // page tab (alongside Details/Activity/related modules), not a control nested
+  // inside Details. "Details" itself only shows sections that aren't assigned to
+  // any tab, plus fields with no section at all.
+  const layout = (mod as any)?.settings?.layout ?? DEFAULT_MODULE_LAYOUT;
+  const detailColumns: 2 | 3 = layout.detailColumns ?? 3;
+  const layoutSections: LayoutSection[] = layout.sections ?? [];
+  const layoutTabsList: LayoutTab[] = (layout.tabs ?? []).slice().sort((a: LayoutTab, b: LayoutTab) => a.order - b.order);
+  const untabbedSections = layoutSections.filter(s => !s.tabId);
+  const sectionsByLayoutTab = new Map<string, LayoutSection[]>();
+  for (const s of layoutSections) {
+    if (!s.tabId) continue;
+    const list = sectionsByLayoutTab.get(s.tabId) ?? [];
+    list.push(s);
+    sectionsByLayoutTab.set(s.tabId, list);
+  }
+  const sectionFieldsOf = (s: LayoutSection) =>
+    s.fieldIds.map(fid => displayFields.find(f => f.id === fid)).filter(Boolean) as Field[];
+  const visibleLayoutTabs = layoutTabsList.filter(t => (sectionsByLayoutTab.get(t.id) ?? []).some(s => sectionFieldsOf(s).length > 0));
+  const assignedFieldIds = new Set(layoutSections.flatMap(s => s.fieldIds));
+
+  const gridClass = detailColumns === 2
+    ? "grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5"
+    : "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-5";
+  const fullWidthClass = detailColumns === 2 ? "sm:col-span-2" : "sm:col-span-2 xl:col-span-3";
+  const FULL_WIDTH_TYPES = ["TEXTAREA", "RICH_TEXT", "MULTI_SELECT", "INLINE_SUBFORM", "TAGS", "FILE", "IMAGE", "SIGNATURE", "DEPENDENT_GLOBAL_LIST"];
+
+  const renderFieldCell = (field: Field) => {
+    const isEditingThis = editingFieldId === field.id;
+    // canEditInline: can be edited in bulk-edit mode (Edit button)
+    const canEditInline = !["FORMULA", "AUTO_NUMBER", "INLINE_SUBFORM", "LOOKUP"].includes(field.type);
+    // canDoubleClickEdit: subset — FILE/IMAGE fields use full edit mode only, not double-click
+    const canDoubleClickEdit = canEditInline && !["FILE", "IMAGE", "SIGNATURE"].includes(field.type);
+    const isRuleDisabled = editMode && !!fieldRuleEffects?.disabled.has((field as any).name);
+    const isRuleRequired = editMode && (
+      !!fieldRuleEffects?.required.has((field as any).name) ||
+      (evalLayoutRule((field as any).settings, liveData).required)
+    );
+    const isStageLocked = stageLockedFields.includes(field.name) && !unlockedFields.has(field.name);
+    return (
+      <div key={field.id} className={cn(
+        "space-y-1.5",
+        FULL_WIDTH_TYPES.includes(field.type) && fullWidthClass,
+        editMode && canEditInline && "rounded-lg p-2 -mx-2 bg-blue-50/30 ring-1 ring-blue-100",
+        isEditingThis && "rounded-lg p-2 -mx-2 bg-indigo-50/40 ring-2 ring-indigo-300",
+        isRuleDisabled && "opacity-50 pointer-events-none",
+      )}>
+        <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+          {field.label}
+          {isRuleRequired && <span className="text-red-500 text-xs leading-none">*</span>}
+        </dt>
+        <dd>
+          {/* Per-field double-click edit mode */}
+          {isEditingThis ? (
+            <div
+              className="flex items-center gap-1"
+              onKeyDown={(e) => {
+                // Enter=save, Escape=cancel — but let TEXTAREA/RICH_TEXT fields
+                // keep Enter for inserting a newline instead of submitting.
+                const isMultiline = (e.target as HTMLElement).tagName === "TEXTAREA";
+                if (e.key === "Enter" && !isMultiline) {
+                  e.preventDefault();
+                  saveFieldEdit(field);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditingFieldId(null);
+                  setFieldDraft(null);
+                }
+              }}
+            >
+              <div className="flex-1">
+                <InlineFieldEditor
+                  field={field}
+                  value={fieldDraft}
+                  onChange={setFieldDraft}
+                  fieldOptions={fieldOptions}
+                  onDependencyFieldChange={onDependencyFieldChange}
+                />
+              </div>
+              <button
+                onClick={() => saveFieldEdit(field)}
+                title="Save"
+                className="w-6 h-6 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shrink-0 transition-colors"
+              >
+                <Save className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => { setEditingFieldId(null); setFieldDraft(null); }}
+                title="Cancel"
+                className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full shrink-0 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : editMode && canEditInline && isStageLocked ? (
+            <div className="flex items-center gap-2">
+              <span className="flex-1 text-sm text-gray-500 italic">
+                <RecordFieldValue value={data[field.name]} field={field} resolvedLabel={data[field.name + "__label"]} />
+              </span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 shrink-0">
+                <Lock className="w-3 h-3" /> Locked
+              </span>
+              {canOverrideStageLock && (
+                <button type="button" onClick={() => requestFieldUnlock(field)}
+                  className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold shrink-0 underline underline-offset-2">
+                  Unlock to edit
+                </button>
+              )}
+            </div>
+          ) : editMode && canEditInline ? (
+            <InlineFieldEditor
+              field={field}
+              value={draftData[field.name]}
+              onChange={(v) => setDraftData((prev) => ({ ...prev, [field.name]: v }))}
+              fieldOptions={fieldOptions}
+              onDependencyFieldChange={onDependencyFieldChange}
+            />
+          ) : (
+            <div
+              onDoubleClick={() => {
+                if (!canDoubleClickEdit || !perm.canEdit || editMode) return;
+                if (isStageLocked) {
+                  if (canOverrideStageLock) requestFieldUnlock(field);
+                  return;
+                }
+                setEditingFieldId(field.id);
+                setFieldDraft(data[field.name]);
+              }}
+              title={
+                isStageLocked
+                  ? (canOverrideStageLock ? "Locked at this stage — double-click to request an override" : "Locked at this stage")
+                  : (canDoubleClickEdit && perm.canEdit ? "Double-click to edit" : undefined)
+              }
+              className={cn(
+                canDoubleClickEdit && perm.canEdit && !editMode && !isStageLocked && "cursor-text group/field",
+                canDoubleClickEdit && perm.canEdit && !editMode && isStageLocked && canOverrideStageLock && "cursor-pointer",
+              )}
+            >
+              <RecordFieldValue value={data[field.name]} field={field} resolvedLabel={data[field.name + "__label"]} />
+              {stageLockedFields.includes(field.name) && (
+                <Lock className="inline w-3 h-3 text-amber-500 ml-1 align-middle" />
+              )}
+              {canDoubleClickEdit && perm.canEdit && !editMode && !isStageLocked && (
+                <span className="ml-1 opacity-0 group-hover/field:opacity-40 text-[10px] text-gray-400 select-none">✎</span>
+              )}
+            </div>
+          )}
+        </dd>
+      </div>
+    );
+  };
+
+  // Section header — a small colored accent bar + slightly bolder label reads more
+  // deliberate than a bare uppercase caption. Suppressed entirely when a page has
+  // only one section, since the page/tab's own title already says the same thing.
+  const renderSection = (s: LayoutSection, showHeader: boolean) => {
+    const sf = sectionFieldsOf(s);
+    if (sf.length === 0) return null;
+    return (
+      <div key={s.id} className="space-y-3 mb-6 last:mb-0">
+        {showHeader && s.title && (
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <span className="w-1 h-3.5 rounded-full bg-blue-500 shrink-0" />
+            <p className="text-sm font-semibold text-gray-700">{s.title}</p>
+          </div>
+        )}
+        <dl className={gridClass}>{sf.map(renderFieldCell)}</dl>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto print:max-w-none">
+    <div className="space-y-4 max-w-6xl mx-auto print:max-w-none">
       {/* Header */}
-      <div className="flex items-start justify-between print:hidden">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-4 print:hidden">
+        <div className="flex items-start gap-3 min-w-0">
           <Link href={`/m/${slug}`}>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 mt-0.5">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">{mod?.icon || "📦"}</span>
-              <h1 className="text-2xl font-bold text-gray-900 truncate max-w-lg">{String(titleValue || "Untitled")}</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <ModuleIcon icon={mod?.icon} slug={mod?.slug} className="w-5 h-5" />
+              <h1 className="text-2xl font-bold text-gray-900">{String(titleValue || "Untitled")}</h1>
               {statusField && data[statusField.name] && (
                 <RecordFieldValue value={data[statusField.name]} field={statusField} resolvedLabel={data[statusField.name + "__label"]} />
               )}
+              <TagChips
+                tags={editMode ? draftTags : (Array.isArray(data._tags) ? data._tags : [])}
+                editMode={editMode}
+                managedTags={managedTags}
+                onRemove={name => setDraftTags(prev => prev.filter((t: any) => (typeof t === "string" ? t : t.name) !== name))}
+              />
             </div>
-            <p className="text-sm text-gray-400 ml-7 mt-0.5">
-              {mod?.name} · Created {formatDate(record.createdAt)}
-              {record.createdBy && ` by ${record.createdBy.firstName} ${record.createdBy.lastName}`}
-            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
-            <Printer className="w-4 h-4" />
-            Print
-          </Button>
-          <PermissionGate slug={slug ?? ""} action="canEdit">
-            {editMode ? (
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleCancelEdit} className="gap-1.5">
-                  <X className="w-4 h-4" /> Cancel
-                </Button>
-                <Button size="sm" onClick={handleSaveEdit} disabled={saving} className="gap-1.5">
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {saving ? "Saving…" : "Save"}
-                </Button>
-              </div>
-            ) : (
-              <Button size="sm" className="gap-2" onClick={handleStartEdit}>
-                <Edit className="w-4 h-4" /> Edit
+          {/* Edit mode save/cancel */}
+          {editMode && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={handleCancelEdit} className="gap-1.5">
+                <X className="w-4 h-4" /> Cancel
               </Button>
-            )}
-          </PermissionGate>
+              <Button size="sm" onClick={handleSaveEdit} disabled={saving} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? "Saving…" : "Save Changes"}
+              </Button>
+            </div>
+          )}
+
+          {/* Send Email — its own visible button, not buried in "More", only when the module has an email field */}
+          {!editMode && fields.some(f => f.type === "EMAIL") && (
+            <Button size="sm" variant="outline" onClick={() => setSendEmailOpen(true)} className="gap-1.5">
+              <Send className="w-4 h-4" /> Send Email
+            </Button>
+          )}
+
+          {/* Actions dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-9 w-9">
+              <Button variant="outline" size="sm" className="gap-1.5">
                 <MoreHorizontal className="w-4 h-4" />
+                More
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-52">
+              <PermissionGate slug={slug ?? ""} action="canEdit">
+                <DropdownMenuItem onClick={handleStartEdit} className="gap-2 cursor-pointer">
+                  <Edit className="w-4 h-4" /> Edit Record
+                </DropdownMenuItem>
+              </PermissionGate>
               <DropdownMenuItem onClick={handlePrint} className="gap-2 cursor-pointer">
                 <Printer className="w-4 h-4" /> Print Record
               </DropdownMenuItem>
-              <PermissionGate slug={slug ?? ""} action="canCreate">
-                <DropdownMenuItem onClick={handleDuplicate} disabled={duplicating} className="gap-2 cursor-pointer">
-                  {duplicating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-                  Duplicate Record
-                </DropdownMenuItem>
-              </PermissionGate>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleArchive}
@@ -1333,6 +1904,16 @@ export default function RecordDetailPage() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+      </div>
+
+      {/* Transition actions */}
+      <div className="print:hidden">
+        <BlueprintActions
+          compact
+          recordId={id}
+          moduleFields={(fields as any[]).map((f: any) => ({ name: f.name, label: f.label, type: f.type }))}
+          onStageChanged={() => load()}
+        />
       </div>
 
       {/* Portal status banner */}
@@ -1397,19 +1978,13 @@ export default function RecordDetailPage() {
         <p className="text-sm text-gray-500">Created: {formatDate(record.createdAt)}</p>
       </div>
 
-      {/* Blueprint process actions — current stage + available transition buttons */}
-      <div className="print:hidden">
-        <BlueprintActionsSection
-          recordId={id}
-          moduleFields={(fields as any[]).map((f: any) => ({ name: f.name, label: f.label, type: f.type }))}
-          onStageChanged={() => load()}
-        />
-      </div>
-
-      {/* Tabs — always visible: Details, Activity, and any related modules */}
+      {/* Tabs — always visible: Details, Activity, Emails (if the module has an email field), and any related modules */}
       <div className="border-b border-gray-200 print:hidden">
         <nav className="-mb-px flex gap-0 overflow-x-auto">
-          {(["details", "activity"] as const).map(tab => (
+          {[
+            "details", "activity",
+            ...(fields.some(f => f.type === "EMAIL") ? ["emails"] : []),
+          ].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -1421,7 +1996,24 @@ export default function RecordDetailPage() {
               )}
             >
               {tab === "activity" && <History className="w-3.5 h-3.5" />}
+              {tab === "emails" && <Mail className="w-3.5 h-3.5" />}
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+          {/* Custom tabs from the Module Builder's layout config — each one carries
+              its own page of sections, exactly like Details/Activity do. */}
+          {visibleLayoutTabs.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={cn(
+                "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors",
+                activeTab === t.id
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              )}
+            >
+              {t.label}
             </button>
           ))}
           {relatedTabs.map(tab => (
@@ -1435,7 +2027,7 @@ export default function RecordDetailPage() {
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               )}
             >
-              <span>{tab.module.icon || "📦"}</span>
+              <ModuleIcon icon={tab.module.icon} slug={tab.module.slug} className="w-4 h-4" />
               {tab.module.name}
             </button>
           ))}
@@ -1458,6 +2050,59 @@ export default function RecordDetailPage() {
         </div>
       )}
 
+      {/* Emails tab content — same main+sidebar grid as Details, so it carries the same visual weight */}
+      {activeTab === "emails" && record && (
+        <div className="print:hidden grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="lg:col-span-3">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                  <Mail className="w-4 h-4" /> Emails Sent
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EmailLogList recordId={id} />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold text-gray-700">Email Insights</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <EmailInsights recordId={id} />
+                <div className="pt-2 border-t border-gray-100">
+                  <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={() => setSendEmailOpen(true)}>
+                    <Send className="w-3.5 h-3.5" /> Compose Email
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Custom layout-tab content — each tab is its own full page of sections,
+          same one-Card presentation as Activity/related-module tabs. */}
+      {visibleLayoutTabs.filter(t => t.id === activeTab).map(t => {
+        const secs = (sectionsByLayoutTab.get(t.id) ?? []).filter(s => sectionFieldsOf(s).length > 0);
+        const showHeaders = secs.length > 1;
+        return (
+          <div key={t.id} className="print:hidden">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold text-gray-700">{t.label}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {secs.map(s => renderSection(s, showHeaders))}
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })}
+
       {/* Related module tab content */}
       {activeTab !== "details" && activeTab !== "activity" && (
         <div className="print:hidden">
@@ -1467,7 +2112,7 @@ export default function RecordDetailPage() {
               <Card key={tab.module.id}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <span className="text-base">{tab.module.icon || "📦"}</span>
+                    <ModuleIcon icon={tab.module.icon} slug={tab.module.slug} className="w-4 h-4" />
                     {tab.module.name}
                     <span className="text-xs text-gray-400 font-normal">linked via {tab.linkField.label}</span>
                   </CardTitle>
@@ -1483,9 +2128,9 @@ export default function RecordDetailPage() {
 
       {/* Details tab content */}
       {activeTab === "details" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main fields */}
-          <div className="lg:col-span-2 space-y-5">
+          <div className="lg:col-span-3 space-y-5">
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -1534,84 +2179,25 @@ export default function RecordDetailPage() {
                     Fields are now editable. Click <strong>Save</strong> to apply changes or <strong>Cancel</strong> to discard.
                   </div>
                 )}
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
-                  {displayFields.map(field => {
-                    const isEditingThis = editingFieldId === field.id;
-                    // canEditInline: can be edited in bulk-edit mode (Edit button)
-                    const canEditInline = !["FORMULA", "AUTO_NUMBER", "INLINE_SUBFORM", "LOOKUP"].includes(field.type);
-                    // canDoubleClickEdit: subset — FILE/IMAGE fields use full edit mode only, not double-click
-                    const canDoubleClickEdit = canEditInline && !["FILE", "IMAGE", "SIGNATURE"].includes(field.type);
-                    return (
-                      <div key={field.id} className={cn(
-                        "space-y-1.5",
-                        ["TEXTAREA", "RICH_TEXT", "MULTI_SELECT", "INLINE_SUBFORM", "TAGS", "FILE", "IMAGE", "SIGNATURE", "DEPENDENT_GLOBAL_LIST"].includes(field.type) && "sm:col-span-2",
-                        editMode && canEditInline && "rounded-lg p-2 -mx-2 bg-blue-50/30 ring-1 ring-blue-100",
-                        isEditingThis && "rounded-lg p-2 -mx-2 bg-indigo-50/40 ring-2 ring-indigo-300"
-                      )}>
-                        <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{field.label}</dt>
-                        <dd>
-                          {/* Per-field double-click edit mode */}
-                          {isEditingThis ? (
-                            <div className="flex items-center gap-1">
-                              <div className="flex-1">
-                                <InlineFieldEditor
-                                  field={field}
-                                  value={fieldDraft}
-                                  onChange={setFieldDraft}
-                                  fieldOptions={fieldOptions}
-                                  onDependencyFieldChange={onDependencyFieldChange}
-                                />
-                              </div>
-                              <button
-                                onClick={() => saveFieldEdit(field)}
-                                title="Save"
-                                className="w-6 h-6 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shrink-0 transition-colors"
-                              >
-                                <Save className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => { setEditingFieldId(null); setFieldDraft(null); }}
-                                title="Cancel"
-                                className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full shrink-0 transition-colors"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : editMode && canEditInline ? (
-                            <InlineFieldEditor
-                              field={field}
-                              value={draftData[field.name]}
-                              onChange={(v) => setDraftData((prev) => ({ ...prev, [field.name]: v }))}
-                              fieldOptions={fieldOptions}
-                              onDependencyFieldChange={onDependencyFieldChange}
-                            />
-                          ) : (
-                            <div
-                              onDoubleClick={() => {
-                                if (canDoubleClickEdit && perm.canEdit && !editMode) {
-                                  setEditingFieldId(field.id);
-                                  setFieldDraft(data[field.name]);
-                                }
-                              }}
-                              title={canDoubleClickEdit && perm.canEdit ? "Double-click to edit" : undefined}
-                              className={cn(
-                                canDoubleClickEdit && perm.canEdit && !editMode && "cursor-text group/field"
-                              )}
-                            >
-                              <RecordFieldValue value={data[field.name]} field={field} resolvedLabel={data[field.name + "__label"]} />
-                              {canDoubleClickEdit && perm.canEdit && !editMode && (
-                                <span className="ml-1 opacity-0 group-hover/field:opacity-40 text-[10px] text-gray-400 select-none">✎</span>
-                              )}
-                            </div>
-                          )}
-                        </dd>
-                      </div>
-                    );
-                  })}
-                  {displayFields.length === 0 && (
-                    <p className="text-sm text-gray-400 sm:col-span-2">No fields configured.</p>
-                  )}
-                </dl>
+                {(() => {
+                  // Details shows whatever ISN'T claimed by a tab — sections with no
+                  // tabId, plus fields not in any section at all. Anything assigned to
+                  // a tab gets its own page instead (see the tab content blocks below).
+                  const visibleUntabbed = untabbedSections.filter(s => sectionFieldsOf(s).length > 0);
+                  const unassigned = displayFields.filter(f => !assignedFieldIds.has(f.id));
+                  const showHeaders = visibleUntabbed.length > 1;
+                  if (visibleUntabbed.length === 0 && unassigned.length === 0) {
+                    return <p className="text-sm text-gray-400">No fields configured.</p>;
+                  }
+                  return (
+                    <div>
+                      {visibleUntabbed.map(s => renderSection(s, showHeaders))}
+                      {unassigned.length > 0 && (
+                        <dl className={gridClass}>{unassigned.map(renderFieldCell)}</dl>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Bottom save bar when in edit mode */}
                 {editMode && (
                   <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -1627,63 +2213,13 @@ export default function RecordDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Comments */}
-            <Card className="print:hidden">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4" />
-                  Comments ({comments.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-0">
-                <form onSubmit={handleAddComment} className="flex gap-2 pb-4">
-                  <div className="relative flex-1">
-                    <Input
-                      ref={commentInputRef}
-                      value={comment}
-                      onChange={handleCommentChange}
-                      onKeyDown={e => { if (e.key === "Escape") setMentionOpen(false); }}
-                      placeholder="Add a comment… (type @ to mention someone)"
-                      className="w-full"
-                    />
-                    {mentionOpen && (
-                      <div className="absolute bottom-full left-0 mb-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                        {allUsers
-                          .filter(u => `${u.firstName} ${u.lastName}`.toLowerCase().includes(mentionQuery))
-                          .slice(0, 6)
-                          .map(user => (
-                            <button
-                              key={user.id}
-                              type="button"
-                              onMouseDown={e => { e.preventDefault(); insertMention(user); }}
-                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 text-left text-sm"
-                            >
-                              <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center shrink-0">
-                                {user.firstName?.[0]}{user.lastName?.[0]}
-                              </span>
-                              <span>{user.firstName} {user.lastName}</span>
-                            </button>
-                          ))}
-                        {allUsers.filter(u => `${u.firstName} ${u.lastName}`.toLowerCase().includes(mentionQuery)).length === 0 && (
-                          <p className="px-3 py-2 text-xs text-gray-400">No users match</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <Button type="submit" size="sm" disabled={!comment.trim() || submittingComment}>
-                    {submittingComment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </Button>
-                </form>
-
-                {comments.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-4">No comments yet.</p>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {comments.map((c: any) => <CommentItem key={c.id} comment={c} />)}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {/* Remarks */}
+            <RemarksSection
+              remarks={Array.isArray(data._remarks) ? data._remarks : []}
+              currentStage={statusField ? (data[statusField.name + "__label"] || data[statusField.name]) : undefined}
+              onAdd={handleRemarkAdd}
+              onRemove={handleRemarkRemove}
+            />
           </div>
 
           {/* Sidebar */}
@@ -1727,7 +2263,7 @@ export default function RecordDetailPage() {
                         onClick={() => setActiveTab(tab.module.id)}
                         className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-md hover:bg-gray-50 transition-colors"
                       >
-                        <span className="text-sm">{tab.module.icon || "📦"}</span>
+                        <ModuleIcon icon={tab.module.icon} slug={tab.module.slug} className="w-4 h-4" />
                         <span className="text-sm text-gray-700 flex-1">{tab.module.name}</span>
                         <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
                       </button>
@@ -1740,32 +2276,54 @@ export default function RecordDetailPage() {
               </CardContent>
             </Card>
 
-            <div className="flex flex-col gap-2">
-              <PermissionGate slug={slug ?? ""} action="canEdit">
-                {editMode ? (
-                  <Button variant="outline" className="w-full gap-2" onClick={handleCancelEdit}>
-                    <X className="w-4 h-4" /> Cancel Editing
-                  </Button>
-                ) : (
-                  <Button variant="outline" className="w-full gap-2" onClick={handleStartEdit}>
-                    <Edit className="w-4 h-4" /> Edit Record
-                  </Button>
-                )}
-              </PermissionGate>
-              {perm.canDelete && (
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {deleting ? "Deleting..." : "Delete Record"}
-                </Button>
-              )}
-            </div>
           </div>
+
         </div>
+      )}
+
+      {/* Send Email modal */}
+      {sendEmailOpen && (() => {
+        const emailField = fields.find(f => f.type === "EMAIL");
+        const recordRaw  = data as Record<string, any>;
+        const defaultEmail = emailField ? String(recordRaw[emailField.name] ?? "") : "";
+
+        // Best-effort name: prefer a field explicitly named like a person's name,
+        // then the first TEXT field, then the record's title value.
+        const nameField =
+          fields.find(f => f.type === "TEXT" && ["name","fullName","full_name","firstName","first_name","contactName","clientName","studentName","scholarName"].includes(f.name)) ||
+          fields.find(f => f.type === "TEXT");
+        const defaultName =
+          (nameField ? String(recordRaw[nameField.name] ?? "") : "") ||
+          String(titleValue ?? "");
+
+        // Build a clean string-map: skip __label keys and object/array values
+        const strData: Record<string, string> = {};
+        Object.entries(recordRaw).forEach(([k, v]) => {
+          if (k.endsWith("__label")) return;       // skip resolver-added labels
+          if (v == null) return;
+          if (typeof v === "object") return;        // skip nested objects / arrays
+          strData[k] = String(v);
+        });
+
+        return (
+          <SendEmailModal
+            open={sendEmailOpen}
+            onClose={() => setSendEmailOpen(false)}
+            defaultEmail={defaultEmail}
+            defaultName={defaultName}
+            recordData={strData}
+            recordLabel={String(titleValue ?? record.id.slice(0, 8))}
+            recordId={record.id}
+          />
+        );
+      })()}
+
+      {unlockPromptField && (
+        <UnlockReasonDialog
+          fieldLabel={unlockPromptField.label}
+          onConfirm={confirmFieldUnlock}
+          onCancel={() => setUnlockPromptField(null)}
+        />
       )}
     </div>
   );

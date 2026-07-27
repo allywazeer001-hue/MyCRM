@@ -195,7 +195,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) return null;
 
   return (
-    <div className="flex h-dvh bg-slate-50 overflow-hidden">
+    <div className="flex h-full bg-slate-50 overflow-hidden">
 
       {/* Sidebar — desktop only */}
       <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-gradient-to-b from-indigo-900 to-indigo-800 text-white">

@@ -53,8 +53,8 @@ export interface Dashboard {
   sharedRoles: string[];
   sharedDepartments: string[];
   sharedUsers: string[];
-  // widget layout (config.widgets)
-  config: { widgets: WidgetDef[] };
+  // widget layout (config.widgets) + optional global context filter (Dynamic Analytics Context Engine)
+  config: { widgets: WidgetDef[]; contextField?: string | null; contextValue?: string | null };
   createdAt: string;
   updatedAt: string;
 }
@@ -135,11 +135,20 @@ interface DashboardStore {
   reorderWidgets: (dashboardId: string, newOrder: string[]) => Promise<void>;
   /** Save grid position/size changes for multiple widgets in a single API call */
   bulkUpdateLayout: (dashboardId: string, changes: { id: string; x: number; y: number; w: number; h: number }[]) => Promise<void>;
+  /** Set/clear the dashboard's global context filter (Dynamic Analytics Context Engine) */
+  setDashboardContext: (dashboardId: string, contextField: string | null, contextValue: string | null) => Promise<void>;
 }
 
-/** PATCH helper — sends updated widget list to the backend. */
-async function saveWidgets(dashboardId: string, widgets: WidgetDef[]): Promise<Dashboard> {
-  const { data } = await api.patch(`/dashboards/${dashboardId}`, { config: { widgets } });
+/**
+ * PATCH helper — sends the updated widget list to the backend, always alongside the
+ * dashboard's current contextField/contextValue. DashboardsService.update() replaces
+ * config wholesale (no deep merge), so any caller that PATCHed only { widgets } would
+ * silently wipe out an active context filter — every mutator below must go through this.
+ */
+async function saveWidgets(dashboard: Dashboard, widgets: WidgetDef[]): Promise<Dashboard> {
+  const { data } = await api.patch(`/dashboards/${dashboard.id}`, {
+    config: { ...dashboard.config, widgets },
+  });
   return data;
 }
 
@@ -237,7 +246,7 @@ export const useDashboardStore = create<DashboardStore>()(
           ...findFreePosition(existing, w, h), w, h,
           config,
         };
-        const updated = await saveWidgets(dashboardId, [...existing, widget]);
+        const updated = await saveWidgets(d, [...existing, widget]);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -255,7 +264,7 @@ export const useDashboardStore = create<DashboardStore>()(
             analyticsWidgetId: chart.widgetId,
           },
         };
-        const updated = await saveWidgets(dashboardId, [...existing, widget]);
+        const updated = await saveWidgets(d, [...existing, widget]);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -268,7 +277,7 @@ export const useDashboardStore = create<DashboardStore>()(
           title, x: 0, y: findFreePosition(existing, GRID_COLS, 1).y, w: GRID_COLS, h: 1,
           config: { collapsed: false },
         };
-        const updated = await saveWidgets(dashboardId, [...existing, widget]);
+        const updated = await saveWidgets(d, [...existing, widget]);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -281,7 +290,7 @@ export const useDashboardStore = create<DashboardStore>()(
           title: viewName, ...findFreePosition(existing, 6, 4), w: 6, h: 4,
           analyticsViewId: viewId, config: {},
         };
-        const updated = await saveWidgets(dashboardId, [...existing, widget]);
+        const updated = await saveWidgets(d, [...existing, widget]);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -289,7 +298,7 @@ export const useDashboardStore = create<DashboardStore>()(
         const d = get().dashboards.find(x => x.id === dashboardId);
         if (!d) return;
         const widgets = (d.config?.widgets ?? []).map(w => w.id === widgetId ? { ...w, ...patch } : w);
-        const updated = await saveWidgets(dashboardId, widgets);
+        const updated = await saveWidgets(d, widgets);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -297,7 +306,7 @@ export const useDashboardStore = create<DashboardStore>()(
         const d = get().dashboards.find(x => x.id === dashboardId);
         if (!d) return;
         const widgets = (d.config?.widgets ?? []).filter(w => w.id !== widgetId);
-        const updated = await saveWidgets(dashboardId, widgets);
+        const updated = await saveWidgets(d, widgets);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -306,7 +315,7 @@ export const useDashboardStore = create<DashboardStore>()(
         if (!d) return;
         const byId = Object.fromEntries((d.config?.widgets ?? []).map(w => [w.id, w]));
         const widgets = newOrder.map(id => byId[id]).filter(Boolean) as WidgetDef[];
-        const updated = await saveWidgets(dashboardId, widgets);
+        const updated = await saveWidgets(d, widgets);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
       },
 
@@ -317,8 +326,17 @@ export const useDashboardStore = create<DashboardStore>()(
           const c = changes.find(ch => ch.id === w.id);
           return c ? { ...w, x: c.x, y: c.y, w: c.w, h: c.h } : w;
         });
-        const updated = await saveWidgets(dashboardId, widgets);
+        const updated = await saveWidgets(d, widgets);
         set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...updated } : x) }));
+      },
+
+      async setDashboardContext(dashboardId, contextField, contextValue) {
+        const d = get().dashboards.find(x => x.id === dashboardId);
+        if (!d) return;
+        const { data } = await api.patch(`/dashboards/${dashboardId}`, {
+          config: { ...d.config, contextField, contextValue },
+        });
+        set(s => ({ dashboards: s.dashboards.map(x => x.id === dashboardId ? { ...x, ...data } : x) }));
       },
     }),
     {

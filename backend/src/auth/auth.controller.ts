@@ -2,6 +2,7 @@ import { Controller, Post, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RecoveryStartDto, RecoveryVerifyDto, RecoveryResetDto } from './dto/recovery.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -26,6 +27,24 @@ export class AuthController {
   @HttpCode(200)
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('recovery/start')
+  @HttpCode(200)
+  recoveryStart(@Body() dto: RecoveryStartDto) {
+    return this.authService.recoveryStart(dto);
+  }
+
+  @Post('recovery/verify')
+  @HttpCode(200)
+  recoveryVerify(@Body() dto: RecoveryVerifyDto) {
+    return this.authService.recoveryVerify(dto);
+  }
+
+  @Post('recovery/reset')
+  @HttpCode(200)
+  recoveryReset(@Body() dto: RecoveryResetDto) {
+    return this.authService.recoveryReset(dto);
   }
 
   // Refresh does NOT use JwtAuthGuard — the access token is expired when this runs.

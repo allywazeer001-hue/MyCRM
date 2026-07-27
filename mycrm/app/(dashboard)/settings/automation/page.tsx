@@ -15,10 +15,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 import { api } from "@/lib/api";
 import { useModulesStore } from "@/store/modules.store";
 import { cn } from "@/lib/utils";
+import { findBlueprintLinksForWorkflows, BlueprintWorkflowLink } from "@/lib/blueprint-links";
+import { countConditionLeaves, normalizeConditionTree } from "@/lib/condition-tree";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +62,8 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [blueprintLinks, setBlueprintLinks] = useState<Map<string, BlueprintWorkflowLink>>(new Map());
+  const [linkedOnly, setLinkedOnly] = useState(false);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
@@ -69,6 +74,9 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
     catch {} finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { findBlueprintLinksForWorkflows().then(setBlueprintLinks); }, [workflows.length]);
+
+  const visibleWorkflows = linkedOnly ? workflows.filter(wf => blueprintLinks.has(wf.id)) : workflows;
 
   const toggle = async (id: string) => {
     try {
@@ -97,6 +105,16 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
             Workflows automate actions when records change — set up triggers, optional conditions, and a sequence of actions to execute automatically.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setLinkedOnly(v => !v)}
+          className={cn(
+            "flex items-center gap-1.5 h-9 px-3 rounded-lg border text-xs font-medium shrink-0 transition-colors",
+            linkedOnly ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
+          )}
+        >
+          <Lock className="w-3.5 h-3.5" /> Linked to blueprint
+        </button>
         <Link href="/settings/workflows/new">
           <Button className="gap-2 shrink-0 h-9">
             <Plus className="w-4 h-4" /> New Workflow
@@ -106,25 +124,38 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
 
       {loading ? (
         <div className="flex items-center justify-center h-40"><Loader2 className="w-5 h-5 animate-spin text-violet-500" /></div>
-      ) : workflows.length === 0 ? (
+      ) : visibleWorkflows.length === 0 ? (
         <div className="border-2 border-dashed border-gray-200 rounded-2xl p-14 text-center space-y-3">
           <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center mx-auto">
             <Workflow className="w-7 h-7 text-violet-300" />
           </div>
-          <p className="text-sm font-semibold text-gray-700">No Workflows yet</p>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">Create your first automation workflow with triggers, conditions and actions.</p>
-          <Link href="/settings/workflows/new">
-            <Button size="sm" className="gap-2 mt-2">
-              <Plus className="w-4 h-4" /> Create Workflow
-            </Button>
-          </Link>
+          <p className="text-sm font-semibold text-gray-700">{linkedOnly ? "No blueprint-linked workflows" : "No Workflows yet"}</p>
+          <p className="text-xs text-gray-400 max-w-xs mx-auto">
+            {linkedOnly ? "No workflow is currently linked to a blueprint transition." : "Create your first automation workflow with triggers, conditions and actions."}
+          </p>
+          {!linkedOnly && (
+            <Link href="/settings/workflows/new">
+              <Button size="sm" className="gap-2 mt-2">
+                <Plus className="w-4 h-4" /> Create Workflow
+              </Button>
+            </Link>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {workflows.map(wf => {
+          {visibleWorkflows.map(wf => {
             const TriggerIcon = TRIGGER_ICONS[wf.trigger] || Zap;
             const trigger = TRIGGER_OPTIONS.find(t => t.value === wf.trigger);
             const mod = modules.find(m => m.id === wf.moduleId);
+            const link = blueprintLinks.get(wf.id);
+            const ruleGroupsList: any[] = wf.ruleGroups || [];
+            const usingRuleGroups = ruleGroupsList.length > 0;
+            const actionCount = usingRuleGroups
+              ? ruleGroupsList.reduce((sum: number, rg: any) => sum + (rg.actions?.length ?? 0), 0)
+              : (wf.actions?.length ?? 0);
+            const conditionCount = usingRuleGroups
+              ? ruleGroupsList.reduce((sum: number, rg: any) => sum + countConditionLeaves(normalizeConditionTree(rg.conditions)), 0)
+              : (wf.conditions?.length ?? 0);
             return (
               <div key={wf.id} className={cn(
                 "bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md hover:border-gray-300 transition-all",
@@ -139,7 +170,7 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{wf.name}</p>
-                      {mod && <p className="text-xs text-gray-500 mt-0.5">{mod.icon || "📋"} {mod.name}</p>}
+                      {mod && <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-3 h-3" /> {mod.name}</p>}
                     </div>
                     <Switch checked={wf.isActive} onCheckedChange={() => toggle(wf.id)} className="scale-75 shrink-0" />
                   </div>
@@ -149,14 +180,20 @@ function WorkflowsTab({ modules }: { modules: any[] }) {
                     <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
                       {trigger?.icon} {trigger?.label ?? wf.trigger}
                     </span>
-                    {(wf.conditions?.length ?? 0) > 0 && (
-                      <span className="text-[10px] text-gray-400">{wf.conditions.length} cond.</span>
+                    {conditionCount > 0 && (
+                      <span className="text-[10px] text-gray-400">{conditionCount} cond.</span>
                     )}
-                    {(wf.actions?.length ?? 0) > 0 && (
+                    {actionCount > 0 && (
                       <>
                         <ArrowRight className="w-3 h-3 text-gray-300" />
-                        <span className="text-[10px] text-gray-500">{wf.actions.length} action{wf.actions.length !== 1 ? "s" : ""}</span>
+                        <span className="text-[10px] text-gray-500">{actionCount} action{actionCount !== 1 ? "s" : ""}</span>
                       </>
+                    )}
+                    {link && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100"
+                        title={`Linked to blueprint "${link.blueprintName}" → transition "${link.transitionName}"`}>
+                        <Lock className="w-2.5 h-2.5" /> {link.blueprintName}
+                      </span>
                     )}
                   </div>
 
@@ -267,7 +304,7 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
               : mods.map(mod => (
                 <button key={mod.id} onClick={() => { setSelectedMod(mod); setStatusField(""); setStep(2); }}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-left transition-colors group">
-                  <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-sm">{mod.icon || "📋"}</div>
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-sm"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-4 h-4" /></div>
                   <p className="flex-1 text-sm font-medium text-gray-900">{mod.name}</p>
                   <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500" />
                 </button>
@@ -278,7 +315,7 @@ function CreateBlueprintWizard({ open, onClose, onCreated }: {
         {step === 2 && selectedMod && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg text-sm">
-              <span>{selectedMod.icon || "📋"}</span>
+              <ModuleIcon icon={selectedMod.icon} slug={selectedMod.slug} className="w-4 h-4" />
               <span className="font-medium text-gray-700">{selectedMod.name}</span>
               <button onClick={() => setStep(1)} className="ml-auto text-xs text-gray-400 hover:text-gray-600">Change</button>
             </div>
@@ -411,11 +448,7 @@ function BlueprintsTab() {
                 "bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md hover:border-gray-300 transition-all",
                 !bp.isActive && "opacity-60"
               )}>
-                <div className="h-1.5 flex">
-                  {phases.length > 0
-                    ? phases.slice(0, 8).map((p, i) => <div key={i} className="flex-1" style={{ backgroundColor: p.color || "#6366f1" }} />)
-                    : <div className="flex-1 bg-gray-200" />}
-                </div>
+                <div className={cn("h-1.5", bp.isActive ? "bg-indigo-500" : "bg-gray-200")} />
                 <div className="p-4">
                   <div className="flex items-start gap-2.5 mb-3">
                     <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
@@ -423,7 +456,7 @@ function BlueprintsTab() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{bp.name}</p>
-                      {bp.module && <p className="text-xs text-gray-500 mt-0.5">{bp.module.icon || "📋"} {bp.module.name}</p>}
+                      {bp.module && <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><ModuleIcon icon={bp.module.icon} slug={bp.module.slug} className="w-3 h-3" /> {bp.module.name}</p>}
                     </div>
                     <Switch checked={bp.isActive} onCheckedChange={v => handleToggle(bp.id, v)} className="scale-75 shrink-0" />
                   </div>
@@ -431,9 +464,7 @@ function BlueprintsTab() {
                   {phases.length > 0 && (
                     <div className="flex items-center gap-1 flex-wrap mb-3">
                       {phases.slice(0, 3).map((p: any, i: number) => (
-                        <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border"
-                          style={{ borderColor: p.color + "44", backgroundColor: p.color + "11", color: p.color }}>
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+                        <span key={i} className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-600">
                           {p.label || p.name}
                         </span>
                       ))}
@@ -499,19 +530,19 @@ function AutomationPageInner() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-0">
+        <div className="flex items-stretch gap-0">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
               className={cn(
-                "flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                "flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 text-base font-semibold border-b-2 -mb-px transition-colors",
                 activeTab === id
-                  ? "border-violet-600 text-violet-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "border-violet-600 text-violet-700 bg-violet-50/40"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
               )}
             >
-              <Icon className={cn("w-4 h-4", activeTab === id ? "text-violet-600" : "text-gray-400")} />
+              <Icon className={cn("w-5 h-5", activeTab === id ? "text-violet-600" : "text-gray-400")} />
               {label}
             </button>
           ))}

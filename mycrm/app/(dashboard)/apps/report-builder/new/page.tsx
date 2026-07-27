@@ -17,8 +17,11 @@ import {
   PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
 import { api } from "@/lib/api";
+import { ModuleIcon } from "@/components/ui/module-icon";
 import { useModulesStore } from "@/store/modules.store";
 import type { DynamicModule, Field } from "@/store/modules.store";
+import { OPERATORS, getOperators, needsValue, isSelectType } from "@/lib/report-filter-operators";
+export { OPERATORS, getOperators, needsValue, isSelectType };
 import {
   ChevronLeft, ChevronRight, Check, GripVertical, X, Plus, Loader2,
   FileBarChart2, Database, List, SlidersHorizontal, Settings,
@@ -30,7 +33,7 @@ const CHART_COLORS = ["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#06b6d4
 
 // ——— Types ———
 
-interface ReportColumn {
+export interface ReportColumn {
   id: string;
   fieldName: string;
   fieldLabel: string;
@@ -39,7 +42,7 @@ interface ReportColumn {
   order: number;
 }
 
-interface ReportFilter {
+export interface ReportFilter {
   id: string;
   fieldName: string;
   fieldLabel: string;
@@ -69,60 +72,7 @@ export interface SavedReport {
 }
 
 // ——— Filter operator maps ———
-
-const OPERATORS: Record<string, { value: string; label: string }[]> = {
-  text: [
-    { value: "contains",      label: "Contains" },
-    { value: "not_contains",  label: "Does not contain" },
-    { value: "equals",        label: "Equals" },
-    { value: "not_equals",    label: "Not equals" },
-    { value: "starts_with",   label: "Starts with" },
-    { value: "ends_with",     label: "Ends with" },
-    { value: "is_empty",      label: "Is empty" },
-    { value: "is_not_empty",  label: "Is not empty" },
-  ],
-  number: [
-    { value: "equals",    label: "= Equals" },
-    { value: "not_equals",label: "≠ Not equals" },
-    { value: "gt",        label: "> Greater than" },
-    { value: "lt",        label: "< Less than" },
-    { value: "gte",       label: "≥ Greater or equal" },
-    { value: "lte",       label: "≤ Less or equal" },
-    { value: "between",   label: "Between" },
-  ],
-  date: [
-    { value: "equals",        label: "On" },
-    { value: "before",        label: "Before" },
-    { value: "after",         label: "After" },
-    { value: "between",       label: "Between" },
-    { value: "is_today",      label: "Is today" },
-    { value: "is_this_week",  label: "Is this week" },
-    { value: "is_this_month", label: "Is this month" },
-  ],
-  select: [
-    { value: "equals",       label: "Is" },
-    { value: "not_equals",   label: "Is not" },
-    { value: "is_empty",     label: "Is empty" },
-    { value: "is_not_empty", label: "Is not empty" },
-  ],
-  boolean: [
-    { value: "is_true",  label: "Is checked" },
-    { value: "is_false", label: "Is unchecked" },
-  ],
-};
-
-function getOperators(type: string) {
-  if (["text","email","url","phone","textarea","rich_text"].includes(type)) return OPERATORS.text;
-  if (["number","currency","percent","integer"].includes(type)) return OPERATORS.number;
-  if (["date","datetime","time"].includes(type)) return OPERATORS.date;
-  if (["select","radio","multi_select"].includes(type)) return OPERATORS.select;
-  if (["checkbox","boolean","toggle"].includes(type)) return OPERATORS.boolean;
-  return OPERATORS.text;
-}
-
-function needsValue(op: string) {
-  return !["is_empty","is_not_empty","is_today","is_this_week","is_this_month","is_true","is_false"].includes(op);
-}
+// Moved to lib/report-filter-operators.ts, shared with the report viewer's inline filter editor.
 
 // ——— Data helpers ———
 
@@ -233,7 +183,7 @@ export function exportXLSX(
 
 // ——— SortableColumn item ———
 
-function SortableCol({ col, onRemove, onAlias }: {
+export function SortableCol({ col, onRemove, onAlias }: {
   col: ReportColumn;
   onRemove: (id: string) => void;
   onAlias: (id: string, alias: string) => void;
@@ -621,7 +571,7 @@ export default function NewReportPage() {
                         : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
                     }`}
                   >
-                    <span className="text-2xl shrink-0">{mod.icon || "📦"}</span>
+                    <span className="shrink-0"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-6 h-6" /></span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{mod.name}</p>
                       {mod.description && (
@@ -793,23 +743,38 @@ export default function NewReportPage() {
                       ))}
                     </select>
 
-                    {/* Value */}
+                    {/* Value — a real options <select> for dropdown/status/radio fields, so the
+                        stored filter value is always the field's actual option value (not
+                        whatever text a user free-typed, which may not match stored records at all) */}
                     {needsValue(f.operator) && (
-                      <input
-                        type={
-                          ["date","datetime"].includes(f.fieldType) ? "date" :
-                          ["number","currency","percent"].includes(f.fieldType) ? "number" :
-                          "text"
-                        }
-                        placeholder="Value…"
-                        value={f.value}
-                        onChange={e => updateFilter(f.id, { value: e.target.value })}
-                        className="flex-1 min-w-24 text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-blue-400 bg-white"
-                      />
+                      isSelectType(f.fieldType) ? (
+                        <select
+                          value={f.value}
+                          onChange={e => updateFilter(f.id, { value: e.target.value })}
+                          className="flex-1 min-w-24 text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-blue-400 bg-white"
+                        >
+                          <option value="">Select…</option>
+                          {(fields.find(fl => fl.name === f.fieldName)?.options ?? []).map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={
+                            ["DATE","DATETIME"].includes(f.fieldType.toUpperCase()) ? "date" :
+                            ["NUMBER","DECIMAL","CURRENCY","RATING","PROGRESS"].includes(f.fieldType.toUpperCase()) ? "number" :
+                            "text"
+                          }
+                          placeholder="Value…"
+                          value={f.value}
+                          onChange={e => updateFilter(f.id, { value: e.target.value })}
+                          className="flex-1 min-w-24 text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-blue-400 bg-white"
+                        />
+                      )
                     )}
                     {f.operator === "between" && (
                       <input
-                        type={["date","datetime"].includes(f.fieldType) ? "date" : "number"}
+                        type={["DATE","DATETIME"].includes(f.fieldType.toUpperCase()) ? "date" : "number"}
                         placeholder="And…"
                         value={f.value2}
                         onChange={e => updateFilter(f.id, { value2: e.target.value })}
@@ -1023,7 +988,7 @@ export default function NewReportPage() {
                       <ResponsiveContainer width="100%" height="100%">
                         {chartType === "pie" ? (
                           <PieChart>
-                            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
                               {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                             </Pie>
                             <Tooltip />

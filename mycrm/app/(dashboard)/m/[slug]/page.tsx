@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -8,8 +8,11 @@ import {
   ChevronDown, Check, LayoutGrid, Download, Save, BookOpen,
   SlidersHorizontal, Upload, FileText, CheckCircle2, Pin, PinOff,
   Pencil, Mail, Zap, GripVertical, BrainCircuit, Archive, Lock,
-  ChevronLeft, ChevronRight, CalendarDays, AlignLeft, Images,
+  ChevronLeft, ChevronRight, CalendarDays, AlignLeft, Images, TableProperties, Database,
+  AlignJustify, AlignCenter, Maximize2,
 } from "lucide-react";
+import { SendEmailModal } from "@/components/email/send-email-modal";
+import { BulkSendEmailModal, type BulkRecipient } from "@/components/email/bulk-send-email-modal";
 import { AnalysisPanel, type AnalysisContext } from "@/components/analytics/analysis-panel";
 import { ModuleSummaryBar } from "@/components/modules/module-summary-bar";
 import { Button } from "@/components/ui/button";
@@ -33,7 +36,9 @@ import { useViewStore } from "@/store/view.store";
 import { api } from "@/lib/api";
 import { formatDate, cn, generateId } from "@/lib/utils";
 import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
+import { ModuleIcon } from "@/components/ui/module-icon";
 import { useBlueprintRuntimeStore } from "@/store/blueprint-runtime.store";
+import { getSocket } from "@/store/notifications.store";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -110,6 +115,8 @@ const DATE_OPS: { value: FilterOperator; label: string }[] = [
 const CHOICE_OPS: { value: FilterOperator; label: string }[] = [
   { value: "is", label: "Is" },
   { value: "is_not", label: "Is Not" },
+  { value: "contains", label: "Contains" },
+  { value: "not_contains", label: "Does Not Contain" },
   { value: "empty", label: "Is Empty" },
   { value: "not_empty", label: "Is Not Empty" },
 ];
@@ -118,7 +125,7 @@ function getOps(field?: Field) {
   if (!field) return TEXT_OPS;
   if (["NUMBER", "DECIMAL", "CURRENCY", "RATING", "PROGRESS"].includes(field.type)) return NUM_OPS;
   if (["DATE", "DATETIME"].includes(field.type)) return DATE_OPS;
-  if (["DROPDOWN", "STATUS", "RADIO", "MULTI_SELECT", "BOOLEAN"].includes(field.type)) return CHOICE_OPS;
+  if (["DROPDOWN", "STATUS", "RADIO", "MULTI_SELECT", "TAGS", "BOOLEAN"].includes(field.type)) return CHOICE_OPS;
   return TEXT_OPS;
 }
 
@@ -164,15 +171,27 @@ function FilterRow({
       );
     }
 
-    if (["DROPDOWN", "STATUS", "RADIO"].includes(field?.type || "")) {
+    if (["DROPDOWN", "STATUS", "RADIO", "MULTI_SELECT", "TAGS"].includes(field?.type || "")) {
+      const hasStaticOptions = (field?.options?.length ?? 0) > 0;
+      const isTextOp = condition.operator === "contains" || condition.operator === "not_contains";
+      if (hasStaticOptions && !isTextOp) {
+        return (
+          <Select value={condition.value || "__none__"} onValueChange={v => onChange({ ...condition, value: v === "__none__" ? "" : v })}>
+            <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Select..." /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__" className="text-xs">Select...</SelectItem>
+              {field!.options!.map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        );
+      }
       return (
-        <Select value={condition.value || "__none__"} onValueChange={v => onChange({ ...condition, value: v === "__none__" ? "" : v })}>
-          <SelectTrigger className="h-8 text-xs w-36"><SelectValue placeholder="Select..." /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__" className="text-xs">Select...</SelectItem>
-            {field?.options?.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <Input
+          value={condition.value || ""}
+          onChange={e => onChange({ ...condition, value: e.target.value })}
+          placeholder="Value"
+          className="h-8 text-xs w-40"
+        />
       );
     }
 
@@ -218,7 +237,7 @@ function FilterRow({
         <SelectContent>
           <SelectItem value="__none__" className="text-xs">Select field...</SelectItem>
           {fields.filter(f => !f.isHidden && f.type !== "AUTO_NUMBER").map(f => (
-            <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>
+            <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -244,6 +263,7 @@ function FilterRow({
 function FilterPanel({
   fields, conditions, logic, open,
   onConditionsChange, onLogicChange, onClose, onApply, onClear,
+  tagFilter, onTagFilterChange, availableTags,
 }: {
   fields: Field[];
   conditions: FilterCondition[];
@@ -254,7 +274,11 @@ function FilterPanel({
   onClose: () => void;
   onApply: () => void;
   onClear: () => void;
+  tagFilter: string;
+  onTagFilterChange: (v: string) => void;
+  availableTags: string[];
 }) {
+  const [tagSearch, setTagSearch] = useState("");
   if (!open) return null;
 
   const update = (id: string, c: FilterCondition) =>
@@ -262,6 +286,10 @@ function FilterPanel({
   const remove = (id: string) =>
     onConditionsChange(conditions.filter(x => x.id !== id));
   const add = () => onConditionsChange([...conditions, newCond()]);
+
+  const visibleTags = tagSearch
+    ? availableTags.filter(t => t.toLowerCase().includes(tagSearch.toLowerCase()))
+    : availableTags;
 
   return (
     <div className="border border-blue-200 rounded-xl bg-blue-50/30 p-4 space-y-3">
@@ -305,13 +333,77 @@ function FilterPanel({
           <Button size="sm" className="h-7 text-xs" onClick={onApply}>Apply Filters</Button>
         </div>
       </div>
+
+      {/* ── Tag filter section ── */}
+      <div className="border-t border-blue-200 pt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-600">Filter by Tag</span>
+            {tagFilter && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-semibold border border-violet-200">
+                🏷️ {tagFilter}
+                <button onClick={() => onTagFilterChange("")} className="hover:text-red-500 transition-colors">
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            )}
+          </div>
+          {tagFilter && (
+            <button onClick={() => onTagFilterChange("")} className="text-[10px] text-red-400 hover:text-red-600">
+              Clear tag
+            </button>
+          )}
+        </div>
+
+        {/* Searchable tag input */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={tagSearch}
+            onChange={e => setTagSearch(e.target.value)}
+            placeholder={availableTags.length > 0 ? "Search tags…" : "Type a tag name…"}
+            className="w-full h-7 pl-7 pr-3 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300/30 transition-colors"
+          />
+          {tagSearch && (
+            <button onClick={() => setTagSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {/* Clickable tag chips */}
+        {visibleTags.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto py-0.5">
+            {visibleTags.map(tag => (
+              <button
+                key={tag}
+                onClick={() => onTagFilterChange(tagFilter === tag ? "" : tag)}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all",
+                  tagFilter === tag
+                    ? "bg-violet-600 text-white border-violet-600 shadow-sm"
+                    : "bg-white text-gray-600 border-gray-200 hover:border-violet-300 hover:text-violet-700 hover:bg-violet-50"
+                )}
+              >
+                🏷️ {tag}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic">
+            {tagSearch ? `No tags matching "${tagSearch}"` : "No tags in current records."}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
 
 // ── Field Value Renderer ───────────────────────────────────────────────────
 
-function FieldValue({ value, field, recordData, fieldName }: { value: any; field?: Field; recordData?: Record<string, any>; fieldName?: string }) {
+function FieldValue({ value, field, recordData, fieldName, density = "normal" }: { value: any; field?: Field; recordData?: Record<string, any>; fieldName?: string; density?: "compact" | "normal" | "comfortable" }) {
+  const textCls = density === "compact" ? "text-xs text-gray-700 truncate max-w-[140px] block" : density === "comfortable" ? "text-sm text-gray-700 whitespace-normal break-words max-w-xs" : "text-sm text-gray-700 truncate max-w-[200px] block";
   // Resolve __label for list/relation fields stored as raw IDs
   const storedLabel: string | undefined =
     recordData && fieldName ? (recordData[fieldName + "__label"] as string | undefined) : undefined;
@@ -324,7 +416,7 @@ function FieldValue({ value, field, recordData, fieldName }: { value: any; field
   }
   if (field?.type === "GLOBAL_LIST" || field?.type === "DEPENDENT_GLOBAL_LIST" || field?.type === "GLOBAL_RELATION") {
     const displayLabel = (storedLabel && storedLabel !== "") ? storedLabel : String(value);
-    return <span className="text-sm text-gray-700 truncate max-w-[200px] block">{displayLabel}</span>;
+    return <span className={textCls} title={displayLabel}>{displayLabel}</span>;
   }
   if (field?.type === "STATUS" || field?.type === "DROPDOWN") {
     const opt = field.options?.find(o => o.value === value);
@@ -343,7 +435,7 @@ function FieldValue({ value, field, recordData, fieldName }: { value: any; field
         <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
           {initial}
         </span>
-        <span className="text-sm text-gray-700 truncate max-w-[160px]">{display}</span>
+        <span className={density === "compact" ? "text-xs text-gray-700 truncate max-w-[120px]" : density === "comfortable" ? "text-sm text-gray-700 whitespace-normal break-words max-w-[200px]" : "text-sm text-gray-700 truncate max-w-[160px]"} title={display}>{display}</span>
       </div>
     );
   }
@@ -405,18 +497,21 @@ function FieldValue({ value, field, recordData, fieldName }: { value: any; field
   if (typeof value === "object") {
     const readable = (value as any).name ?? (value as any).label ?? (value as any).title;
     return readable
-      ? <span className="text-sm text-gray-700 truncate max-w-[200px] block">{String(readable)}</span>
+      ? <span className={textCls} title={String(readable)}>{String(readable)}</span>
       : <span className="text-gray-300">—</span>;
   }
-  return <span className="text-sm text-gray-700 truncate max-w-[200px] block">{String(value)}</span>;
+  return <span className={textCls} title={String(value)}>{String(value)}</span>;
 }
 
 // ── Column Picker (show/hide + drag-to-reorder) ────────────────────────────
 
-function ColumnPicker({ fields, visibleIds, onChange }: {
+function ColumnPicker({ fields, visibleIds, onChange, label = "Columns", icon: Icon = Columns3, description = "Drag to reorder · Click to show/hide" }: {
   fields: Field[];
   visibleIds: string[];
   onChange: (ids: string[]) => void;
+  label?: string;
+  icon?: typeof Columns3;
+  description?: string;
 }) {
   // Work from the ordered visibleIds list, append hidden fields at end for display
   const eligible = fields.filter(f => !["FILE", "IMAGE", "SIGNATURE"].includes(f.type));
@@ -457,15 +552,15 @@ function ColumnPicker({ fields, visibleIds, onChange }: {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
-          <Columns3 className="w-4 h-4" />
-          Columns
+        <Button variant="outline" size="sm" className="gap-1.5">
+          <Icon className="w-4 h-4" />
+          <span className="hidden sm:inline">{label}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-60 p-0" align="end">
         <div className="px-3 py-2 border-b border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Columns</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Drag to reorder · Click to show/hide</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{description}</p>
         </div>
         <div className="p-1.5 max-h-80 overflow-y-auto">
           {ordered.map(f => {
@@ -521,7 +616,9 @@ function ColumnPicker({ fields, visibleIds, onChange }: {
 
 // ── Kanban View (DnD) ─────────────────────────────────────────────────────
 
-function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleField: Field | undefined; slug: string }) {
+function KanbanCard({ record, cardFields, slug }: { record: CrmRecord; cardFields: Field[]; slug: string }) {
+  const titleField = cardFields[0];
+  const secondaryFields = cardFields.slice(1);
   const router = useRouter();
   // dragHappenedRef: prevents click-navigation firing immediately after a drag ends
   const dragHappenedRef = useRef(false);
@@ -562,15 +659,25 @@ function KanbanCard({ record, titleField, slug }: { record: CrmRecord; titleFiel
           {titleField ? record.data[titleField.name] || "Untitled" : record.id.slice(0, 8)}
         </p>
       </div>
+      {secondaryFields.map(f => {
+        const v = record.data[f.name];
+        if (v == null || v === "") return null;
+        return (
+          <div key={f.id} className="flex items-center gap-1 pl-5 min-w-0">
+            <span className="text-xs text-gray-400 shrink-0">{f.label}:</span>
+            <span className="text-xs text-gray-600 truncate">{String(v)}</span>
+          </div>
+        );
+      })}
       <p className="text-xs text-gray-400 pl-5">{formatDate(record.createdAt)}</p>
     </div>
   );
 }
 
-function KanbanColumn({ col, records, titleField, slug }: {
+function KanbanColumn({ col, records, cardFields, slug }: {
   col: { value: string; label: string; color?: string };
   records: CrmRecord[];
-  titleField: Field | undefined;
+  cardFields: Field[];
   slug: string;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
@@ -588,7 +695,7 @@ function KanbanColumn({ col, records, titleField, slug }: {
         )}
       >
         {records.map(record => (
-          <KanbanCard key={record.id} record={record} titleField={titleField} slug={slug} />
+          <KanbanCard key={record.id} record={record} cardFields={cardFields} slug={slug} />
         ))}
         {records.length === 0 && (
           <div className={cn(
@@ -652,8 +759,8 @@ function InlineEditor({ field, value, onChange, onCommit, onCancel }: {
             <SelectValue placeholder="Select…" />
           </SelectTrigger>
           <SelectContent>
-            {(field.options || []).map(o => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            {(field.options || []).map((o, i) => (
+              <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -729,7 +836,7 @@ function GalleryView({
     return (
       <div className="text-center py-20 text-gray-400">
         <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl">{mod?.icon || "📦"}</span>
+          <ModuleIcon icon={mod?.icon} slug={slug} size={32} />
         </div>
         <p className="text-sm">No records to display.</p>
       </div>
@@ -759,7 +866,7 @@ function GalleryView({
                 </div>
               ) : (
                 <div className="h-40 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-                  <span className="text-5xl opacity-60">{mod?.icon || "📦"}</span>
+                  <ModuleIcon icon={mod?.icon} slug={slug} size={48} className="opacity-60" />
                 </div>
               )}
               <div className="p-3">
@@ -819,7 +926,7 @@ function GalleryCustomizePanel({
               <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Auto-detect" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs">Auto-detect</SelectItem>
-                {imgFields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
+                {imgFields.map(f => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -829,7 +936,7 @@ function GalleryCustomizePanel({
               <SelectTrigger className="h-8 text-xs mt-1"><SelectValue placeholder="Auto-detect" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs">Auto-detect</SelectItem>
-                {textFields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
+                {textFields.map(f => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -844,7 +951,7 @@ function GalleryCustomizePanel({
               {secFields.map(f => {
                 const isSelected = cardConfig.secondaryFields.includes(f.name);
                 return (
-                  <label key={f.name} className="flex items-center gap-2 cursor-pointer group">
+                  <label key={f.id ?? f.name} className="flex items-center gap-2 cursor-pointer group">
                     <input type="checkbox" checked={isSelected} className="w-3.5 h-3.5 accent-blue-600"
                       onChange={e => {
                         const cur = cardConfig.secondaryFields;
@@ -919,7 +1026,7 @@ function ListView({ records, mod, slug }: {
                     "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-sm",
                     isSelected ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-500"
                   )}>
-                    {mod?.icon ? <span>{mod.icon}</span> : <span className="font-bold text-xs">{idx + 1}</span>}
+                    {mod?.icon ? <ModuleIcon icon={mod.icon} slug={slug} className="w-4 h-4" /> : <span className="font-bold text-xs">{idx + 1}</span>}
                   </div>
                   <span className="text-sm font-medium text-gray-800 truncate">{titleVal}</span>
                 </div>
@@ -940,7 +1047,7 @@ function ListView({ records, mod, slug }: {
       {/* Detail Slide-over */}
       {selectedRecord && (
         <>
-          <div className="fixed inset-y-0 right-0 w-[400px] bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col">
+          <div className="fixed inset-y-0 right-0 w-full max-w-[400px] bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col">
             <div className="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-semibold text-gray-800 truncate max-w-[260px]">
                 {titleField ? String(selectedRecord.data[titleField.name] ?? "Record") : "Record Details"}
@@ -1150,7 +1257,7 @@ function CalendarView({ records, mod, onRecordMove }: {
                   <button key={rec.id}
                     onClick={() => router.push(`/m/${mod?.slug}/${rec.id}`)}
                     className="w-full flex items-center gap-3 px-3 py-2 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 text-left transition-colors">
-                    <span className="text-sm">{mod?.icon || "📦"}</span>
+                    <ModuleIcon icon={mod?.icon} slug={mod?.slug} className="w-4 h-4" />
                     <span className="text-sm text-gray-800 font-medium truncate">{title}</span>
                     <Eye className="w-3.5 h-3.5 text-gray-400 ml-auto shrink-0" />
                   </button>
@@ -1164,11 +1271,12 @@ function CalendarView({ records, mod, onRecordMove }: {
   );
 }
 
-function KanbanView({ records, mod, slug, onRecordMove }: {
+function KanbanView({ records, mod, slug, onRecordMove, cardFieldIds }: {
   records: CrmRecord[];
   mod: any;
   slug: string;
   onRecordMove: (recordId: string, newValue: string, fieldName: string) => void;
+  cardFieldIds: string[];
 }) {
   const [activeRecord, setActiveRecord] = useState<CrmRecord | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -1185,7 +1293,13 @@ function KanbanView({ records, mod, slug, onRecordMove }: {
 
   const options = statusField.options || [];
   const columns = options.length > 0 ? options : [{ value: "__none__", label: "No Status", color: undefined }];
-  const titleField: Field | undefined = mod?.fields?.find((f: Field) => ["TEXT", "EMAIL"].includes(f.type));
+  // Which fields render on each card — user-configurable via "Card Fields"; falls back to
+  // the same single TEXT/EMAIL field that used to be the only thing a card could show.
+  const fallbackTitle: Field | undefined = mod?.fields?.find((f: Field) => ["TEXT", "EMAIL"].includes(f.type));
+  const cardFields: Field[] = cardFieldIds.length > 0
+    ? cardFieldIds.map(id => mod?.fields?.find((f: Field) => f.id === id)).filter(Boolean)
+    : (fallbackTitle ? [fallbackTitle] : []);
+  const titleField = cardFields[0];
 
   const handleDragStart = (event: DragStartEvent) => {
     const rec = records.find(r => r.id === String(event.active.id));
@@ -1215,7 +1329,7 @@ function KanbanView({ records, mod, slug, onRecordMove }: {
             return col.value === "__none__" ? !v : v === col.value;
           });
           return (
-            <KanbanColumn key={col.value} col={col} records={colRecords} titleField={titleField} slug={slug} />
+            <KanbanColumn key={col.value} col={col} records={colRecords} cardFields={cardFields} slug={slug} />
           );
         })}
       </div>
@@ -1501,7 +1615,7 @@ function ImportDialog({ mod, open, onClose, onSuccess }: {
                   <SelectContent>
                     <SelectItem value="__skip__" className="text-gray-400">— Skip column —</SelectItem>
                     {importableFields.map((f: Field) => (
-                      <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>
+                      <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1675,8 +1789,8 @@ function MassUpdateValueInput({ field, value, onChange }: { field: Field; value:
           <SelectTrigger className="h-9"><SelectValue placeholder="Select..." /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__clear__" className="text-gray-400">— Clear value —</SelectItem>
-            {(field.options || []).map(o => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            {(field.options || []).map((o, i) => (
+              <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -1786,7 +1900,7 @@ function MassUpdateModal({
                 </SelectTrigger>
                 <SelectContent>
                   {updatableFields.map(f => (
-                    <SelectItem key={f.name} value={f.name}>
+                    <SelectItem key={f.id ?? f.name} value={f.name}>
                       <span className="flex items-center gap-2">
                         {f.label}
                         <span className="text-xs text-gray-400 font-mono">{f.type.toLowerCase()}</span>
@@ -1854,6 +1968,9 @@ export default function ModuleRecordsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [massUpdateOpen, setMassUpdateOpen] = useState(false);
+  const [sendEmailRecord, setSendEmailRecord] = useState<CrmRecord | null>(null);
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkRecipients, setBulkRecipients] = useState<BulkRecipient[]>([]);
   type ViewMode = "table" | "kanban" | "gallery" | "list" | "calendar";
   const storeView = useViewStore(state => (state.moduleViews[slug] as ViewMode) ?? "table");
   const setModuleView = useViewStore(state => state.setModuleView);
@@ -1874,12 +1991,30 @@ export default function ModuleRecordsPage() {
     }, 800);
   }, []);
 
+  // Which fields render on each Kanban card — first one is the bold title (same spot the
+  // single auto-picked title field used to occupy), any others render as secondary rows
+  // below it, same "Label: value" style as the Gallery view's secondary fields.
+  const [kanbanFieldIds, setKanbanFieldIds] = useState<string[]>([]);
+  const kanbanFieldSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleKanbanFieldChange = useCallback((ids: string[]) => {
+    setKanbanFieldIds(ids);
+    if (kanbanFieldSaveTimer.current) clearTimeout(kanbanFieldSaveTimer.current);
+    kanbanFieldSaveTimer.current = setTimeout(() => {
+      if (modIdRef.current) {
+        api.put(`/user-preferences/kanbanFields:${modIdRef.current}`, { value: ids }).catch(() => {});
+      }
+    }, 800);
+  }, []);
+
   // Filters
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterLogic, setFilterLogic] = useState<"AND" | "OR">("AND");
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
   const [appliedConditions, setAppliedConditions] = useState<FilterCondition[]>([]);
   const [appliedLogic, setAppliedLogic] = useState<"AND" | "OR">("AND");
+
+  // Tag quick-filter
+  const [tagFilter, setTagFilter] = useState("");
 
   // Saved views
   const [saveViewName, setSaveViewName] = useState("");
@@ -1894,6 +2029,17 @@ export default function ModuleRecordsPage() {
 
   // Archive visibility
   const [showArchived, setShowArchived] = useState(false);
+
+  // Table density (compact / normal / comfortable) — persisted in localStorage per module
+  type Density = "compact" | "normal" | "comfortable";
+  const [density, setDensity] = useState<Density>("normal");
+  useEffect(() => {
+    if (!slug) return;
+    const stored = localStorage.getItem(`crm-density-${slug}`) as Density | null;
+    if (stored) setDensity(stored);
+  }, [slug]);
+  const changeDensity = (d: Density) => { setDensity(d); if (slug) localStorage.setItem(`crm-density-${slug}`, d); };
+  const cellPy = density === "compact" ? "py-1" : density === "comfortable" ? "py-3.5" : "py-2";
 
   // Inline cell editing
   const [editingCell, setEditingCell] = useState<{ recordId: string; fieldKey: string } | null>(null);
@@ -1931,6 +2077,24 @@ export default function ModuleRecordsPage() {
       return null;
     }
   }, [slug]);
+
+  useEffect(() => {
+    if (!mod?.id) return;
+    (async () => {
+      // Restore persisted Kanban card-field preferences, fall back to the same
+      // single TEXT/EMAIL field that used to be the only thing shown on a card.
+      try {
+        const prefRes = await api.get(`/user-preferences/kanbanFields:${mod.id}`);
+        if (prefRes.data?.value && Array.isArray(prefRes.data.value)) {
+          const validIds = new Set((mod.fields || []).map((f: Field) => f.id));
+          const stored = (prefRes.data.value as string[]).filter((id: string) => validIds.has(id));
+          if (stored.length > 0) { setKanbanFieldIds(stored); return; }
+        }
+      } catch {}
+      const defaultTitle = (mod.fields || []).find((f: Field) => ["TEXT", "EMAIL"].includes(f.type));
+      setKanbanFieldIds(defaultTitle ? [defaultTitle.id] : []);
+    })();
+  }, [mod?.id]);
 
   const buildFilterGroup = useCallback((conds: FilterCondition[], logic: "AND" | "OR") => {
     const valid = conds.filter(c => c.field && (noValue(c.operator) || c.value !== ""));
@@ -1989,6 +2153,29 @@ export default function ModuleRecordsPage() {
       fetchAllRecords(mod.id);
     }
   };
+
+  // Live-refresh: workflows (or another user) can change record data in the
+  // background — refetch (debounced, since one save can fire several actions)
+  // whenever the backend broadcasts a change for this module.
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !mod?.id) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handler = (payload: { moduleId?: string }) => {
+      if (payload?.moduleId !== mod.id) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchRecords(mod.id, page, appliedConditions, appliedLogic);
+        fetchAllRecords(mod.id);
+      }, 300);
+    };
+    socket.on("record:updated", handler);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off("record:updated", handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mod?.id, page, appliedConditions, appliedLogic]);
 
   const handleKanbanMove = useCallback(async (recordId: string, newValue: string, fieldName: string) => {
     // Blueprint validation: check if this stage transition is allowed
@@ -2121,10 +2308,6 @@ export default function ModuleRecordsPage() {
   };
 
   const toggleSelect = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
-  const selectAll = () => {
-    const ids = result?.data.map(r => r.id) || [];
-    setSelected(selected.length === ids.length ? [] : ids);
-  };
 
   const visibleFields: Field[] = (mod?.fields || [])
     .filter((f: Field) => visibleFieldIds.includes(f.id))
@@ -2232,7 +2415,35 @@ export default function ModuleRecordsPage() {
     if (mod) fetchRecords(mod.id, 1, sv.conditions, sv.filterLogic);
   };
 
-  const activeFilterCount = appliedConditions.filter(c => c.field && (noValue(c.operator) || c.value !== "")).length;
+  const activeFilterCount = appliedConditions.filter(c => c.field && (noValue(c.operator) || c.value !== "")).length + (tagFilter ? 1 : 0);
+
+  // Unique tags from current page records for the filter panel dropdown
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    (result?.data ?? []).forEach(r => {
+      (r.data?._tags ?? []).forEach((t: any) => {
+        const name = typeof t === "string" ? t : (t?.name ?? "");
+        if (name) tags.add(name);
+      });
+    });
+    return Array.from(tags).sort();
+  }, [result?.data]);
+
+  // Normalize a tag entry to its display name (handles both old string[] and new {name,color}[] formats)
+  const tagName = (t: any): string => typeof t === "string" ? t : (t?.name ?? "");
+  const tagColor = (t: any): string => typeof t === "string" ? "#1d4ed8" : (t?.color ?? "#1d4ed8");
+
+  // Client-side tag filter applied on top of server-paginated results
+  const tagFilteredRecords: CrmRecord[] = tagFilter
+    ? (result?.data ?? []).filter(r =>
+        (r.data?._tags ?? []).some((t: any) => tagName(t).toLowerCase().includes(tagFilter.toLowerCase()))
+      )
+    : (result?.data ?? []);
+
+  const selectAll = () => {
+    const ids = tagFilteredRecords.map(r => r.id);
+    setSelected(selected.length === ids.length && ids.length > 0 ? [] : ids);
+  };
 
   if (error) {
     return (
@@ -2249,7 +2460,7 @@ export default function ModuleRecordsPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="text-2xl">{mod?.icon || "📦"}</span>
+          <ModuleIcon icon={mod?.icon} slug={mod?.slug} className="w-6 h-6" />
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">{mod?.name || "Loading..."}</h1>
             <p className="text-gray-500 text-sm">
@@ -2259,7 +2470,7 @@ export default function ModuleRecordsPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           {selected.length > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
               <Check className="w-3.5 h-3.5" />
@@ -2269,28 +2480,6 @@ export default function ModuleRecordsPage() {
               </button>
             </div>
           )}
-          <Button variant="outline" size="sm" onClick={refresh}><RefreshCw className="w-4 h-4" /></Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300"
-            onClick={() => {
-              const records = result?.data ?? [];
-              const fields = visibleFields ?? [];
-              const ctx: AnalysisContext = {
-                type: "module",
-                title: mod?.name ?? "Module",
-                contextSummary: `Module: ${mod?.name}\nTotal records: ${result?.meta?.total ?? 0}\n\nFields: ${fields.map((f: any) => f.label || f.name).join(", ")}\n\nSample data (first 20 records):\n${records.slice(0, 20).map((r: any, i: number) => {
-                  const vals = fields.slice(0, 5).map((f: any) => `${f.label || f.name}: ${r[f.name] ?? "—"}`).join(", ");
-                  return `${i + 1}. ${vals}`;
-                }).join("\n")}`,
-              };
-              setAnalyzeContext(ctx);
-              setAnalyzeOpen(true);
-            }}
-          >
-            <BrainCircuit className="w-4 h-4" /> Analyze
-          </Button>
           {mod && (
             <PermissionGate slug={slug ?? ""} action="canCreate">
               <Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />New Record</Button></Link>
@@ -2311,25 +2500,6 @@ export default function ModuleRecordsPage() {
         />
       )}
 
-      {/* Pinned views quick-access */}
-      {savedViews.filter(v => v.isPinned).length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-400 font-medium">Views:</span>
-          {savedViews.filter(v => v.isPinned).map(v => (
-            <button key={v.id} onClick={() => loadView(v)}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors border",
-                activeViewId === v.id
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600"
-              )}>
-              <Pin className="w-2.5 h-2.5" />
-              {v.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Toast */}
       {toastMsg && (
         <div className={cn(
@@ -2341,63 +2511,106 @@ export default function ModuleRecordsPage() {
         </div>
       )}
 
-      {/* Toolbar */}
+      {/* ── Toolbar ── */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative w-full max-w-xs sm:max-w-sm flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+
+        {/* Search */}
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           <Input placeholder={`Search ${mod?.name?.toLowerCase() || "records"}...`}
             value={search} onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === "Enter" && refresh()}
             className="pl-9 h-9" />
         </div>
 
-        {/* Filter button */}
+        {/* Filters — badge count includes tag filter */}
         <Button
           variant={filterOpen || activeFilterCount > 0 ? "default" : "outline"}
-          size="sm"
-          className="gap-2"
+          size="sm" className="gap-1.5 shrink-0"
           onClick={() => setFilterOpen(!filterOpen)}
         >
           <SlidersHorizontal className="w-4 h-4" />
-          Filters
+          <span className="hidden sm:inline">Filters</span>
           {activeFilterCount > 0 && (
-            <Badge className="ml-1 bg-white text-blue-600 text-xs px-1.5">{activeFilterCount}</Badge>
+            <Badge className="ml-0.5 bg-white text-blue-600 text-[10px] px-1.5 py-0 h-4 leading-4">{activeFilterCount}</Badge>
           )}
         </Button>
 
-        {/* Saved views */}
-        {(savedViews.length > 0 || activeFilterCount > 0) && (
+        {/* Analyse — table tool, lives with table controls */}
+        <Button
+          variant="outline" size="sm" className="gap-1.5 shrink-0"
+          onClick={() => {
+            const records = result?.data ?? [];
+            const fields = visibleFields ?? [];
+            const ctx: AnalysisContext = {
+              type: "module",
+              title: mod?.name ?? "Module",
+              contextSummary: `Module: ${mod?.name}\nTotal records: ${result?.meta?.total ?? 0}\n\nFields: ${fields.map((f: any) => f.label || f.name).join(", ")}\n\nSample data (first 20 records):\n${records.slice(0, 20).map((r: any, i: number) => {
+                const vals = fields.slice(0, 5).map((f: any) => `${f.label || f.name}: ${r[f.name] ?? "—"}`).join(", ");
+                return `${i + 1}. ${vals}`;
+              }).join("\n")}`,
+            };
+            setAnalyzeContext(ctx);
+            setAnalyzeOpen(true);
+          }}
+        >
+          <BrainCircuit className="w-4 h-4" /><span className="hidden sm:inline">Analyse</span>
+        </Button>
+
+        {/* Pivot — table tool, lives with table controls */}
+        {mod && (
+          <Button
+            variant="outline" size="sm" className="gap-1.5 shrink-0"
+            onClick={() => router.push(`/analytics/pivot?moduleId=${mod.id}`)}
+            title="Open Pivot Table for this module"
+          >
+            <TableProperties className="w-4 h-4" /><span className="hidden sm:inline">Pivot</span>
+          </Button>
+        )}
+
+        {/* ── Right: Views · Columns · Data · More ── */}
+        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+
+          {/* Views dropdown — layout switcher + saved views */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant={activeViewId ? "default" : "outline"} size="sm" className="gap-2">
-                <BookOpen className="w-4 h-4" />
-                {activeViewId ? (savedViews.find(v => v.id === activeViewId)?.name || "Views") : "Views"}
-                {savedViews.filter(v => v.isPinned).length > 0 && !activeViewId && (
-                  <Pin className="w-3 h-3 text-blue-500" />
-                )}
+              <Button variant={activeViewId ? "default" : "outline"} size="sm" className="gap-1.5">
+                {view === "table"    && <List className="w-4 h-4" />}
+                {view === "kanban"   && <LayoutGrid className="w-4 h-4" />}
+                {view === "gallery"  && <Images className="w-4 h-4" />}
+                {view === "list"     && <AlignLeft className="w-4 h-4" />}
+                {view === "calendar" && <CalendarDays className="w-4 h-4" />}
+                <span className="hidden sm:inline">
+                  {activeViewId ? (savedViews.find(v => v.id === activeViewId)?.name ?? "Views") : "Views"}
+                </span>
                 <ChevronDown className="w-3 h-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60">
-              {/* Pinned views */}
-              {savedViews.filter(v => v.isPinned).length > 0 && (
+            <DropdownMenuContent align="end" className="w-64">
+              <div className="px-2 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Layout</div>
+              {([
+                { v: "table" as ViewMode,    icon: <List className="w-4 h-4" />,         label: "Table" },
+                { v: "kanban" as ViewMode,   icon: <LayoutGrid className="w-4 h-4" />,   label: "Kanban" },
+                { v: "gallery" as ViewMode,  icon: <Images className="w-4 h-4" />,       label: "Gallery" },
+                { v: "list" as ViewMode,     icon: <AlignLeft className="w-4 h-4" />,    label: "List" },
+                { v: "calendar" as ViewMode, icon: <CalendarDays className="w-4 h-4" />, label: "Calendar" },
+              ]).map(({ v, icon, label }) => (
+                <DropdownMenuItem key={v} onClick={() => setView(v)} className="gap-2 cursor-pointer">
+                  {icon} {label}
+                  {view === v && <Check className="w-3.5 h-3.5 ml-auto text-blue-600" />}
+                </DropdownMenuItem>
+              ))}
+
+              {savedViews.length > 0 && (
                 <>
-                  <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Pinned</div>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Saved Views</div>
                   {savedViews.filter(v => v.isPinned).map(v => (
                     <ModuleViewItem key={v.id} view={v} isActive={activeViewId === v.id}
                       onLoad={() => loadView(v)}
                       onDelete={() => { removeSavedView(v.id); if (activeViewId === v.id) setActiveViewId(null); }}
                       onTogglePin={() => toggleViewPin(v.id)} />
                   ))}
-                  {savedViews.filter(v => !v.isPinned).length > 0 && <DropdownMenuSeparator />}
-                </>
-              )}
-              {/* Unpinned views */}
-              {savedViews.filter(v => !v.isPinned).length > 0 && (
-                <>
-                  {savedViews.filter(v => v.isPinned).length > 0 && (
-                    <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">All Views</div>
-                  )}
                   {savedViews.filter(v => !v.isPinned).map(v => (
                     <ModuleViewItem key={v.id} view={v} isActive={activeViewId === v.id}
                       onLoad={() => loadView(v)}
@@ -2406,76 +2619,113 @@ export default function ModuleRecordsPage() {
                   ))}
                 </>
               )}
+
               <DropdownMenuSeparator />
               {activeViewId && (
                 <DropdownMenuItem onClick={handleUpdateView} className="gap-2 cursor-pointer text-blue-600">
                   <Save className="w-4 h-4" /> Update Current View
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => setShowSaveView(true)} className="gap-2 cursor-pointer text-gray-600">
+              <DropdownMenuItem onClick={() => setShowSaveView(true)} className="gap-2 cursor-pointer">
                 <BookOpen className="w-4 h-4" /> Save as New View
               </DropdownMenuItem>
               {activeViewId && (
                 <DropdownMenuItem onClick={() => { setActiveViewId(null); clearFilters(); }} className="gap-2 cursor-pointer text-gray-500">
-                  <X className="w-4 h-4" /> Clear view
+                  <X className="w-4 h-4" /> Clear View
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <PermissionGate slug={slug ?? ""} action="canImport">
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => setImportOpen(true)}>
-              <Upload className="w-4 h-4" /><span className="hidden sm:inline">Import</span>
-            </Button>
-          </PermissionGate>
-          <PermissionGate slug={slug ?? ""} action="canExport">
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
-              <Download className="w-4 h-4" /><span className="hidden sm:inline">Export CSV</span>
-            </Button>
-          </PermissionGate>
-
+          {/* Columns — table view only */}
           {view === "table" && mod?.fields && (
             <ColumnPicker fields={mod.fields} visibleIds={visibleFieldIds} onChange={handleColumnChange} />
           )}
-          <button
-            onClick={() => {
-              const next = !showArchived;
-              setShowArchived(next);
-              setPage(1);
-              setLoading(true);
-              if (mod) fetchRecords(mod.id, 1, appliedConditions, appliedLogic, sortField, sortDir, limit);
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition-colors",
-              showArchived
-                ? "bg-amber-50 border-amber-300 text-amber-700"
-                : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"
-            )}
-            title={showArchived ? "Hide archived records" : "Show archived records"}
-          >
-            <Archive className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{showArchived ? "Archived" : "Archived"}</span>
-          </button>
 
-          <div className="flex rounded-md border border-gray-200 overflow-hidden">
-            {([
-              { v: "table" as ViewMode,    icon: <List className="w-3.5 h-3.5" />,        label: "Table" },
-              { v: "kanban" as ViewMode,   icon: <LayoutGrid className="w-3.5 h-3.5" />,  label: "Kanban" },
-              { v: "gallery" as ViewMode,  icon: <Images className="w-3.5 h-3.5" />,      label: "Gallery" },
-              { v: "list" as ViewMode,     icon: <AlignLeft className="w-3.5 h-3.5" />,   label: "List" },
-              { v: "calendar" as ViewMode, icon: <CalendarDays className="w-3.5 h-3.5" />,label: "Calendar" },
-            ]).map(({ v, icon, label }, i) => (
-              <button key={v} onClick={() => setView(v)}
-                className={cn("px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-medium transition-colors",
-                  i > 0 && "border-l border-gray-200",
-                  view === v ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
-                {icon}
-                <span className="hidden lg:inline">{label}</span>
-              </button>
-            ))}
-          </div>
+          {/* Card Fields — which fields render on each Kanban card; kanban view only */}
+          {view === "kanban" && mod?.fields && (
+            <ColumnPicker
+              fields={mod.fields}
+              visibleIds={kanbanFieldIds}
+              onChange={handleKanbanFieldChange}
+              label="Card Fields"
+              icon={LayoutGrid}
+              description="First field is the card title · click to show/hide"
+            />
+          )}
+
+          {/* Data dropdown — refresh, import, export */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Database className="w-4 h-4" />
+                <span className="hidden sm:inline">Data</span>
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem className="gap-2 cursor-pointer" onClick={refresh}>
+                <RefreshCw className="w-4 h-4 text-gray-500" /> Refresh
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <PermissionGate slug={slug ?? ""} action="canImport">
+                <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => setImportOpen(true)}>
+                  <Upload className="w-4 h-4 text-gray-500" /> Import Records
+                </DropdownMenuItem>
+              </PermissionGate>
+              <PermissionGate slug={slug ?? ""} action="canExport">
+                <DropdownMenuItem className="gap-2 cursor-pointer" onClick={handleExport}>
+                  <Download className="w-4 h-4 text-gray-500" /> Export CSV
+                </DropdownMenuItem>
+              </PermissionGate>
+              {selected.length > 0 && (
+                <PermissionGate slug={slug ?? ""} action="canExport">
+                  <DropdownMenuItem className="gap-2 cursor-pointer" onClick={handleExportSelected}>
+                    <Download className="w-4 h-4 text-gray-500" /> Export Selected ({selected.length})
+                  </DropdownMenuItem>
+                </PermissionGate>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* More dropdown — archive, field rules */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("gap-1.5", showArchived && "border-amber-300 text-amber-700 bg-amber-50")}>
+                <MoreHorizontal className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                className="gap-2 cursor-pointer"
+                onClick={() => {
+                  const next = !showArchived;
+                  setShowArchived(next);
+                  setPage(1);
+                  setLoading(true);
+                  if (mod) fetchRecords(mod.id, 1, appliedConditions, appliedLogic, sortField, sortDir, limit);
+                }}
+              >
+                <Archive className={cn("w-4 h-4", showArchived ? "text-amber-500" : "text-gray-500")} />
+                {showArchived ? "Hide Archived" : "Show Archived"}
+                {showArchived && <Check className="w-3.5 h-3.5 ml-auto text-amber-600" />}
+              </DropdownMenuItem>
+              {mod && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => router.push(`/settings/field-rules/${mod.id}`)}>
+                    <Zap className="w-4 h-4 text-amber-500" /> Field Rules
+                  </DropdownMenuItem>
+                  {mod.fields?.some((f: Field) => f.type === "EMAIL") && (
+                    <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => router.push(`/m/${slug}/emails`)}>
+                      <Mail className="w-4 h-4 text-indigo-500" /> Mass Email
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
         </div>
       </div>
 
@@ -2506,10 +2756,13 @@ export default function ModuleRecordsPage() {
         onClose={() => setFilterOpen(false)}
         onApply={applyFilters}
         onClear={clearFilters}
+        tagFilter={tagFilter}
+        onTagFilterChange={setTagFilter}
+        availableTags={availableTags}
       />
 
-      {/* Active filter badges */}
-      {activeFilterCount > 0 && !filterOpen && (
+      {/* Active filter badges — field conditions + tag */}
+      {(activeFilterCount > 0) && !filterOpen && (
         <div className="flex flex-wrap gap-2 items-center overflow-x-auto -mx-3 px-3">
           <span className="text-xs text-gray-500">Active filters:</span>
           {appliedConditions.filter(c => c.field).map(c => {
@@ -2526,7 +2779,13 @@ export default function ModuleRecordsPage() {
               </Badge>
             );
           })}
-          <button onClick={clearFilters} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
+          {tagFilter && (
+            <Badge className="text-xs gap-1 bg-violet-100 text-violet-700 border-violet-200 hover:bg-violet-100">
+              🏷️ {tagFilter}
+              <button onClick={() => setTagFilter("")} className="ml-1 hover:text-red-600"><X className="w-2.5 h-2.5" /></button>
+            </Badge>
+          )}
+          <button onClick={() => { clearFilters(); setTagFilter(""); }} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
             <X className="w-3 h-3" /> Clear all
           </button>
         </div>
@@ -2539,7 +2798,7 @@ export default function ModuleRecordsPage() {
         </div>
       ) : view === "kanban" ? (
         <div className="overflow-hidden">
-          <KanbanView records={allRecords} mod={mod} slug={slug} onRecordMove={handleKanbanMove} />
+          <KanbanView records={allRecords} mod={mod} slug={slug} onRecordMove={handleKanbanMove} cardFieldIds={kanbanFieldIds} />
         </div>
       ) : view === "gallery" ? (
         <>
@@ -2567,7 +2826,7 @@ export default function ModuleRecordsPage() {
           onRecordMove={async (recordId, newDate, fieldName) => {
             try {
               await api.patch(`/modules/${mod?.id}/records/${recordId}`, { [fieldName]: newDate });
-              fetchRecords();
+              if (mod) fetchRecords(mod.id, page, appliedConditions, appliedLogic);
             } catch {}
           }}
         />
@@ -2575,18 +2834,20 @@ export default function ModuleRecordsPage() {
         <>
           <Card>
             <CardContent className="p-0">
-              {!result || result.data.length === 0 ? (
+              {!result || tagFilteredRecords.length === 0 ? (
                 <div className="text-center py-16">
-                  <span className="text-4xl mb-4 block">{mod?.icon || "📦"}</span>
+                  <ModuleIcon icon={mod?.icon} slug={mod?.slug} className="w-10 h-10 mb-4 inline-block" />
                   <h3 className="text-base font-semibold text-gray-900 mb-2">
-                    {activeFilterCount > 0 ? "No records match your filters" : "No records yet"}
+                    {tagFilter ? `No records tagged "${tagFilter}"` : activeFilterCount > 0 ? "No records match your filters" : "No records yet"}
                   </h3>
                   <p className="text-sm text-gray-500 mb-6">
-                    {activeFilterCount > 0 ? "Try adjusting or clearing your filters." : `Add your first ${mod?.name?.toLowerCase()} record.`}
+                    {tagFilter ? "Try a different tag or clear the tag filter." : activeFilterCount > 0 ? "Try adjusting or clearing your filters." : `Add your first ${mod?.name?.toLowerCase()} record.`}
                   </p>
-                  {activeFilterCount > 0
-                    ? <Button size="sm" variant="outline" onClick={clearFilters}>Clear Filters</Button>
-                    : <PermissionGate slug={slug ?? ""} action="canCreate"><Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />Add First Record</Button></Link></PermissionGate>
+                  {tagFilter
+                    ? <Button size="sm" variant="outline" onClick={() => setTagFilter("")}>Clear Tag Filter</Button>
+                    : activeFilterCount > 0
+                      ? <Button size="sm" variant="outline" onClick={clearFilters}>Clear Filters</Button>
+                      : <PermissionGate slug={slug ?? ""} action="canCreate"><Link href={`/m/${slug}/new`}><Button size="sm" className="gap-2"><Plus className="w-4 h-4" />Add First Record</Button></Link></PermissionGate>
                   }
                 </div>
               ) : (
@@ -2595,14 +2856,19 @@ export default function ModuleRecordsPage() {
                   <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60 text-xs text-gray-500">
                     <div className="flex items-center gap-3">
                       <span className="font-semibold text-gray-700 text-sm">
-                        {result.meta.total.toLocaleString()}
+                        {tagFilter ? tagFilteredRecords.length.toLocaleString() : result.meta.total.toLocaleString()}
                         <span className="font-normal text-gray-400 ml-1">
-                          {result.meta.total === 1 ? "record" : "records"}
+                          {(tagFilter ? tagFilteredRecords.length : result.meta.total) === 1 ? "record" : "records"}
                         </span>
                       </span>
                       {activeFilterCount > 0 && (
                         <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-0.5 text-[11px]">
                           filtered
+                        </span>
+                      )}
+                      {tagFilter && (
+                        <span className="inline-flex items-center gap-1 bg-violet-50 text-violet-600 border border-violet-200 rounded px-1.5 py-0.5 text-[11px]">
+                          🏷️ tag filtered
                         </span>
                       )}
                     </div>
@@ -2612,11 +2878,31 @@ export default function ModuleRecordsPage() {
                           {selected.length} selected
                         </span>
                       )}
-                      {result.meta.totalPages > 1 && (
+                      {result.meta.totalPages > 1 && !tagFilter && (
                         <span>
                           {((page - 1) * limit) + 1}–{Math.min(page * limit, result.meta.total)} of {result.meta.total.toLocaleString()}
                         </span>
                       )}
+                      {/* Density toggle */}
+                      <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg overflow-hidden bg-white">
+                        {([
+                          { k: "compact" as Density, icon: AlignJustify, title: "Compact" },
+                          { k: "normal"  as Density, icon: AlignCenter,  title: "Normal" },
+                          { k: "comfortable" as Density, icon: Maximize2, title: "Comfortable" },
+                        ] as const).map(({ k, icon: Icon, title }) => (
+                          <button
+                            key={k}
+                            title={title}
+                            onClick={() => changeDensity(k)}
+                            className={cn(
+                              "p-1 transition-colors",
+                              density === k ? "bg-gray-100 text-gray-700" : "text-gray-400 hover:text-gray-600"
+                            )}
+                          >
+                            <Icon className="w-3 h-3" />
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   {/* ── Scrollable table with sticky header ── */}
@@ -2626,7 +2912,7 @@ export default function ModuleRecordsPage() {
                       <tr className="border-b border-gray-200 bg-gray-50 shadow-[0_1px_0_0_#e5e7eb]">
                         <th className="w-10 px-4 py-3 bg-gray-50">
                           <Checkbox
-                            checked={selected.length === result.data.length && result.data.length > 0}
+                            checked={selected.length === tagFilteredRecords.length && tagFilteredRecords.length > 0}
                             onCheckedChange={selectAll}
                           />
                         </th>
@@ -2670,11 +2956,14 @@ export default function ModuleRecordsPage() {
                             </span>
                           </div>
                         </th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-violet-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">
+                          Tags
+                        </th>
                         <th className="w-16 px-4 py-3 bg-gray-50"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {result.data.map(record => (
+                      {tagFilteredRecords.map(record => (
                         <tr key={record.id}
                           className={cn(
                             "hover:bg-gray-50/80 transition-colors group",
@@ -2690,7 +2979,8 @@ export default function ModuleRecordsPage() {
                             return (
                               <td key={f.id}
                                 className={cn(
-                                  "px-4 py-2 relative",
+                                  "px-4 relative",
+                                  cellPy,
                                   isEditing ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "",
                                   !isEditing && isEditable ? "cursor-pointer hover:bg-blue-50/40 group/cell" : "",
                                   !isEditing && !isEditable ? "cursor-pointer" : "",
@@ -2714,7 +3004,7 @@ export default function ModuleRecordsPage() {
                                   />
                                 ) : (
                                   <div className="flex items-center gap-1 min-h-[22px]">
-                                    <FieldValue value={record.data[f.name]} field={f} recordData={record.data} fieldName={f.name} />
+                                    <FieldValue value={record.data[f.name]} field={f} recordData={record.data} fieldName={f.name} density={density} />
                                     {isEditable && (
                                       <Pencil className="w-3 h-3 text-gray-300 opacity-0 group-hover/cell:opacity-100 shrink-0 ml-auto" />
                                     )}
@@ -2730,6 +3020,30 @@ export default function ModuleRecordsPage() {
                               {record.isArchived && <span title="Archived"><Archive className="w-3 h-3 text-amber-500 shrink-0" /></span>}
                             </div>
                           </td>
+                          <td className="px-4 py-2 cursor-pointer" onClick={() => router.push(`/m/${slug}/${record.id}`)}>
+                            {Array.isArray(record.data?._tags) && record.data._tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {(record.data._tags as any[]).slice(0, 3).map((t: any) => (
+                                  <span
+                                    key={tagName(t)}
+                                    onClick={e => { e.stopPropagation(); setTagFilter(tagName(t)); }}
+                                    title={`Filter by: ${tagName(t)}`}
+                                    className="inline-flex items-center px-2 py-0.5 rounded-full text-white text-[11px] font-semibold cursor-pointer hover:opacity-80 transition-opacity"
+                                    style={{ backgroundColor: tagColor(t) }}
+                                  >
+                                    {tagName(t)}
+                                  </span>
+                                ))}
+                                {(record.data._tags as any[]).length > 3 && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[11px]">
+                                    +{(record.data._tags as any[]).length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-gray-200 select-none">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -2744,6 +3058,11 @@ export default function ModuleRecordsPage() {
                                 <Link href={`/m/${slug}/${record.id}/edit`}>
                                   <DropdownMenuItem className="cursor-pointer"><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                                 </Link>
+                                {mod?.fields?.some((f: Field) => f.type === "EMAIL") && (
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => setSendEmailRecord(record)}>
+                                    <Mail className="mr-2 h-4 w-4" />Send Email
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuSeparator />
                                 {perm.canDelete && (
                                   <DropdownMenuItem className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50"
@@ -2818,6 +3137,49 @@ export default function ModuleRecordsPage() {
         />
       )}
 
+      {/* Send Email modal — opened from a row's "Send Email" action */}
+      {sendEmailRecord && (() => {
+        const fields: Field[] = mod?.fields || [];
+        const recordRaw = sendEmailRecord.data as Record<string, any>;
+        const emailField = fields.find(f => f.type === "EMAIL");
+        const defaultEmail = emailField ? String(recordRaw[emailField.name] ?? "") : "";
+
+        const nameField =
+          fields.find(f => f.type === "TEXT" && ["name","fullName","full_name","firstName","first_name","contactName","clientName","studentName","scholarName"].includes(f.name)) ||
+          fields.find(f => f.type === "TEXT");
+        const titleField = fields.find(f => ["TEXT", "AUTO_NUMBER", "EMAIL"].includes(f.type));
+        const defaultName =
+          (nameField ? String(recordRaw[nameField.name] ?? "") : "") ||
+          String((titleField ? recordRaw[titleField.name] : "") ?? "");
+
+        const strData: Record<string, string> = {};
+        Object.entries(recordRaw).forEach(([k, v]) => {
+          if (k.endsWith("__label")) return;
+          if (v == null) return;
+          if (typeof v === "object") return;
+          strData[k] = String(v);
+        });
+
+        return (
+          <SendEmailModal
+            open={!!sendEmailRecord}
+            onClose={() => setSendEmailRecord(null)}
+            defaultEmail={defaultEmail}
+            defaultName={defaultName}
+            recordData={strData}
+            recordLabel={String((titleField ? recordRaw[titleField.name] : "") ?? sendEmailRecord.id.slice(0, 8))}
+            recordId={sendEmailRecord.id}
+          />
+        );
+      })()}
+
+      {/* Bulk Send Email modal — opened from the bulk action toolbar */}
+      <BulkSendEmailModal
+        open={bulkEmailOpen}
+        onClose={() => setBulkEmailOpen(false)}
+        recipients={bulkRecipients}
+      />
+
       {/* Bulk Action Toolbar — slides in from bottom when records are selected */}
       {selected.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 animate-in slide-in-from-bottom-2 duration-200">
@@ -2858,14 +3220,28 @@ export default function ModuleRecordsPage() {
                     <Download className="w-3.5 h-3.5" /> Export Selected
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  disabled
-                  title="Email integration coming soon"
-                  className="gap-1.5 bg-gray-700 text-gray-400 border-0 h-8 text-xs cursor-not-allowed opacity-50"
-                >
-                  <Mail className="w-3.5 h-3.5" /> Send Email
-                </Button>
+                {mod?.fields?.some((f: Field) => f.type === "EMAIL") && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const emailField = (mod.fields as Field[]).find(f => f.type === "EMAIL")!;
+                      const nameField = (mod.fields as Field[]).find(f => f.type === "TEXT" && ["name","fullName","full_name","firstName","first_name","contactName","clientName","studentName","scholarName"].includes(f.name))
+                        ?? (mod.fields as Field[]).find(f => f.type === "TEXT");
+                      const withEmail = (result?.data ?? []).filter(r => selected.includes(r.id) && r.data?.[emailField.name]);
+                      if (withEmail.length === 0) { showToast("None of the selected records have an email address", "error"); return; }
+                      setBulkRecipients(withEmail.map(r => ({
+                        recordId: r.id,
+                        email: String(r.data[emailField.name]),
+                        name: nameField ? String(r.data[nameField.name] ?? "") : "",
+                        recordData: r.data as Record<string, any>,
+                      })));
+                      setBulkEmailOpen(true);
+                    }}
+                    className="gap-1.5 bg-gray-700 hover:bg-gray-600 text-white border-0 h-8 text-xs"
+                  >
+                    <Mail className="w-3.5 h-3.5" /> Send Email
+                  </Button>
+                )}
                 <div className="w-px h-5 bg-gray-600 mx-1" />
                 {perm.canDelete && (
                   <Button

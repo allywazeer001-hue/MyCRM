@@ -22,12 +22,12 @@ export class EmailTemplatesController {
   }
 
   @Post()
-  create(@Body() body: { name: string; subject: string; body: string }, @CurrentUser() user: any) {
+  create(@Body() body: { name: string; subject: string; body: string; design?: object }, @CurrentUser() user: any) {
     return this.svc.create(user.organizationId, user.id, body);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: { name?: string; subject?: string; body?: string }, @CurrentUser() user: any) {
+  update(@Param('id') id: string, @Body() body: { name?: string; subject?: string; body?: string; design?: object }, @CurrentUser() user: any) {
     return this.svc.update(id, user.organizationId, body);
   }
 

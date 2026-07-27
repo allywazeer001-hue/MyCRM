@@ -676,6 +676,7 @@ export const hospitalBlueprint: IndustryBlueprint = {
       name: 'Lab Result Status Changed',
       description: 'Notify doctor and patient team when a lab result status changes (e.g. Critical or Completed)',
       trigger: 'FIELD_CHANGED',
+      triggerConfig: { fieldName: 'status' },
       moduleSlug: 'lab_results',
       actions: [
         {
@@ -692,6 +693,7 @@ export const hospitalBlueprint: IndustryBlueprint = {
       name: 'Bill Payment Status Changed',
       description: 'Alert finance team when a patient bill payment status is updated',
       trigger: 'FIELD_CHANGED',
+      triggerConfig: { fieldName: 'payment_status' },
       moduleSlug: 'patient_bills',
       actions: [
         {

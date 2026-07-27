@@ -36,6 +36,10 @@ export interface BlueprintWorkflow {
   name: string;
   description?: string;
   trigger: string;        // WorkflowTrigger
+  // Required when trigger is 'FIELD_CHANGED' — the field name this workflow watches
+  // (e.g. { fieldName: 'status' }). Without it the workflow is created but can never
+  // fire, since FIELD_CHANGED intentionally requires a specific field to be named.
+  triggerConfig?: Record<string, any>;
   moduleSlug: string;
   isActive?: boolean;
   actions: BlueprintWorkflowAction[];

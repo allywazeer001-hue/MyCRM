@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "MANAGER", "USER", "VIEWER"];
 const ROLE_COLORS: Record<string, string> = {
@@ -137,7 +138,7 @@ export default function PermissionsPage() {
                         <tr key={mod.id} className="border-b last:border-0 hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium text-gray-700 sticky left-0 bg-white">
                             <div className="flex items-center gap-2">
-                              <span className="text-base">{mod.icon || "📦"}</span>
+                              <ModuleIcon icon={mod.icon} slug={mod.slug} className="w-4 h-4" />
                               <span className="truncate max-w-[100px]">{mod.name}</span>
                             </div>
                           </td>

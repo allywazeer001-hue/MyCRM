@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const UPLOAD_BASE = path.join(process.cwd(), 'uploads', 'records');
+const UPLOAD_BASE = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'records');
 const MAX_SIZE = 25 * 1024 * 1024; // 25 MB
 
 @Injectable()

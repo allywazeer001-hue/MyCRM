@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { api } from "@/lib/api";
+import { SOCIAL_PLATFORMS } from "@/lib/social-platforms";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface LandingConfig {
@@ -26,11 +28,13 @@ interface LandingConfig {
   showStats: boolean;
   showMockup: boolean;
   heroBadgeVisible: boolean;
+  // Contact
+  socialLinks: Record<string, string>;
 }
 
 const DEFAULTS: LandingConfig = {
-  heroTitle: "Your organization,\none platform.",
-  heroSubtitle: "CRM, workflows, forms, analytics, reports, and more — all connected.",
+  heroTitle: "One platform.\nEvery part of your business.",
+  heroSubtitle: "One unified platform to grow your customer base, manage your people, track your finances, and run every operation — built from the gaps real teams actually hit.",
   badgeText: "One platform for your entire organization",
   heroCta1: "Start for free",
   heroCta2: "Sign in to your workspace",
@@ -46,6 +50,7 @@ const DEFAULTS: LandingConfig = {
   showStats: true,
   showMockup: true,
   heroBadgeVisible: true,
+  socialLinks: {},
 };
 
 const STORAGE_KEY = "cloudbox-landing-config";
@@ -231,6 +236,13 @@ const SECTIONS = [
       </svg>
     ),
   },
+  { id: "announcement", label: "Announcement",
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24">
+        <path d="M3 11v2a2 2 0 002 2h1l3 5v-5h6l4-3V6l-4-3H9L6 6H5a2 2 0 00-2 2v3z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
+      </svg>
+    ),
+  },
 ] as const;
 
 type SectionId = typeof SECTIONS[number]["id"];
@@ -358,6 +370,18 @@ export default function LandAdminPage() {
   const [savedToast, setSavedToast] = useState(false);
   const [hasUnsaved, setHasUnsaved] = useState(false);
 
+  // Announcement banner — persisted server-side (unlike the rest of this page,
+  // which is localStorage-only) since it must be visible to every visitor, not
+  // just this browser.
+  const [announcement, setAnnouncement] = useState({
+    message: "", isActive: false,
+    startDate: "", endDate: "", dailyStartTime: "", dailyEndTime: "",
+  });
+  const [announcementLoading, setAnnouncementLoading] = useState(true);
+  const [announcementSaving, setAnnouncementSaving] = useState(false);
+  const [announcementSaved, setAnnouncementSaved] = useState(false);
+  const [unpublishing, setUnpublishing] = useState(false);
+
   useEffect(() => {
     try {
       const token = localStorage.getItem("access_token");
@@ -370,10 +394,52 @@ export default function LandAdminPage() {
     } catch { setAuthStatus("need-login"); return; }
     setConfig(loadConfig());
     setAuthStatus("ok");
+    api.get("/announcements")
+      .then(({ data }) => setAnnouncement({
+        message: data.message ?? "",
+        isActive: !!data.isActive,
+        startDate: data.startDate ? String(data.startDate).slice(0, 10) : "",
+        endDate: data.endDate ? String(data.endDate).slice(0, 10) : "",
+        dailyStartTime: data.dailyStartTime ?? "",
+        dailyEndTime: data.dailyEndTime ?? "",
+      }))
+      .catch(() => {})
+      .finally(() => setAnnouncementLoading(false));
   }, []); // eslint-disable-line
+
+  const saveAnnouncement = async () => {
+    setAnnouncementSaving(true);
+    try {
+      await api.patch("/announcements", announcement);
+      setAnnouncementSaved(true);
+      setTimeout(() => setAnnouncementSaved(false), 2500);
+    } catch { /* noop */ } finally { setAnnouncementSaving(false); }
+  };
+
+  const unpublishAnnouncement = async () => {
+    setUnpublishing(true);
+    try {
+      await api.post("/announcements/unpublish");
+      setAnnouncement((prev) => ({ ...prev, isActive: false }));
+    } catch { /* noop */ } finally { setUnpublishing(false); }
+  };
 
   const set = useCallback((key: keyof LandingConfig, value: string | boolean) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
+    setHasUnsaved(true);
+  }, []);
+
+  const toggleSocial = useCallback((key: string) => {
+    setConfig((prev) => {
+      const next = { ...prev.socialLinks };
+      if (key in next) delete next[key]; else next[key] = "";
+      return { ...prev, socialLinks: next };
+    });
+    setHasUnsaved(true);
+  }, []);
+
+  const setSocialUrl = useCallback((key: string, url: string) => {
+    setConfig((prev) => ({ ...prev, socialLinks: { ...prev.socialLinks, [key]: url } }));
     setHasUnsaved(true);
   }, []);
 
@@ -423,7 +489,7 @@ export default function LandAdminPage() {
               : "Sign in with your platform administrator account to access landing page settings."}
           </p>
           <div className="space-y-2.5">
-            <Link href="/login" className="flex items-center justify-center w-full px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-all">
+            <Link href="/login?redirect=/land-admin" className="flex items-center justify-center w-full px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-all">
               Sign in as Platform Admin
             </Link>
             <Link href="/" className="flex items-center justify-center w-full px-5 py-2.5 border border-white/10 hover:border-white/20 text-white/50 hover:text-white text-sm font-semibold rounded-xl transition-all">
@@ -437,7 +503,7 @@ export default function LandAdminPage() {
 
   // ── Main editor ───────────────────────────────────────────────────────────
   return (
-    <div className="h-screen bg-[#080e1d] text-white flex flex-col overflow-hidden">
+    <div className="h-full bg-[#080e1d] text-white flex flex-col overflow-hidden">
 
       {/* ── Top bar ── */}
       <header className="h-12 border-b border-white/[0.06] flex items-center justify-between px-5 shrink-0 bg-[#080e1d]/95 backdrop-blur-sm z-20">
@@ -507,7 +573,7 @@ export default function LandAdminPage() {
 
         {/* ── Settings panel ── */}
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-lg mx-auto space-y-6">
 
             {/* ══ CONTENT ══ */}
             {activeSection === "content" && (
@@ -563,6 +629,42 @@ export default function LandAdminPage() {
                         className={INPUT} placeholder={DEFAULTS.ctaSubtitle} />
                     </Field>
                   </div>
+                </Group>
+
+                <Group title="Social Media">
+                  <Field label="Platforms" hint="Select every platform you want linked, then paste its URL below. Shown as icons in the footer and Contact page.">
+                    <div className="grid grid-cols-4 gap-2">
+                      {SOCIAL_PLATFORMS.map((p) => {
+                        const active = p.key in (config.socialLinks ?? {});
+                        const Icon = p.icon;
+                        return (
+                          <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => toggleSocial(p.key)}
+                            title={p.label}
+                            className={[
+                              "flex flex-col items-center gap-1.5 py-2.5 rounded-xl border text-[10px] font-semibold transition-all",
+                              active
+                                ? "bg-blue-600/15 border-blue-500/40 text-blue-300"
+                                : "border-white/[0.08] text-white/40 hover:border-white/20 hover:text-white/70",
+                            ].join(" ")}
+                          >
+                            <Icon className="w-4 h-4" />
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+
+                  {SOCIAL_PLATFORMS.filter((p) => p.key in (config.socialLinks ?? {})).map((p) => (
+                    <Field key={p.key} label={`${p.label} URL`}>
+                      <input type="url" value={config.socialLinks?.[p.key] ?? ""}
+                        onChange={(e) => setSocialUrl(p.key, e.target.value)}
+                        className={INPUT} placeholder={p.placeholder} />
+                    </Field>
+                  ))}
                 </Group>
               </>
             )}
@@ -657,6 +759,71 @@ export default function LandAdminPage() {
                     <Toggle checked={config.showMockup} onChange={(v) => set("showMockup", v)} label="Show dashboard mockup" />
                   </div>
                 </Group>
+              </>
+            )}
+
+            {/* ══ ANNOUNCEMENT ══ */}
+            {activeSection === "announcement" && (
+              <>
+                <SectionHeading title="Announcement" subtitle="A banner shown at the top of every page — landing site, CRM, and portal — until you turn it off." />
+
+                {announcementLoading ? (
+                  <p className="text-sm text-white/30">Loading…</p>
+                ) : (
+                  <Group title="Banner">
+                    <Field label="Message" hint="The main text shown in the banner.">
+                      <textarea rows={2} value={announcement.message}
+                        onChange={(e) => setAnnouncement((p) => ({ ...p, message: e.target.value }))}
+                        className={TEXTAREA} placeholder="We're rolling out a new Analytics dashboard this week." />
+                    </Field>
+                    <Field label="Active date range" hint="Leave either side blank for no limit on that side.">
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="date" value={announcement.startDate}
+                          onChange={(e) => setAnnouncement((p) => ({ ...p, startDate: e.target.value }))}
+                          className={INPUT} />
+                        <input type="date" value={announcement.endDate}
+                          onChange={(e) => setAnnouncement((p) => ({ ...p, endDate: e.target.value }))}
+                          className={INPUT} />
+                      </div>
+                    </Field>
+                    <Field label="Daily time window" hint="The banner only shows during this time of day, every day within the date range above. Leave both blank to show all day.">
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="time" value={announcement.dailyStartTime}
+                          onChange={(e) => setAnnouncement((p) => ({ ...p, dailyStartTime: e.target.value }))}
+                          className={INPUT} />
+                        <input type="time" value={announcement.dailyEndTime}
+                          onChange={(e) => setAnnouncement((p) => ({ ...p, dailyEndTime: e.target.value }))}
+                          className={INPUT} />
+                      </div>
+                    </Field>
+                    <Toggle
+                      checked={announcement.isActive}
+                      onChange={(v) => setAnnouncement((p) => ({ ...p, isActive: v }))}
+                      label="Show this banner to everyone"
+                    />
+
+                    {announcement.isActive && announcement.message && (
+                      <div className="rounded-xl overflow-hidden border border-white/[0.08]">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 px-3 pt-2.5 pb-1.5">Preview</p>
+                        <div className="px-4 py-2.5 text-sm text-center text-white font-semibold"
+                          style={{ background: "linear-gradient(90deg, #1e1b4b 0%, #3730a3 55%, #2563eb 100%)" }}>
+                          {announcement.message}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2.5">
+                      <button onClick={saveAnnouncement} disabled={announcementSaving}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-sm font-bold text-white px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all shadow-lg shadow-blue-900/40">
+                        {announcementSaving ? "Publishing…" : announcementSaved ? "Published ✓" : "Publish banner"}
+                      </button>
+                      <button onClick={unpublishAnnouncement} disabled={unpublishing || !announcement.isActive}
+                        className="px-4 py-2.5 rounded-xl text-sm font-semibold border border-white/[0.1] text-white/50 hover:text-white hover:border-white/25 disabled:opacity-40 transition-all">
+                        {unpublishing ? "Unpublishing…" : "Unpublish"}
+                      </button>
+                    </div>
+                  </Group>
+                )}
               </>
             )}
 

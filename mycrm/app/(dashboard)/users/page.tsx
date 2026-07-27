@@ -57,6 +57,8 @@ type Department = { id: string; name: string; color: string };
 
 type Organization = { id: string; name: string };
 
+type StaffRoleItem = { id: string; label: string; value: string };
+
 type CrmUser = {
   id: string;
   email: string;
@@ -68,6 +70,7 @@ type CrmUser = {
   mustChangePassword: boolean;
   jobTitle?: string;
   phone?: string;
+  teamRole?: string;
   departmentId?: string;
   department?: Department;
   organizationId?: string;
@@ -216,12 +219,13 @@ function CredentialDialog({
 // ── User Form Dialog ──────────────────────────────────────────────────────────
 
 function UserFormDialog({
-  open, onClose, onSaved, departments, editUser, emailDomain,
+  open, onClose, onSaved, departments, staffRoles, editUser, emailDomain,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: (user: CrmUser, tempPassword?: string) => void;
   departments: Department[];
+  staffRoles: StaffRoleItem[];
   editUser: CrmUser | null;
   emailDomain?: string | null;
 }) {
@@ -231,7 +235,7 @@ function UserFormDialog({
 
   const [form, setForm] = useState({
     email: "", firstName: "", lastName: "",
-    role: "USER", departmentId: "__none__",
+    role: "USER", departmentId: "__none__", teamRole: "",
     jobTitle: "", phone: "", avatar: "",
   });
   const [saving, setSaving] = useState(false);
@@ -245,9 +249,10 @@ function UserFormDialog({
         email: editUser.email, firstName: editUser.firstName, lastName: editUser.lastName,
         role: editUser.role,
         departmentId: editUser.departmentId || "__none__",
+        teamRole: editUser.teamRole || "",
         jobTitle: editUser.jobTitle || "", phone: editUser.phone || "",
         avatar: editUser.avatar || "",
-      } : { email: "", firstName: "", lastName: "", role: "USER", departmentId: "__none__", jobTitle: "", phone: "", avatar: "" });
+      } : { email: "", firstName: "", lastName: "", role: "USER", departmentId: "__none__", teamRole: "", jobTitle: "", phone: "", avatar: "" });
     }
   }, [open, editUser]);
 
@@ -272,6 +277,7 @@ function UserFormDialog({
         email: form.email, firstName: form.firstName, lastName: form.lastName,
         role: form.role,
         departmentId: form.departmentId === "__none__" ? null : form.departmentId || null,
+        teamRole: form.teamRole || null,
         jobTitle: form.jobTitle || null, phone: form.phone || null,
         avatar: form.avatar || null,
       };
@@ -481,10 +487,43 @@ function UserFormDialog({
                   </Select>
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-600">Job title</Label>
-                <Input value={form.jobTitle} onChange={(e) => set("jobTitle", e.target.value)}
-                  placeholder="e.g. Sales Manager" className="h-9 text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Team Role</Label>
+                  <Select
+                    value={staffRoles.some(r => r.label === form.teamRole) ? form.teamRole : (form.teamRole ? "__custom__" : "__none__")}
+                    onValueChange={(v) => {
+                      if (v === "__none__") set("teamRole", "");
+                      else if (v !== "__custom__") set("teamRole", v);
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="No team role" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No team role</SelectItem>
+                      {staffRoles.map((r) => (
+                        <SelectItem key={r.id} value={r.label}>{r.label}</SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">
+                        <span className="text-blue-600">+ Other (type below)</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* Custom role input shown when "Other" is selected or value not in list */}
+                  {form.teamRole && !staffRoles.some(r => r.label === form.teamRole) && (
+                    <Input
+                      value={form.teamRole}
+                      onChange={(e) => set("teamRole", e.target.value)}
+                      placeholder="Type custom role name"
+                      className="h-9 text-sm mt-1"
+                      autoFocus
+                    />
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Job title</Label>
+                  <Input value={form.jobTitle} onChange={(e) => set("jobTitle", e.target.value)}
+                    placeholder="e.g. Sales Manager" className="h-9 text-sm" />
+                </div>
               </div>
             </div>
 
@@ -588,7 +627,8 @@ function PermissionSummaryDialog({
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Module Permissions</p>
                 <div className="rounded-lg border border-gray-200 overflow-hidden">
-                  <table className="w-full text-xs">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[560px]">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
                         <th className="text-left px-3 py-2 font-semibold text-gray-600">Module</th>
@@ -612,6 +652,7 @@ function PermissionSummaryDialog({
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -847,6 +888,7 @@ export default function UsersPage() {
 
   const [users, setUsers]               = useState<CrmUser[]>([]);
   const [departments, setDepartments]   = useState<Department[]>([]);
+  const [staffRoles, setStaffRoles]     = useState<StaffRoleItem[]>([]);
   const [orgs, setOrgs]                 = useState<Organization[]>([]);
   const [emailDomain, setEmailDomain]   = useState<string | null>(null);
   const [loading, setLoading]           = useState(true);
@@ -872,12 +914,14 @@ export default function UsersPage() {
         api.get("/users"),
         api.get("/departments"),
         api.get("/organizations/me"),
+        api.get("/global-lists/staff-roles"),
       ];
       if (isSuperAdmin) requests.push(api.get("/organizations"));
 
-      const [usersRes, deptsRes, orgRes, allOrgsRes] = await Promise.allSettled(requests);
+      const [usersRes, deptsRes, orgRes, staffRolesRes, allOrgsRes] = await Promise.allSettled(requests);
       if (usersRes.status === "fulfilled") setUsers(usersRes.value.data);
       if (deptsRes.status === "fulfilled") setDepartments(deptsRes.value.data);
+      if (staffRolesRes.status === "fulfilled") setStaffRoles(staffRolesRes.value.data?.items ?? []);
       if (orgRes.status === "fulfilled") {
         const domain = (orgRes.value.data?.settings as any)?.emailDomain;
         setEmailDomain(domain || null);
@@ -1114,15 +1158,17 @@ export default function UsersPage() {
                     <div key={user.id} className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${isInactive ? "opacity-60" : ""}`}>
                       {/* Avatar + info */}
                       <div className="flex items-center gap-3 min-w-0">
-                        <Avatar className="flex-shrink-0">
-                          {user.avatar && <AvatarImage src={user.avatar} alt={`${user.firstName[0]}${user.lastName[0]}`} className="object-cover" />}
-                          <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold text-sm">
-                            {user.firstName[0]}{user.lastName[0]}
-                          </AvatarFallback>
-                        </Avatar>
+                        <button onClick={() => router.push(`/users/${user.id}`)} className="flex-shrink-0 focus:outline-none">
+                          <Avatar className="flex-shrink-0 hover:ring-2 hover:ring-blue-400 transition-all">
+                            {user.avatar && <AvatarImage src={user.avatar} alt={`${user.firstName[0]}${user.lastName[0]}`} className="object-cover" />}
+                            <AvatarFallback className="bg-blue-100 text-blue-700 font-semibold text-sm">
+                              {user.firstName[0]}{user.lastName[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                        </button>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium text-gray-900">{user.firstName} {user.lastName}</p>
+                            <button onClick={() => router.push(`/users/${user.id}`)} className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors text-left">{user.firstName} {user.lastName}</button>
                             {user.mustChangePassword && (
                               <span className="inline-flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-1.5 py-0.5">
                                 <Key className="w-2.5 h-2.5" /> Must reset
@@ -1147,6 +1193,13 @@ export default function UsersPage() {
                         ) : (
                           <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-gray-400 border border-gray-200 bg-gray-50">
                             <Building2 className="w-2.5 h-2.5" />No unit
+                          </span>
+                        )}
+
+                        {/* Team role badge */}
+                        {user.teamRole && (
+                          <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border bg-teal-50 border-teal-200 text-teal-700">
+                            {user.teamRole}
                           </span>
                         )}
 
@@ -1279,6 +1332,7 @@ export default function UsersPage() {
           }
         }}
         departments={departments}
+        staffRoles={staffRoles}
         editUser={editUser}
         emailDomain={emailDomain}
       />

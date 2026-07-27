@@ -37,6 +37,15 @@ export class WorkspaceController {
     return this.svc.getTasks(user.id, user.organizationId, filter, date);
   }
 
+  @Get('users/:targetUserId/tasks')
+  userTasks(
+    @Param('targetUserId') targetUserId: string,
+    @CurrentUser() user: any,
+    @Query('filter') filter: string,
+  ) {
+    return this.svc.getUserTasksForAdmin(targetUserId, user.organizationId, filter);
+  }
+
   @Post('tasks')
   createTask(@CurrentUser() user: any, @Body() body: any) {
     return this.svc.createTask(user.id, user.organizationId, body);

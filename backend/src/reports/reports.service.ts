@@ -25,6 +25,7 @@ export class ReportsService {
       columns = [], filters = [], sortBy = '', sortDir = 'asc',
       groupBy = '', pageSize = 25, styling = {},
       isPublic = false, canView = [], canEdit = [], rolesView = [], rolesEdit = [],
+      folderId = null,
     } = data;
     return this.prisma.savedReport.create({
       data: {
@@ -47,6 +48,7 @@ export class ReportsService {
         canEdit,
         rolesView,
         rolesEdit,
+        folderId,
       },
     });
   }
@@ -65,6 +67,7 @@ export class ReportsService {
     const allowed = [
       'name','description','columns','filters','sortBy','sortDir',
       'groupBy','pageSize','styling','isPublic','canView','canEdit','rolesView','rolesEdit',
+      'folderId',
     ];
     const patch: any = {};
     for (const key of allowed) {

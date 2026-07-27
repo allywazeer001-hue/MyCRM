@@ -31,6 +31,11 @@ export class FieldsController {
     return this.fieldsService.reorder(moduleId, user.organizationId, fieldIds);
   }
 
+  @Get(':id/usage')
+  checkUsage(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.fieldsService.checkUsage(id, user.organizationId);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.fieldsService.remove(id, user.organizationId);

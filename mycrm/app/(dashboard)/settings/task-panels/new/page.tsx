@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -280,7 +281,7 @@ export default function NewTaskPanelPage() {
                   <SelectItem value="__none__">None</SelectItem>
                   {modules.map(m => (
                     <SelectItem key={m.id} value={m.id}>
-                      {m.icon && <span className="mr-1.5">{m.icon}</span>}
+                      {m.icon && <ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />}
                       {m.name}
                     </SelectItem>
                   ))}

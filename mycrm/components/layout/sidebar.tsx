@@ -6,7 +6,7 @@ import {
   Settings, ChevronRight, Database, Workflow, BarChart3,
   Users, Building2, Plus, ChevronLeft, FileBarChart2, X,
   Globe, Palette, LayoutGrid, Home,
-  ChevronDown, ClipboardCheck, Inbox, Settings2,
+  ChevronDown, ClipboardCheck, TableProperties, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useModulesStore } from "@/store/modules.store";
@@ -18,20 +18,23 @@ import { ModuleIcon } from "@/components/ui/module-icon";
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
 const coreNavItems = [
-  { href: "/workspace",          label: "Workspace",          icon: LayoutGrid,    permKey: null },
-  { href: "/workspace/requests", label: "Requests",           icon: Inbox,         permKey: null },
-  { href: "/dashboard",          label: "Dashboard",          icon: Home,          permKey: "canDashboard" as const },
-  { href: "/analytics",          label: "Data Visualization", icon: BarChart3,     permKey: "canAnalytics" as const },
-  { href: "/workflows",          label: "Workflows",          icon: Workflow,      permKey: "canWorkflow"  as const },
-  { href: "/apps/report-builder",label: "Reports",            icon: FileBarChart2, permKey: null },
-  { href: "/tracker",            label: "Tracker",            icon: ClipboardCheck,permKey: null },
+  { href: "/workspace",          label: "Workspace", icon: LayoutGrid,    permKey: null },
+  { href: "/dashboard",          label: "Dashboard", icon: Home,          permKey: "canDashboard" as const },
+  { href: "/workflows",          label: "Workflows", icon: Workflow,      permKey: "canWorkflow"  as const },
+  { href: "/apps/report-builder",label: "Reports",   icon: FileBarChart2, permKey: null },
+];
+
+const dataManagementItems = [
+  { href: "/analytics",       label: "Data Visualization", icon: BarChart3,       permKey: "canAnalytics" as const },
+  { href: "/analytics/pivot", label: "Pivoting",           icon: TableProperties, permKey: "canAnalytics" as const },
+  { href: "/tracker",         label: "Tracker",            icon: ClipboardCheck,  permKey: null },
+  { href: "/data-quality",    label: "Data Quality Check", icon: ShieldCheck,     permKey: null },
 ];
 
 const adminNavItems = [
   { href: "/studio",            label: "Module Studio", icon: Database   },
   { href: "/users",             label: "Users",         icon: Users      },
   { href: "/admin/departments", label: "Units",         icon: Building2  },
-  { href: "/customization",     label: "Customization", icon: Settings2  },
   { href: "/settings",          label: "Settings",      icon: Settings   },
 ];
 
@@ -43,6 +46,7 @@ const platformNavItems = [
 // href → package key required to show this item
 const ROUTE_PACKAGE: Record<string, string> = {
   "/analytics":           "ANALYTICS",
+  "/analytics/pivot":     "ANALYTICS",
   "/workflows":           "WORKFLOWS",
   "/forms":               "FORMS",
   "/apps/report-builder": "REPORTS",
@@ -127,6 +131,53 @@ function NavGroup({
   );
 }
 
+// ── Nav dropdown (collapsible parent with child links) ────────────────────────
+
+function NavDropdown({
+  label, icon: Icon, children, collapsed, active,
+}: {
+  label: string; icon: React.ElementType; children: React.ReactNode;
+  collapsed: boolean; active: boolean;
+}) {
+  const [open, setOpen] = useState(active);
+
+  if (collapsed) {
+    return <div className="space-y-0.5">{children}</div>;
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none w-full",
+          active
+            ? "bg-blue-50 text-blue-700"
+            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+        )}
+      >
+        {active && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-blue-600 rounded-r-full" />
+        )}
+        <Icon className={cn(
+          "w-[18px] h-[18px] shrink-0 transition-colors",
+          active ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"
+        )} />
+        <span className="flex-1 truncate text-left">{label}</span>
+        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200 text-slate-400", open && "rotate-180")} />
+      </button>
+      <div className={cn(
+        "overflow-hidden transition-all duration-200 ease-in-out",
+        open ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0"
+      )}>
+        <div className="ml-3 pl-3 border-l border-slate-100 mt-0.5 space-y-0.5">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Sidebar props ─────────────────────────────────────────────────────────────
 
 export interface SidebarProps {
@@ -159,6 +210,11 @@ function SidebarContent({
     : coreNavItems.filter(item => !item.permKey || system[item.permKey])
   ).filter(item => hasPackage(item.href));
 
+  const visibleDataMgmt = (isSuperAdmin || isAdmin
+    ? dataManagementItems
+    : dataManagementItems.filter(item => !item.permKey || system[item.permKey])
+  ).filter(item => hasPackage(item.href));
+
   const visibleModules = isSuperAdmin || isAdmin
     ? modules
     : modules.filter(mod => canView(mod.slug));
@@ -168,8 +224,16 @@ function SidebarContent({
       return pathname === "/settings" || pathname.startsWith("/settings/") || pathname.startsWith("/admin/");
     if (href === "/workspace")
       return pathname === "/workspace";
-    return pathname === href || pathname.startsWith(href + "/");
+    if (pathname === href) return true;
+    if (!pathname.startsWith(href + "/")) return false;
+    const allItems = [...coreNavItems, ...dataManagementItems];
+    const childMatch = allItems.some(
+      item => item.href !== href && item.href.startsWith(href + "/") && pathname.startsWith(item.href),
+    );
+    return !childMatch;
   };
+
+  const dataManagementActive = dataManagementItems.some(item => isActive(item.href));
 
   return (
     <>
@@ -244,6 +308,28 @@ function SidebarContent({
               onClick={onLinkClick}
             />
           ))}
+
+          {/* Data Management dropdown */}
+          {visibleDataMgmt.length > 0 && (
+            <NavDropdown
+              label="Data Management"
+              icon={Database}
+              collapsed={collapsed}
+              active={dataManagementActive}
+            >
+              {visibleDataMgmt.map(item => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isActive(item.href)}
+                  collapsed={collapsed}
+                  onClick={onLinkClick}
+                />
+              ))}
+            </NavDropdown>
+          )}
 
           {/* Modules */}
           <NavGroup label="Modules" collapsed={collapsed}>

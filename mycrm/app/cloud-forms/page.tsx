@@ -43,7 +43,7 @@ export default function CloudFormsSplash() {
     // Start exit after 1.6s
     const t1 = setTimeout(() => setLeaving(true), 1600);
     // Navigate to Cloud Forms app
-    const t2 = setTimeout(() => router.replace("/cf"), 2000);
+    const t2 = setTimeout(() => router.replace("/cloudforms"), 2000);
 
     return () => { clearTimeout(t0); clearTimeout(t1); clearTimeout(t2); };
   }, [router]);

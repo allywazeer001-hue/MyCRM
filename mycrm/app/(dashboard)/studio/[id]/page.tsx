@@ -2,9 +2,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Plus, GripVertical, X, Settings, Eye, Save, Loader2,
+  ArrowLeft, Plus, Minus, GripVertical, X, Settings, Eye, Save, Loader2,
   ChevronDown, ChevronUp, Search, Workflow, AlertCircle, Trash2,
-  ChevronRight, ArrowRight,
+  ChevronRight, ArrowRight, CheckCircle2,
 } from "lucide-react";
 import {
   DndContext, DragEndEvent, DragStartEvent, DragOverEvent,
@@ -23,9 +23,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DesktopOnlyGate } from "@/components/ui/desktop-only-notice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useModulesStore, Field } from "@/store/modules.store";
 import { IconPicker } from "@/components/ui/icon-picker";
+import { MultiCombobox } from "@/components/ui/combobox";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn, parseFieldSettings, generateId } from "@/lib/utils";
@@ -34,9 +36,12 @@ import { type SummaryStatConfig, type SummaryCondition } from "@/components/modu
 import {
   DEFAULT_MODULE_LAYOUT, LayoutConfig,
   ModuleLayoutRule, ModuleRuleCondition, ModuleRuleAction,
+  ModuleRuleConditionGroup, ModuleRuleConditionNode,
   ModuleRuleOperator, ModuleRuleActionType, ModuleRuleTarget, ModuleRuleLogic,
 } from "@/lib/layout-templates";
 import { ModuleLayoutCanvas } from "@/components/studio/layout-canvas";
+import { ModuleIcon } from "@/components/ui/module-icon";
+import { FORMULA_FUNCTION_DOCS, validateFormula, type FormulaFunctionDoc } from "@/lib/formula-engine";
 
 const FIELD_TYPES = [
   { type: "TEXT",          label: "Single Line Text",  icon: "T",   group: "Text",     description: "Short text input" },
@@ -91,6 +96,19 @@ function smartWidth(widths: Record<string, string>, fieldIds: string[], columns:
   return remaining === 0 ? "full" : (columns === 4 ? "1/4" : columns === 3 ? "1/3" : "1/2");
 }
 
+// Converts a display label to a valid field key: lowercase, spaces→underscores, strip specials
+function generateFieldKey(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "") || "field"
+  );
+}
+
 // Draggable palette item (drag from palette onto canvas)
 function PaletteItem({ ft, onAdd, dragActiveRef }: {
   ft: typeof FIELD_TYPES[0];
@@ -108,6 +126,7 @@ function PaletteItem({ ft, onAdd, dragActiveRef }: {
       {...attributes}
       {...listeners}
       onClick={() => { if (!dragActiveRef.current) onAdd(); }}
+      style={{ touchAction: 'none' }}
       className={cn(
         "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg",
         "hover:bg-blue-50 hover:text-blue-700",
@@ -338,6 +357,8 @@ function ModulePropertiesPanel({
 const OP_OPTS: { value: ModuleRuleOperator; label: string }[] = [
   { value: "equals",     label: "equals" },
   { value: "not_equals", label: "does not equal" },
+  { value: "in",         label: "is any of" },
+  { value: "not_in",     label: "is none of" },
   { value: "is_empty",   label: "is empty" },
   { value: "not_empty",  label: "is not empty" },
 ];
@@ -350,13 +371,157 @@ const ACTION_TYPE_OPTS: { value: ModuleRuleActionType; label: string }[] = [
   { value: "readonly",  label: "Make read-only" },
 ];
 
-function newCondition(fields: Field[]): ModuleRuleCondition {
+function newCondition(fields: Field[], defaultFieldName?: string | null): ModuleRuleCondition {
   return {
     id:        `cond-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    whenField: fields[0]?.name ?? "",
+    whenField: defaultFieldName ?? fields[0]?.name ?? "",
     operator:  "equals",
     whenValue: "",
   };
+}
+
+// ── Nested condition-group tree helpers ─────────────────────────────────────
+// A rule's `conditions[]` array holds a mix of plain leaves (ModuleRuleCondition) and
+// nested groups (ModuleRuleConditionGroup, `type: "group"`) at any depth — these helpers
+// immutably locate/update/remove/insert a node anywhere in that tree by id.
+
+function isConditionGroup(n: ModuleRuleConditionNode): n is ModuleRuleConditionGroup {
+  return (n as any).type === "group";
+}
+
+// Total leaf-condition count across a whole tree — used for the collapsed rule summary.
+function countConditionLeaves(nodes: ModuleRuleConditionNode[]): number {
+  return nodes.reduce((sum, n) => sum + (isConditionGroup(n) ? countConditionLeaves(n.children) : 1), 0);
+}
+
+function newConditionGroup(): ModuleRuleConditionGroup {
+  return {
+    id:       `grp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type:     "group",
+    operator: "AND",
+    children: [],
+  };
+}
+
+function updateConditionNodeInTree(
+  nodes: ModuleRuleConditionNode[], id: string, patch: Record<string, any>,
+): ModuleRuleConditionNode[] {
+  return nodes.map(n => {
+    if (n.id === id) return { ...n, ...patch } as ModuleRuleConditionNode;
+    if (isConditionGroup(n)) return { ...n, children: updateConditionNodeInTree(n.children, id, patch) };
+    return n;
+  });
+}
+
+function removeConditionNodeFromTree(nodes: ModuleRuleConditionNode[], id: string): ModuleRuleConditionNode[] {
+  return nodes
+    .filter(n => n.id !== id)
+    .map(n => isConditionGroup(n) ? { ...n, children: removeConditionNodeFromTree(n.children, id) } : n);
+}
+
+function addConditionNodeToGroup(
+  nodes: ModuleRuleConditionNode[], groupId: string | null, newNode: ModuleRuleConditionNode,
+): ModuleRuleConditionNode[] {
+  if (groupId === null) return [...nodes, newNode];
+  return nodes.map(n => {
+    if (isConditionGroup(n) && n.id === groupId) return { ...n, children: [...n.children, newNode] };
+    if (isConditionGroup(n)) return { ...n, children: addConditionNodeToGroup(n.children, groupId, newNode) };
+    return n;
+  });
+}
+
+// Recursive renderer for a rule's condition tree — a sibling list combined by `logic`,
+// where each item is either a leaf (ConditionRow) or a nested AND/OR group (itself a
+// recursive ConditionNodeList). `groupId` is this list's own group id (null = the rule's
+// top-level conditions array) — used to target "Add condition"/"Add group" correctly.
+function ConditionNodeList({
+  ruleId, groupId, nodes, logic, fields, depth,
+  onUpdateLogic, onAddCondition, onAddGroup, onUpdateNode, onRemoveNode,
+}: {
+  ruleId: string;
+  groupId: string | null;
+  nodes: ModuleRuleConditionNode[];
+  logic: ModuleRuleLogic;
+  fields: Field[];
+  depth: number;
+  onUpdateLogic: (groupId: string | null, logic: ModuleRuleLogic) => void;
+  onAddCondition: (ruleId: string, groupId: string | null) => void;
+  onAddGroup: (ruleId: string, groupId: string | null) => void;
+  onUpdateNode: (ruleId: string, nodeId: string, patch: Record<string, any>) => void;
+  onRemoveNode: (ruleId: string, nodeId: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {nodes.length > 1 && (
+        <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5 w-fit">
+          {(["AND", "OR"] as ModuleRuleLogic[]).map(l => (
+            <button
+              key={l}
+              onClick={() => onUpdateLogic(groupId, l)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-bold transition-colors",
+                logic === l ? "bg-white text-blue-700 shadow-sm" : "text-gray-400 hover:text-gray-600"
+              )}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {nodes.map((node, idx) => (
+        <div key={node.id}>
+          {idx > 0 && (
+            <div className="flex items-center gap-2 my-1">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-[10px] font-bold text-gray-400 uppercase">{logic}</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+          )}
+          {isConditionGroup(node) ? (
+            <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/40 p-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">Group</span>
+                <button onClick={() => onRemoveNode(ruleId, node.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Remove group">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <ConditionNodeList
+                ruleId={ruleId}
+                groupId={node.id}
+                nodes={node.children}
+                logic={node.operator}
+                fields={fields}
+                depth={depth + 1}
+                onUpdateLogic={onUpdateLogic}
+                onAddCondition={onAddCondition}
+                onAddGroup={onAddGroup}
+                onUpdateNode={onUpdateNode}
+                onRemoveNode={onRemoveNode}
+              />
+            </div>
+          ) : (
+            <ConditionRow
+              cond={node}
+              fields={fields}
+              onChange={patch => onUpdateNode(ruleId, node.id, patch)}
+              onRemove={() => onRemoveNode(ruleId, node.id)}
+              canRemove={depth > 0 || nodes.length > 1}
+            />
+          )}
+        </div>
+      ))}
+
+      <div className="flex items-center gap-3">
+        <button onClick={() => onAddCondition(ruleId, groupId)} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
+          <Plus className="w-3 h-3" /> Add condition
+        </button>
+        <button onClick={() => onAddGroup(ruleId, groupId)} className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
+          <Plus className="w-3 h-3" /> Add group
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
@@ -367,16 +532,31 @@ function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
   canRemove: boolean;
 }) {
   const triggerField = fields.find(f => f.name === cond.whenField);
-  const hasValue = cond.operator === "equals" || cond.operator === "not_equals";
+  const isMulti = cond.operator === "in" || cond.operator === "not_in";
+  const hasValue = cond.operator === "equals" || cond.operator === "not_equals" || isMulti;
   const optionValues: any[] =
     triggerField && ["DROPDOWN","STATUS","RADIO","MULTI_SELECT"].includes(triggerField.type)
       ? (triggerField as any).options ?? []
       : [];
+  const selectedValues = cond.whenValues ?? [];
+
+  const toggleMultiValue = (val: string) => {
+    const next = selectedValues.includes(val)
+      ? selectedValues.filter(v => v !== val)
+      : [...selectedValues, val];
+    onChange({ whenValues: next });
+  };
+
+  const addFreeTextValue = (val: string) => {
+    const trimmed = val.trim();
+    if (!trimmed || selectedValues.includes(trimmed)) return;
+    onChange({ whenValues: [...selectedValues, trimmed] });
+  };
 
   return (
     <div className="grid gap-1 p-2 bg-gray-50 rounded-lg border border-gray-200">
       {/* Field selector */}
-      <Select value={cond.whenField} onValueChange={v => onChange({ whenField: v, whenValue: "" })}>
+      <Select value={cond.whenField} onValueChange={v => onChange({ whenField: v, whenValue: "", whenValues: [] })}>
         <SelectTrigger className="h-7 text-xs">
           <SelectValue placeholder="Select field…" />
         </SelectTrigger>
@@ -387,9 +567,9 @@ function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
         </SelectContent>
       </Select>
 
-      {/* Operator + value row */}
+      {/* Operator + single-value row */}
       <div className="flex gap-1 items-center">
-        <Select value={cond.operator} onValueChange={v => onChange({ operator: v as ModuleRuleOperator, whenValue: "" })}>
+        <Select value={cond.operator} onValueChange={v => onChange({ operator: v as ModuleRuleOperator, whenValue: "", whenValues: [] })}>
           <SelectTrigger className="h-7 text-xs flex-1">
             <SelectValue />
           </SelectTrigger>
@@ -400,7 +580,7 @@ function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
           </SelectContent>
         </Select>
 
-        {hasValue && (
+        {hasValue && !isMulti && (
           optionValues.length > 0 ? (
             <Select value={cond.whenValue} onValueChange={v => onChange({ whenValue: v })}>
               <SelectTrigger className="h-7 text-xs flex-1">
@@ -424,20 +604,69 @@ function ConditionRow({ cond, fields, onChange, onRemove, canRemove }: {
           )
         )}
 
-        {canRemove && (
+        {!isMulti && canRemove && (
           <button onClick={onRemove} className="text-gray-300 hover:text-red-500 shrink-0 transition-colors" title="Remove condition">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
+
+      {/* Multi-value picker — its own row, since it needs more room than fits inline */}
+      {isMulti && (
+        <div className="flex items-start gap-1">
+          <div className="flex-1 space-y-1">
+            {optionValues.length > 0 ? (
+              <MultiCombobox
+                options={optionValues.map((opt: any) => ({ value: opt.value || opt.label, label: opt.label }))}
+                values={selectedValues}
+                onChange={vals => onChange({ whenValues: vals })}
+                placeholder="Select values…"
+                searchPlaceholder="Search options…"
+              />
+            ) : (
+              <>
+                {selectedValues.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedValues.map(val => (
+                      <span key={val} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        {val}
+                        <button type="button" onClick={() => toggleMultiValue(val)} className="hover:text-red-500">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <Input
+                  placeholder="Type a value, press Enter…"
+                  className="h-7 text-xs"
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addFreeTextValue((e.target as HTMLInputElement).value);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }}
+                />
+              </>
+            )}
+          </div>
+          {canRemove && (
+            <button onClick={onRemove} className="text-gray-300 hover:text-red-500 shrink-0 transition-colors mt-1" title="Remove condition">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
+function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange, defaultFieldName }: {
   fields: Field[];
   layoutConfig: LayoutConfig;
   onLayoutChange: (cfg: LayoutConfig) => void;
+  defaultFieldName?: string | null;
 }) {
   // Migrate old single-condition rules (whenField/operator/whenValue) to the
   // new conditions[] shape so existing saved rules don't crash on .length.
@@ -453,6 +682,13 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
     };
   });
   const sections = layoutConfig.sections ?? [];
+  const [collapsedRuleIds, setCollapsedRuleIds] = useState<Set<string>>(new Set());
+  const toggleRuleCollapsed = (ruleId: string) =>
+    setCollapsedRuleIds(prev => {
+      const next = new Set(prev);
+      next.has(ruleId) ? next.delete(ruleId) : next.add(ruleId);
+      return next;
+    });
 
   const save = (newRules: ModuleLayoutRule[]) =>
     onLayoutChange({ ...layoutConfig, rules: newRules } as any);
@@ -461,7 +697,7 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
     save([...rules, {
       id:             `rule-${generateId().slice(0, 8)}`,
       conditionLogic: "AND",
-      conditions:     [newCondition(fields)],
+      conditions:     [newCondition(fields, defaultFieldName)],
       actions:        [],
     }]);
   };
@@ -472,25 +708,40 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
   const removeRule = (ruleId: string) =>
     save(rules.filter(r => r.id !== ruleId));
 
-  // ── Condition helpers ──────────────────────────────────────────────────────
+  // ── Condition helpers — groupId is null for a rule's top-level conditions array,
+  //    or a group's id to add/target a node nested inside that group ─────────────
 
-  const addCondition = (ruleId: string) =>
+  const addCondition = (ruleId: string, groupId: string | null = null) =>
     save(rules.map(r => r.id !== ruleId ? r : {
       ...r,
-      conditions: [...r.conditions, newCondition(fields)],
+      conditions: addConditionNodeToGroup(r.conditions, groupId, newCondition(fields, defaultFieldName)),
     }));
 
-  const updateCondition = (ruleId: string, condId: string, patch: Partial<ModuleRuleCondition>) =>
+  const addConditionGroup = (ruleId: string, groupId: string | null = null) =>
     save(rules.map(r => r.id !== ruleId ? r : {
       ...r,
-      conditions: r.conditions.map(c => c.id === condId ? { ...c, ...patch } : c),
+      conditions: addConditionNodeToGroup(r.conditions, groupId, newConditionGroup()),
     }));
 
-  const removeCondition = (ruleId: string, condId: string) =>
+  const updateConditionNode = (ruleId: string, nodeId: string, patch: Record<string, any>) =>
     save(rules.map(r => r.id !== ruleId ? r : {
       ...r,
-      conditions: r.conditions.filter(c => c.id !== condId),
+      conditions: updateConditionNodeInTree(r.conditions, nodeId, patch),
     }));
+
+  const removeConditionNode = (ruleId: string, nodeId: string) =>
+    save(rules.map(r => r.id !== ruleId ? r : {
+      ...r,
+      conditions: removeConditionNodeFromTree(r.conditions, nodeId),
+    }));
+
+  // The AND/OR toggle for the rule's top-level conditions lives on `rule.conditionLogic`
+  // itself (unchanged, pre-existing field); for a nested group it's that group's own
+  // `operator`, updated like any other node patch.
+  const updateGroupLogic = (ruleId: string, groupId: string | null, logic: ModuleRuleLogic) =>
+    groupId === null
+      ? updateRule(ruleId, { conditionLogic: logic })
+      : updateConditionNode(ruleId, groupId, { operator: logic });
 
   // ── Action helpers ─────────────────────────────────────────────────────────
 
@@ -498,10 +749,11 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
     save(rules.map(r => r.id !== ruleId ? r : {
       ...r,
       actions: [...(r.actions ?? []), {
-        id:       `act-${Date.now()}`,
-        type:     "show" as ModuleRuleActionType,
-        target:   "field" as ModuleRuleTarget,
-        targetId: fields[0]?.name ?? "",
+        id:        `act-${Date.now()}`,
+        type:      "show" as ModuleRuleActionType,
+        target:    "field" as ModuleRuleTarget,
+        targetId:  "",
+        targetIds: [] as string[],
       }],
     }));
 
@@ -551,79 +803,58 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
           </div>
         )}
 
-        {rules.map((rule, rIdx) => (
+        {rules.map((rule, rIdx) => {
+          const collapsed = collapsedRuleIds.has(rule.id);
+          const condCount = countConditionLeaves(rule.conditions);
+          return (
           <div key={rule.id} className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
 
-            {/* Rule header bar */}
-            <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                Rule {rIdx + 1}
-              </p>
-              <button
-                onClick={() => removeRule(rule.id)}
-                className="text-gray-300 hover:text-red-500 transition-colors"
+            {/* Rule header bar — click to collapse/expand */}
+            <button
+              onClick={() => toggleRuleCollapsed(rule.id)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100 text-left"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform", collapsed && "-rotate-90")} />
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest shrink-0">
+                  Rule {rIdx + 1}
+                </p>
+                {collapsed && (
+                  <p className="text-[11px] text-gray-400 truncate">
+                    — {condCount} condition{condCount === 1 ? "" : "s"} → {rule.actions.length} action{rule.actions.length === 1 ? "" : "s"}
+                  </p>
+                )}
+              </div>
+              <span
+                role="button"
+                onClick={e => { e.stopPropagation(); removeRule(rule.id); }}
+                className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
                 title="Delete rule"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+              </span>
+            </button>
 
+            {!collapsed && (
             <div className="p-3 space-y-3">
 
               {/* ── WHEN (conditions) ── */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">When</p>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">When</p>
 
-                  {/* AND / OR toggle — only visible when 2+ conditions */}
-                  {rule.conditions.length > 1 && (
-                    <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
-                      {(["AND","OR"] as ModuleRuleLogic[]).map(logic => (
-                        <button
-                          key={logic}
-                          onClick={() => updateRule(rule.id, { conditionLogic: logic })}
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[10px] font-bold transition-colors",
-                            rule.conditionLogic === logic
-                              ? "bg-white text-blue-700 shadow-sm"
-                              : "text-gray-400 hover:text-gray-600"
-                          )}
-                        >
-                          {logic}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Condition rows with logic label between them */}
-                <div className="space-y-1.5">
-                  {rule.conditions.map((cond, cIdx) => (
-                    <div key={cond.id}>
-                      {cIdx > 0 && (
-                        <div className="flex items-center gap-2 my-1">
-                          <div className="flex-1 h-px bg-gray-100" />
-                          <span className="text-[10px] font-bold text-gray-400 uppercase">{rule.conditionLogic}</span>
-                          <div className="flex-1 h-px bg-gray-100" />
-                        </div>
-                      )}
-                      <ConditionRow
-                        cond={cond}
-                        fields={fields}
-                        onChange={patch => updateCondition(rule.id, cond.id, patch)}
-                        onRemove={() => removeCondition(rule.id, cond.id)}
-                        canRemove={rule.conditions.length > 1}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => addCondition(rule.id)}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                >
-                  <Plus className="w-3 h-3" /> Add condition
-                </button>
+                <ConditionNodeList
+                  ruleId={rule.id}
+                  groupId={null}
+                  nodes={rule.conditions}
+                  logic={rule.conditionLogic}
+                  fields={fields}
+                  depth={0}
+                  onUpdateLogic={(groupId, logic) => updateGroupLogic(rule.id, groupId, logic)}
+                  onAddCondition={addCondition}
+                  onAddGroup={addConditionGroup}
+                  onUpdateNode={updateConditionNode}
+                  onRemoveNode={removeConditionNode}
+                />
               </div>
 
               {/* ── THEN (actions) ── */}
@@ -634,77 +865,79 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
                   <p className="text-[11px] text-gray-400 italic">No actions yet — add one below.</p>
                 )}
 
-                {rule.actions.map((act) => (
-                  <div key={act.id} className="rounded-lg border border-gray-100 bg-gray-50/60 p-2 space-y-1.5">
-                    {/* Row 1: action type + target type + remove */}
-                    <div className="flex items-center gap-1.5">
-                      <Select
-                        value={act.type}
-                        onValueChange={v => updateAction(rule.id, act.id, { type: v as ModuleRuleActionType })}
-                      >
-                        <SelectTrigger className="h-7 text-xs flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ACTION_TYPE_OPTS.map(o => (
-                            <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                {rule.actions.map((act) => {
+                  const selectedTargetIds = act.targetIds?.length ? act.targetIds : (act.targetId ? [act.targetId] : []);
+                  // value is what gets stored on the rule (field.name for fields, to match how
+                  // conditions reference fields; section.id for sections).
+                  const targetOptions = act.target === "field"
+                    ? fields.map(f => ({ value: f.name, label: f.label }))
+                    : sections.map(s => ({ value: s.id, label: s.title || "Untitled Section" }));
 
-                      <Select
-                        value={act.target}
-                        onValueChange={v => {
-                          const isField = v === "field";
-                          updateAction(rule.id, act.id, {
-                            target:   v as ModuleRuleTarget,
-                            targetId: isField ? (fields[0]?.name ?? "") : (sections[0]?.id ?? ""),
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-7 text-xs w-[72px] shrink-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="field" className="text-xs">Field</SelectItem>
-                          {sections.length > 0 && (
-                            <SelectItem value="section" className="text-xs">Section</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
+                  return (
+                    <div key={act.id} className="rounded-lg border border-gray-100 bg-gray-50/60 p-2 space-y-1.5">
+                      {/* Row 1: action type + target type + remove */}
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={act.type}
+                          onValueChange={v => updateAction(rule.id, act.id, { type: v as ModuleRuleActionType })}
+                        >
+                          <SelectTrigger className="h-7 text-xs flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ACTION_TYPE_OPTS.map(o => (
+                              <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                      <button
-                        onClick={() => removeAction(rule.id, act.id)}
-                        className="text-gray-300 hover:text-red-500 shrink-0 transition-colors"
-                        title="Remove action"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                        <Select
+                          value={act.target}
+                          onValueChange={v => {
+                            updateAction(rule.id, act.id, {
+                              target:    v as ModuleRuleTarget,
+                              targetId:  "",
+                              targetIds: [],
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-xs w-[72px] shrink-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="field" className="text-xs">Field</SelectItem>
+                            {sections.length > 0 && (
+                              <SelectItem value="section" className="text-xs">Section</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+
+                        <button
+                          onClick={() => removeAction(rule.id, act.id)}
+                          className="text-gray-300 hover:text-red-500 shrink-0 transition-colors"
+                          title="Remove action"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Row 2: multi-target chip picker — this action applies to every field/section toggled on */}
+                      {targetOptions.length === 0 ? (
+                        <p className="text-[11px] text-gray-400 italic">
+                          {act.target === "field" ? "No fields yet" : "No sections yet"}
+                        </p>
+                      ) : (
+                        <MultiCombobox
+                          options={targetOptions}
+                          values={selectedTargetIds}
+                          onChange={vals => updateAction(rule.id, act.id, { targetIds: vals, targetId: vals[0] ?? "" })}
+                          placeholder={act.target === "field" ? "Select fields…" : "Select sections…"}
+                          searchPlaceholder={act.target === "field" ? "Search fields…" : "Search sections…"}
+                        />
+                      )}
                     </div>
-
-                    {/* Row 2: target selector (full width) */}
-                    <Select
-                      value={act.targetId}
-                      onValueChange={v => updateAction(rule.id, act.id, { targetId: v })}
-                    >
-                      <SelectTrigger className="h-7 text-xs w-full">
-                        <SelectValue placeholder="Select target…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {act.target === "field"
-                          ? fields.map(f => (
-                              <SelectItem key={f.id} value={f.name} className="text-xs">{f.label}</SelectItem>
-                            ))
-                          : sections.map(s => (
-                              <SelectItem key={s.id} value={s.id} className="text-xs">
-                                {s.title || "Untitled Section"}
-                              </SelectItem>
-                            ))
-                        }
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
+                  );
+                })}
 
                 <button
                   onClick={() => addAction(rule.id)}
@@ -714,20 +947,37 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange }: {
                 </button>
               </div>
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </ScrollArea>
   );
 }
 
 export default function StudioEditorPage() {
+  return (
+    <DesktopOnlyGate
+      title="The Blueprint Studio needs more room"
+      message="This stage canvas is designed for tablet and desktop screens. Switch to a bigger screen to keep building — nothing here is lost."
+    >
+      <StudioEditorPageInner />
+    </DesktopOnlyGate>
+  );
+}
+
+function StudioEditorPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { fetchModule, activeModule, updateModule } = useModulesStore();
   const toast = useToast();
   const [fields, setFields] = useState<Field[]>([]);
   const [selectedField, setSelectedField] = useState<Field | null>(null);
+  // Remembers the last field actually clicked, even after it's deselected (toggled off,
+  // Properties panel closed, etc.) — the Rules tab's default should stay pinned to "the
+  // field I was just dealing with", not disappear the moment selectedField clears.
+  const [lastSelectedFieldName, setLastSelectedFieldName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -748,6 +998,9 @@ export default function StudioEditorPage() {
   const dragActiveRef = useRef(false);
   // Tracks which section the palette item is hovering over during a drag
   const paletteHoverSectionRef = useRef<string | null>(null);
+  // Tracks which specific field within that section the pointer is over, so the
+  // new field can be inserted exactly there instead of always at the end
+  const paletteHoverFieldRef = useRef<string | null>(null);
   // Prevents auto-assign effect from running when we manually placed the field
   const skipAutoAssignRef = useRef(false);
 
@@ -797,7 +1050,12 @@ export default function StudioEditorPage() {
     setIsDirty(true);
   }, [layoutConfig]);
 
-  const addField = async (type: string) => {
+  // targetSectionOverride, when passed, is used instead of re-reading paletteHoverSectionRef —
+  // that ref gets reset to null by the canvas's own cleanup effect as soon as the drag ends
+  // (draggingFromPalette flips to false), which loses the race against this function's own
+  // `await` below almost every time. Callers that already know the drop target (drag-and-drop)
+  // must capture the ref synchronously at drop time and pass it in here explicitly.
+  const addField = async (type: string, targetSectionOverride?: string | null, targetFieldOverride?: string | null) => {
     const fieldDef = FIELD_TYPES.find(f => f.type === type)!;
     const existing = fields.filter(f => f.type === type).length;
     const label = existing === 0 ? fieldDef.label : `${fieldDef.label} ${existing + 1}`;
@@ -818,7 +1076,8 @@ export default function StudioEditorPage() {
       });
 
       // If palette was hovering over a specific section, place there directly
-      const targetSect = paletteHoverSectionRef.current;
+      const targetSect = targetSectionOverride !== undefined ? targetSectionOverride : paletteHoverSectionRef.current;
+      const targetField = targetFieldOverride !== undefined ? targetFieldOverride : paletteHoverFieldRef.current;
       if (targetSect) {
         skipAutoAssignRef.current = true;
         setFields(prev => [...prev, data]);
@@ -828,18 +1087,24 @@ export default function StudioEditorPage() {
           const target = sections.find(s => s.id === targetSect);
           const cols = target?.columns ?? 2;
           const autoWidth = cols >= 2 ? smartWidth(target?.fieldWidths ?? {}, target?.fieldIds ?? [], cols) : "full";
+          // Insert exactly at the hovered field's position when one was detected;
+          // otherwise fall back to appending at the end of the section.
+          const existingIds = target?.fieldIds ?? [];
+          const insertAt = targetField ? existingIds.indexOf(targetField) : -1;
+          const newFieldIds = insertAt !== -1
+            ? [...existingIds.slice(0, insertAt), data.id, ...existingIds.slice(insertAt)]
+            : [...existingIds, data.id];
           return {
             ...prev,
             sections: sections.map(s =>
               s.id === targetSect
-                ? { ...s, fieldIds: [...s.fieldIds, data.id], fieldWidths: { ...(s.fieldWidths ?? {}), [data.id]: autoWidth } }
+                ? { ...s, fieldIds: newFieldIds, fieldWidths: { ...(s.fieldWidths ?? {}), [data.id]: autoWidth } }
                 : s
             ),
           };
         });
-        // Allow auto-assign to run again on next field add
-        requestAnimationFrame(() => { skipAutoAssignRef.current = false; });
         paletteHoverSectionRef.current = null;
+        paletteHoverFieldRef.current = null;
         return;
       }
 
@@ -847,6 +1112,14 @@ export default function StudioEditorPage() {
       setSelectedField(data);
     } catch {}
   };
+
+  // Releases the auto-assign guard only after the fields-changed effect (which reads it) has
+  // had a chance to run — ordering here is deterministic because child effects (the canvas's
+  // auto-assign effect) flush before parent effects for the same commit, unlike the previous
+  // requestAnimationFrame-based reset which raced React's own effect scheduling.
+  useEffect(() => {
+    skipAutoAssignRef.current = false;
+  }, [fields.length]);
 
   const [fieldSaved, setFieldSaved] = useState("");
   const updateSelectedField = async (changes: Partial<Field>) => {
@@ -865,12 +1138,35 @@ export default function StudioEditorPage() {
   };
 
   const deleteField = async (fieldId: string) => {
-    if (!confirm("Remove this field?")) return;
+    // A field still driving an active Blueprint/Workflow can't be deleted — check first so
+    // we can name exactly which one(s), rather than let the delete round-trip fail blind.
+    try {
+      const { data: usages } = await api.get(`/modules/${id}/fields/${fieldId}/usage`);
+      const blocking = (usages ?? []).filter((u: any) => u.isActive);
+      if (blocking.length) {
+        alert(
+          `Can't delete this field — it's used by active ${blocking.map((u: any) => `${u.type} "${u.name}"`).join(", ")}. ` +
+          `Turn ${blocking.length > 1 ? "those" : "it"} off first, or remove the reference there.`
+        );
+        return;
+      }
+      const inactive = usages ?? [];
+      const warning = inactive.length
+        ? ` It's also referenced by inactive ${inactive.map((u: any) => `${u.type} "${u.name}"`).join(", ")} — deleting it may break ${inactive.length > 1 ? "those" : "that"} if switched on again.`
+        : "";
+      if (!confirm(`Remove this field?${warning}`)) return;
+    } catch {
+      if (!confirm("Remove this field?")) return;
+    }
     try {
       await api.delete(`/modules/${id}/fields/${fieldId}`);
+      const deleted = fields.find(f => f.id === fieldId);
       setFields(prev => prev.filter(f => f.id !== fieldId));
       if (selectedField?.id === fieldId) setSelectedField(null);
-    } catch {}
+      if (deleted && lastSelectedFieldName === deleted.name) setLastSelectedFieldName(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.message || "Couldn't delete this field.");
+    }
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -893,15 +1189,23 @@ export default function StudioEditorPage() {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+
+    // Capture the hovered section/field synchronously, before anything below can trigger a
+    // re-render — setDraggingPalette(null) flips draggingFromPalette to false, which makes
+    // the canvas's cleanup effect null out these exact refs out from under us.
+    const capturedSection = paletteHoverSectionRef.current;
+    const capturedField = paletteHoverFieldRef.current;
+
     setDraggingPalette(null);
     setCanvasIsOver(false);
 
     // Palette item dropped onto canvas
     if (active.data.current?.isPalette) {
       if (over) {
-        await addField(active.data.current.fieldType);
+        await addField(active.data.current.fieldType, capturedSection, capturedField);
       }
       paletteHoverSectionRef.current = null;
+      paletteHoverFieldRef.current = null;
       requestAnimationFrame(() => { dragActiveRef.current = false; });
       return;
     }
@@ -1019,7 +1323,7 @@ export default function StudioEditorPage() {
           <div className="h-5 w-px bg-gray-200" />
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-sm">
-              {activeModule?.icon || "📦"}
+              <ModuleIcon icon={activeModule?.icon} slug={activeModule?.slug} size={16} />
             </div>
             <div>
               <h1 className="font-semibold text-gray-800 text-sm leading-tight">{activeModule?.name}</h1>
@@ -1125,7 +1429,7 @@ export default function StudioEditorPage() {
               {/* Module card header — mimics real record form */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-3.5 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-blue-600/10 border border-blue-200 flex items-center justify-center text-lg">
-                  {activeModule?.icon || "📦"}
+                  <ModuleIcon icon={activeModule?.icon} slug={activeModule?.slug} size={20} />
                 </div>
                 <div>
                   <p className="font-bold text-gray-900 text-sm">{activeModule?.name || "Module"}</p>
@@ -1149,6 +1453,7 @@ export default function StudioEditorPage() {
                   selectedFieldId={selectedField?.id ?? null}
                   onFieldSelect={(field) => {
                     setSelectedField(field);
+                    if (field) setLastSelectedFieldName(field.name);
                     setRightTab("properties");
                   }}
                   onDeleteField={deleteField}
@@ -1156,6 +1461,7 @@ export default function StudioEditorPage() {
                   draggingFromPalette={!!draggingPalette}
                   skipAutoAssignRef={skipAutoAssignRef}
                   onPaletteHoverSection={(sectionId) => { paletteHoverSectionRef.current = sectionId; }}
+                  onPaletteHoverField={(fieldId) => { paletteHoverFieldRef.current = fieldId; }}
                 />
 
                 {fields.length === 0 && !previewMode && (
@@ -1171,7 +1477,7 @@ export default function StudioEditorPage() {
           </div>
 
           {/* Right: Properties Panel */}
-          <div className="w-80 bg-white border-l border-gray-200 flex flex-col shrink-0">
+          <div className="w-[26rem] bg-white border-l border-gray-200 flex flex-col shrink-0">
             {/* Tab header */}
             <div className="flex border-b border-gray-100 shrink-0">
               {(["properties", "summary", "rules"] as const).map(tab => (
@@ -1206,6 +1512,7 @@ export default function StudioEditorPage() {
                   fields={fields}
                   layoutConfig={layoutConfig}
                   onLayoutChange={cfg => setLayoutConfig(cfg)}
+                  defaultFieldName={lastSelectedFieldName}
                 />
               </div>
             ) : rightTab === "summary" ? (
@@ -1326,7 +1633,7 @@ export default function StudioEditorPage() {
                                     onChange={e => setSummaryStats(prev => prev.map((s, i) => i === idx ? { ...s, field: e.target.value } : s))}
                                   >
                                     <option value="">Choose field…</option>
-                                    {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+                                    {fields.map(f => <option key={f.id ?? f.name} value={f.name}>{f.label || f.name}</option>)}
                                   </select>
                                 </div>
                               )}
@@ -1361,7 +1668,7 @@ export default function StudioEditorPage() {
                                             ...s, conditions: s.conditions!.map((c, j) => j === ci ? { ...c, field: e.target.value, value: "" } : c)
                                           } : s))}
                                         >
-                                          {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+                                          {fields.map(f => <option key={f.id ?? f.name} value={f.name}>{f.label || f.name}</option>)}
                                         </select>
                                         <select
                                           className="bg-white border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-700 focus:outline-none focus:border-blue-400"
@@ -1390,7 +1697,7 @@ export default function StudioEditorPage() {
                                               } : s))}
                                             >
                                               <option value="">Any</option>
-                                              {condField!.options!.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                              {condField!.options!.map((o, i) => <option key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</option>)}
                                             </select>
                                           ) : (
                                             <input
@@ -1462,21 +1769,12 @@ export default function StudioEditorPage() {
                       <Label className="text-xs">Field Label *</Label>
                       <Input
                         value={selectedField.label}
-                        onChange={(e) => updateSelectedField({ label: e.target.value })}
+                        onChange={(e) => {
+                          const label = e.target.value;
+                          updateSelectedField({ label, name: generateFieldKey(label) });
+                        }}
                         placeholder="Enter field label"
                       />
-                    </div>
-
-                    {/* Name */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Field Key</Label>
-                      <Input
-                        value={selectedField.name}
-                        onChange={(e) => updateSelectedField({ name: e.target.value })}
-                        placeholder="field_key"
-                        className="font-mono text-xs"
-                      />
-                      <p className="text-xs text-gray-400">Used in API and formulas</p>
                     </div>
 
                     {/* Type */}
@@ -1507,6 +1805,27 @@ export default function StudioEditorPage() {
                       </Select>
                     </div>
 
+                    {/* Options / Data Source for Dropdown/Multi-select/Status/Radio — placed
+                        right after Field Type since they directly define what this field's
+                        values are, rather than buried below unrelated settings. */}
+                    {TYPES_WITH_OPTIONS.includes(selectedField.type) && (
+                      <>
+                        <Separator />
+                        <FieldOptionsEditor key={(selectedField as any).id} field={selectedField} onUpdate={updateSelectedField} globalLists={globalLists} allFields={fields} />
+                        <Separator />
+                      </>
+                    )}
+
+                    {/* FORMULA config — placed right after Field Type for the same reason:
+                        the formula IS what defines this field's value. */}
+                    {selectedField.type === "FORMULA" && (
+                      <>
+                        <Separator />
+                        <FormulaConfig field={selectedField} fields={fields} onUpdate={updateSelectedField} />
+                        <Separator />
+                      </>
+                    )}
+
                     {/* Placeholder */}
                     <div className="space-y-1.5">
                       <Label className="text-xs">Placeholder</Label>
@@ -1514,16 +1833,6 @@ export default function StudioEditorPage() {
                         value={selectedField.placeholder || ""}
                         onChange={(e) => updateSelectedField({ placeholder: e.target.value })}
                         placeholder="Enter placeholder text"
-                      />
-                    </div>
-
-                    {/* Help Text */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Help Text</Label>
-                      <Input
-                        value={selectedField.helpText || ""}
-                        onChange={(e) => updateSelectedField({ helpText: e.target.value })}
-                        placeholder="Guide users on what to enter"
                       />
                     </div>
 
@@ -1535,8 +1844,6 @@ export default function StudioEditorPage() {
                       {[
                         { key: "isRequired", label: "Required", description: "Must be filled to save" },
                         { key: "isUnique",   label: "Unique",   description: "No duplicates allowed" },
-                        { key: "isReadonly", label: "Read Only", description: "Cannot be edited" },
-                        { key: "isHidden",   label: "Hidden",   description: "Not visible by default" },
                       ].map(({ key, label, description }) => (
                         <div key={key} className="flex items-center justify-between">
                           <div>
@@ -1551,19 +1858,84 @@ export default function StudioEditorPage() {
                       ))}
                     </div>
 
+                    <Separator />
+
+                    {/* Display & Behaviour */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Display &amp; Behaviour</p>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Visibility</Label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { value: false, label: "Visible" },
+                            { value: true,  label: "Hidden" },
+                          ].map(({ value, label }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => updateSelectedField({ isHidden: value } as any)}
+                              className={cn(
+                                "h-8 rounded-md border text-xs font-medium transition-colors",
+                                (selectedField as any).isHidden === value
+                                  ? "bg-blue-600 border-blue-600 text-white"
+                                  : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          {(selectedField as any).isHidden
+                            ? "Not shown on the form. Still stores its value (default, auto-populated, workflow, etc.) on submit."
+                            : "Shown on the form."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Editability</Label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { value: false, label: "Editable" },
+                            { value: true,  label: "Read Only" },
+                          ].map(({ value, label }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => updateSelectedField({ isReadonly: value } as any)}
+                              className={cn(
+                                "h-8 rounded-md border text-xs font-medium transition-colors",
+                                (selectedField as any).isReadonly === value
+                                  ? "bg-blue-600 border-blue-600 text-white"
+                                  : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          {(selectedField as any).isReadonly
+                            ? "Displayed to the user but cannot be edited. Still submitted with the form."
+                            : "The user can edit this field normally."}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* DATE / DATETIME config */}
+                    {(selectedField.type === "DATE" || selectedField.type === "DATETIME") && (
+                      <>
+                        <Separator />
+                        <DateTimeConfig field={selectedField} onUpdate={updateSelectedField} />
+                      </>
+                    )}
+
                     {/* AUTO_NUMBER config */}
                     {selectedField.type === "AUTO_NUMBER" && (
                       <>
                         <Separator />
                         <AutoNumberConfig field={selectedField} onUpdate={updateSelectedField} />
-                      </>
-                    )}
-
-                    {/* FORMULA config */}
-                    {selectedField.type === "FORMULA" && (
-                      <>
-                        <Separator />
-                        <FormulaConfig field={selectedField} fields={fields} onUpdate={updateSelectedField} />
                       </>
                     )}
 
@@ -1617,13 +1989,6 @@ export default function StudioEditorPage() {
                       </>
                     )}
 
-                    {/* Options for Dropdown/Multi-select/Status/Radio */}
-                    {TYPES_WITH_OPTIONS.includes(selectedField.type) && (
-                      <>
-                        <Separator />
-                        <FieldOptionsEditor key={(selectedField as any).id} field={selectedField} onUpdate={updateSelectedField} globalLists={globalLists} allFields={fields} />
-                      </>
-                    )}
 
                     {/* Layout Rules / Conditional Display */}
                     <Separator />
@@ -1737,9 +2102,110 @@ function AutoNumberConfig({ field, onUpdate }: { field: Field; onUpdate: (c: Par
   );
 }
 
+function DateTimeConfig({ field, onUpdate }: { field: Field; onUpdate: (c: Partial<Field>) => void }) {
+  const settings = parseFieldSettings((field as any).settings);
+  const isDateTime = field.type === "DATETIME";
+  const autoPopulate = settings.autoPopulate || "manual";
+  const datePrecision = settings.datePrecision === "month" || settings.datePrecision === "year" ? settings.datePrecision : "full";
+  const timeFormat = settings.timeFormat === "12h" ? "12h" : "24h";
+
+  const set = (value: string) => {
+    onUpdate({ settings: { ...settings, autoPopulate: value } } as any);
+  };
+  const setPrecision = (value: string) => {
+    onUpdate({ settings: { ...settings, datePrecision: value } } as any);
+  };
+  const setTimeFormat = (value: string) => {
+    onUpdate({ settings: { ...settings, timeFormat: value } } as any);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Date &amp; Time Config</p>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Date precision</Label>
+        <Select value={datePrecision} onValueChange={setPrecision}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="full">Full date</SelectItem>
+            <SelectItem value="month">Month &amp; year</SelectItem>
+            <SelectItem value="year">Year only</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-gray-400">
+          {datePrecision === "year"
+            ? "Shows a year dropdown instead of a full date picker — for things like \"expected graduation year\" where the exact day/month isn't meaningful."
+            : datePrecision === "month"
+            ? "Only month and year are captured (e.g. \"Jan 2027\")."
+            : "The full day, month, and year are captured."}
+        </p>
+      </div>
+
+      {isDateTime && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">Time display format</Label>
+          <Select value={timeFormat} onValueChange={setTimeFormat}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="24h">24-hour (14:30)</SelectItem>
+              <SelectItem value="12h">12-hour (2:30 PM)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-gray-400">
+            Applies wherever the time is displayed read-only (record view, tables). The entry field itself follows the browser's own time picker, which can't be forced to a specific format.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Value entry</Label>
+        <Select value={autoPopulate} onValueChange={set}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="manual">Manual Entry</SelectItem>
+            {isDateTime
+              ? <SelectItem value="currentDateTime">Auto-populate current date &amp; time</SelectItem>
+              : <SelectItem value="currentDate">Auto-populate current date</SelectItem>}
+          </SelectContent>
+        </Select>
+      </div>
+      {autoPopulate !== "manual" && (
+        <p className="text-xs text-gray-400">
+          Automatically set to {isDateTime ? "the current date and time" : "today's date"} when a record is created. Combine with the Hidden toggle above to keep it out of view (e.g. a "Created Date" field).
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Formula Editor ────────────────────────────────────────────────────────────
 
-const FORMULA_COMPATIBLE_TYPES = ["NUMBER", "DECIMAL", "CURRENCY", "RATING", "PROGRESS", "FORMULA"];
+const FORMULA_COMPATIBLE_TYPES = ["NUMBER", "DECIMAL", "CURRENCY", "RATING", "PROGRESS", "FORMULA", "DATE", "DATETIME"];
+
+// Walks backward from the cursor to find the function call the cursor is currently
+// "inside" (tracking paren depth so nested calls resolve to the innermost one), and
+// returns the identifier right before that call's opening paren — used to show
+// signature help for whatever function the user is in the middle of typing arguments for.
+function findEnclosingFunctionName(text: string, cursor: number): string | null {
+  let depth = 0;
+  for (let i = cursor - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === ")") depth++;
+    else if (ch === "(") {
+      if (depth === 0) {
+        let j = i - 1;
+        while (j >= 0 && /[A-Za-z0-9_]/.test(text[j])) j--;
+        const name = text.slice(j + 1, i);
+        return name || null;
+      }
+      depth--;
+    }
+  }
+  return null;
+}
+
+const FORMULA_TOKEN_RE = /(\$[A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)|(\d+(?:\.\d+)?)|([+\-*/(),.])|(\s+)/g;
 
 function FormulaEditor({
   value,
@@ -1748,37 +2214,63 @@ function FormulaEditor({
 }: {
   value: string;
   onChange: (v: string) => void;
-  fields: { name: string; label: string; type: string }[];
+  fields: { id?: string; name: string; label: string; type: string }[];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [query, setQuery] = useState("");
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [showFieldDropdown, setShowFieldDropdown] = useState(false);
+  const [fieldQuery, setFieldQuery] = useState("");
+  const [fieldActiveIdx, setFieldActiveIdx] = useState(0);
+  const [showFnDropdown, setShowFnDropdown] = useState(false);
+  const [fnQuery, setFnQuery] = useState("");
+  const [fnActiveIdx, setFnActiveIdx] = useState(0);
+  const [cursorPos, setCursorPos] = useState(0);
 
   const compatibleFields = fields.filter((f) => FORMULA_COMPATIBLE_TYPES.includes(f.type));
 
-  const filteredFields = query
+  const filteredFields = fieldQuery
     ? compatibleFields.filter(
         (f) =>
-          f.name.toLowerCase().includes(query.toLowerCase()) ||
-          f.label.toLowerCase().includes(query.toLowerCase())
+          f.name.toLowerCase().includes(fieldQuery.toLowerCase()) ||
+          f.label.toLowerCase().includes(fieldQuery.toLowerCase())
       )
     : compatibleFields;
+
+  const filteredFns = fnQuery
+    ? FORMULA_FUNCTION_DOCS.filter((f) => f.name.toLowerCase().startsWith(fnQuery.toLowerCase()))
+    : [];
+
+  const detectTriggers = (text: string, cursor: number) => {
+    const before = text.slice(0, cursor);
+    const fieldMatch = before.match(/\$([A-Za-z0-9_]*)$/);
+    if (fieldMatch) {
+      setFieldQuery(fieldMatch[1]);
+      setShowFieldDropdown(true);
+      setFieldActiveIdx(0);
+      setShowFnDropdown(false);
+      return;
+    }
+    setShowFieldDropdown(false);
+    // A bare identifier not immediately preceded by $ or another word char — candidate function name.
+    const fnMatch = before.match(/(?:^|[^$\w])([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (fnMatch && fnMatch[1].length > 0) {
+      setFnQuery(fnMatch[1]);
+      setFnActiveIdx(0);
+      setShowFnDropdown(true);
+    } else {
+      setShowFnDropdown(false);
+      setFnQuery("");
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     onChange(text);
-    const cursor = e.target.selectionStart;
-    const before = text.slice(0, cursor);
-    const match = before.match(/\$([A-Za-z0-9_]*)$/);
-    if (match) {
-      setQuery(match[1]);
-      setShowDropdown(true);
-      setActiveIdx(0);
-    } else {
-      setShowDropdown(false);
-      setQuery("");
-    }
+    setCursorPos(e.target.selectionStart);
+    detectTriggers(text, e.target.selectionStart);
+  };
+
+  const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    setCursorPos((e.target as HTMLTextAreaElement).selectionStart);
   };
 
   const insertField = (field: { name: string }) => {
@@ -1791,47 +2283,59 @@ function FormulaEditor({
     const startPos = cursor - match[0].length;
     const newText = value.slice(0, startPos) + `$${field.name}` + value.slice(cursor);
     onChange(newText);
-    setShowDropdown(false);
-    setQuery("");
+    setShowFieldDropdown(false);
+    setFieldQuery("");
     setTimeout(() => {
       ta.focus();
       const newPos = startPos + field.name.length + 1;
       ta.setSelectionRange(newPos, newPos);
+      setCursorPos(newPos);
+    }, 0);
+  };
+
+  const insertFunction = (fn: FormulaFunctionDoc) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const cursor = ta.selectionStart;
+    const before = value.slice(0, cursor);
+    const match = before.match(/(?:^|[^$\w])([A-Za-z_][A-Za-z0-9_]*)$/);
+    const matchedLen = match ? match[1].length : 0;
+    const startPos = cursor - matchedLen;
+    const insertText = `${fn.name}()`;
+    const newText = value.slice(0, startPos) + insertText + value.slice(cursor);
+    onChange(newText);
+    setShowFnDropdown(false);
+    setFnQuery("");
+    setTimeout(() => {
+      ta.focus();
+      const newPos = startPos + fn.name.length + 1; // land inside the parens
+      ta.setSelectionRange(newPos, newPos);
+      setCursorPos(newPos);
     }, 0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!showDropdown || filteredFields.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveIdx((i) => (i + 1) % filteredFields.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIdx((i) => (i - 1 + filteredFields.length) % filteredFields.length);
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      if (filteredFields[activeIdx]) {
-        e.preventDefault();
-        insertField(filteredFields[activeIdx]);
-      }
-    } else if (e.key === "Escape") {
-      setShowDropdown(false);
+    if (showFieldDropdown && filteredFields.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setFieldActiveIdx((i) => (i + 1) % filteredFields.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setFieldActiveIdx((i) => (i - 1 + filteredFields.length) % filteredFields.length); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertField(filteredFields[fieldActiveIdx]); return; }
+      if (e.key === "Escape") { setShowFieldDropdown(false); return; }
+    }
+    if (showFnDropdown && filteredFns.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setFnActiveIdx((i) => (i + 1) % filteredFns.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setFnActiveIdx((i) => (i - 1 + filteredFns.length) % filteredFns.length); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertFunction(filteredFns[fnActiveIdx]); return; }
+      if (e.key === "Escape") { setShowFnDropdown(false); return; }
     }
   };
 
-  const usedRefs = [...value.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]);
-  const unknownRefs = usedRefs.filter((name) => !compatibleFields.find((f) => f.name === name));
+  const fieldsMeta = compatibleFields.map((f) => ({ name: f.name, type: f.type }));
+  const validation = validateFormula(value, fieldsMeta);
+  const activeFnName = findEnclosingFunctionName(value, cursorPos);
+  const activeFnDoc = activeFnName ? FORMULA_FUNCTION_DOCS.find((f) => f.name === activeFnName.toUpperCase()) : null;
 
-  const previewHtml = value
-    ? value
-        .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (m, name) => {
-          const exists = compatibleFields.find((f) => f.name === name);
-          return exists
-            ? `<span style="color:#2563eb;font-weight:600">${m}</span>`
-            : `<span style="color:#dc2626;text-decoration:underline">${m}</span>`;
-        })
-        .replace(/([+\-*/()])/g, `<span style="color:#7c3aed">$1</span>`)
-        .replace(/\b(\d+(?:\.\d+)?)\b/g, `<span style="color:#16a34a">$1</span>`)
-    : "";
+  const knownFnNames = new Set(FORMULA_FUNCTION_DOCS.map((f) => f.name));
+  const tokens = [...value.matchAll(FORMULA_TOKEN_RE)];
 
   return (
     <div className="space-y-2">
@@ -1841,26 +2345,28 @@ function FormulaEditor({
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+          onSelect={handleSelect}
+          onClick={handleSelect}
+          onBlur={() => setTimeout(() => { setShowFieldDropdown(false); setShowFnDropdown(false); }, 150)}
           className="w-full font-mono text-sm border border-gray-200 rounded-md px-3 py-2.5 min-h-[72px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-800 leading-relaxed"
-          placeholder="e.g. $price * $quantity"
+          placeholder="e.g. ADDYEARS($start_date, $course_duration)"
           spellCheck={false}
         />
 
-        {showDropdown && filteredFields.length > 0 && (
+        {showFieldDropdown && filteredFields.length > 0 && (
           <div className="absolute left-0 top-full z-50 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
             <div className="px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 uppercase border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span>Fields</span>
-              {query && <span className="text-gray-300 normal-case font-normal">matching "{query}"</span>}
+              {fieldQuery && <span className="text-gray-300 normal-case font-normal">matching "{fieldQuery}"</span>}
             </div>
             <div className="max-h-48 overflow-y-auto">
               {filteredFields.map((field, i) => (
                 <button
-                  key={field.name}
+                  key={field.id ?? field.name}
                   onMouseDown={(e) => { e.preventDefault(); insertField(field); }}
                   className={cn(
                     "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors border-b border-gray-50 last:border-0",
-                    i === activeIdx ? "bg-blue-50" : "hover:bg-gray-50"
+                    i === fieldActiveIdx ? "bg-blue-50" : "hover:bg-gray-50"
                   )}
                 >
                   <span className="text-xs font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">
@@ -1874,38 +2380,87 @@ function FormulaEditor({
           </div>
         )}
 
-        {showDropdown && query && filteredFields.length === 0 && (
+        {showFieldDropdown && fieldQuery && filteredFields.length === 0 && (
           <div className="absolute left-0 top-full z-50 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
             <div className="px-3 py-3 text-xs text-gray-400 text-center">
-              No numeric fields match "{query}"
+              No compatible fields match "{fieldQuery}"
+            </div>
+          </div>
+        )}
+
+        {/* Function-name autocomplete — triggers on bare letters, shows syntax + description inline */}
+        {showFnDropdown && filteredFns.length > 0 && (
+          <div className="absolute left-0 top-full z-50 mt-1 w-96 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
+            <div className="px-2.5 py-1.5 text-[10px] font-semibold text-gray-400 uppercase border-b border-gray-100 bg-gray-50">
+              Functions matching "{fnQuery}"
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              {filteredFns.map((fn, i) => (
+                <button
+                  key={fn.name}
+                  onMouseDown={(e) => { e.preventDefault(); insertFunction(fn); }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 transition-colors border-b border-gray-50 last:border-0",
+                    i === fnActiveIdx ? "bg-blue-50" : "hover:bg-gray-50"
+                  )}
+                >
+                  <div className="text-xs font-mono font-semibold text-orange-700">{fn.syntax}</div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">{fn.description}</div>
+                </button>
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      {value && (
-        <div
-          className="px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs font-mono leading-relaxed break-all"
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
+      {/* Signature help for whichever function call the cursor is currently inside */}
+      {activeFnDoc && (
+        <div className="flex items-start gap-2 px-2.5 py-2 bg-orange-50 border border-orange-200 rounded-md">
+          <span className="text-[10px] font-mono font-bold text-orange-500 shrink-0 mt-0.5">ƒ</span>
+          <div className="min-w-0">
+            <div className="text-xs font-mono font-semibold text-orange-800">{activeFnDoc.syntax}</div>
+            <div className="text-[11px] text-orange-700 mt-0.5">{activeFnDoc.description}</div>
+            <div className="text-[11px] text-orange-400 font-mono mt-0.5">e.g. {activeFnDoc.example}</div>
+          </div>
+        </div>
       )}
 
-      {unknownRefs.length > 0 && (
+      {value && (
+        <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs font-mono leading-relaxed break-all whitespace-pre-wrap">
+          {tokens.map((m, i) => {
+            if (m[1]) {
+              const name = m[1].slice(1);
+              const known = compatibleFields.some((f) => f.name === name);
+              return <span key={i} className={known ? "text-blue-600 font-semibold" : "text-red-600 underline"}>{m[1]}</span>;
+            }
+            if (m[2]) {
+              const known = knownFnNames.has(m[2].toUpperCase());
+              return <span key={i} className={known ? "text-orange-600 font-semibold" : "text-red-600 underline"}>{m[2]}</span>;
+            }
+            if (m[3]) return <span key={i} className="text-green-600">{m[3]}</span>;
+            if (m[4]) return <span key={i} className="text-violet-600">{m[4]}</span>;
+            return <span key={i}>{m[0]}</span>;
+          })}
+        </div>
+      )}
+
+      {!validation.valid && value && (
         <div className="flex items-start gap-1.5 px-2.5 py-2 bg-red-50 border border-red-200 rounded-md text-xs text-red-700">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            Unknown field{unknownRefs.length > 1 ? "s" : ""}:{" "}
-            {unknownRefs.map((r) => `$${r}`).join(", ")}
-          </span>
+          <span>{validation.error}</span>
+        </div>
+      )}
+      {validation.valid && value && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-md text-xs text-green-700">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span>Looks valid</span>
         </div>
       )}
 
       <p className="text-[11px] text-gray-400 leading-relaxed">
-        Type{" "}
-        <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] font-mono text-gray-600">$</kbd>{" "}
-        to insert a field. Supports{" "}
-        <code className="text-gray-600 text-[11px]">+ − * / ( )</code> and number literals.
-        Only numeric fields appear.
+        Type <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] font-mono text-gray-600">$</kbd> to insert a field,
+        or start typing a function name (e.g. <code className="text-gray-600">SUM</code>, <code className="text-gray-600">ADDYEARS</code>) for suggestions and syntax help.
+        Supports <code className="text-gray-600 text-[11px]">+ − * / ( )</code>, number literals, and date/aggregate functions.
       </p>
     </div>
   );
@@ -1943,6 +2498,27 @@ function FormulaConfig({
     (f) => f.id !== field.id && FORMULA_COMPATIBLE_TYPES.includes(f.type)
   );
 
+  // Subform fields with at least one column flagged for aggregation — offered
+  // as clickable SUM(field.column) tokens, since subform rows aren't plain
+  // top-level values the $field autocomplete above can reach.
+  const subformAggregates = fields
+    .filter((f) => f.type === "INLINE_SUBFORM")
+    .flatMap((f) => {
+      const cols: SubformColumn[] = (f as any).settings?.columns || [];
+      return cols
+        .filter((c) => c.aggregate)
+        .map((c) => ({ token: `SUM(${f.name}.${c.name})`, label: `${f.label} — ${c.label}` }));
+    });
+
+  const insertToken = (token: string) => {
+    const next = localFormula ? `${localFormula} + ${token}` : token;
+    handleFormulaChange(next);
+  };
+
+  // Defaults to on (existing formula fields keep showing "2,026" exactly as before);
+  // only fields that explicitly opt out — e.g. a year, a count — skip the comma.
+  const thousandsSeparator = settings.thousandsSeparator !== false;
+
   return (
     <div className="space-y-3">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Formula</p>
@@ -1951,6 +2527,42 @@ function FormulaConfig({
         onChange={handleFormulaChange}
         fields={compatibleFields}
       />
+
+      <label className="flex items-center justify-between gap-3 py-1.5 cursor-pointer select-none">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-700">Use thousands separator</p>
+          <p className="text-[11px] text-gray-400">Show numeric results as 2,026 instead of 2026 — turn off for years, IDs, or codes.</p>
+        </div>
+        <Switch
+          checked={thousandsSeparator}
+          onCheckedChange={(v) => onUpdate({ settings: { ...settings, thousandsSeparator: v } } as any)}
+        />
+      </label>
+      {subformAggregates.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Subform totals</p>
+          <div className="flex flex-wrap gap-1.5">
+            {subformAggregates.map((sa) => (
+              <button
+                key={sa.token}
+                type="button"
+                onClick={() => insertToken(sa.token)}
+                className="px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-mono text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                title={`Insert ${sa.token}`}
+              >
+                {sa.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400">
+        No need to declare a result type — whatever the formula computes decides it. Functions like
+        <span className="font-mono text-orange-700"> ADDYEARS</span>/<span className="font-mono text-orange-700">ADDMONTHS</span>/<span className="font-mono text-orange-700">ADDDAYS</span>/<span className="font-mono text-orange-700">DATE</span>/<span className="font-mono text-orange-700">TODAY</span> produce a date automatically;
+        everything else (arithmetic, <span className="font-mono text-orange-700">DATEDIFF_*</span>, <span className="font-mono text-orange-700">YEAR</span>/<span className="font-mono text-orange-700">MONTH</span>/<span className="font-mono text-orange-700">DAY</span>) produces a number.
+        Start typing a function name above for its exact syntax.
+      </p>
     </div>
   );
 }
@@ -2002,7 +2614,7 @@ function LookupConfig({
           <SelectContent>
             {modules.map(m => (
               <SelectItem key={m.id} value={m.id}>
-                {m.icon} {m.name}
+                <ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1 -mt-0.5" /> {m.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -2316,14 +2928,28 @@ const OPTION_COLORS = [
   "#3b82f6", "#64748b",
 ];
 
-function SortableOption({ opt, index, onUpdateLabel, onUpdateColor, onRemove }: {
-  opt: any; index: number;
+function SortableOption({ opt, index, totalCount, onUpdateLabel, onUpdateColor, onAdd, onRemove, shouldFocus, onFocused }: {
+  opt: any; index: number; totalCount: number;
   onUpdateLabel: (label: string) => void;
   onUpdateColor: (color: string) => void;
+  onAdd: () => void;
   onRemove: () => void;
+  shouldFocus?: boolean;
+  onFocused?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: opt.id || `opt-${index}` });
   const [showColors, setShowColors] = useState(false);
+  const labelInputRef = useRef<HTMLInputElement>(null);
+
+  // After a new option is created, focus lands here and its default label is
+  // pre-selected so typing immediately replaces "New Option" — no manual select-all needed.
+  useEffect(() => {
+    if (shouldFocus && labelInputRef.current) {
+      labelInputRef.current.focus();
+      labelInputRef.current.select();
+      onFocused?.();
+    }
+  }, [shouldFocus, onFocused]);
 
   return (
     <div
@@ -2369,19 +2995,41 @@ function SortableOption({ opt, index, onUpdateLabel, onUpdateColor, onRemove }: 
       </div>
 
       <Input
+        ref={labelInputRef}
         value={opt.label}
         onChange={(e) => onUpdateLabel(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onAdd(); } }}
         className="h-7 text-xs flex-1"
       />
-      <button
-        type="button"
-        onClick={onRemove}
-        className="text-gray-300 hover:text-red-500 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+      <div className="flex items-center gap-1 shrink-0">
+        <button type="button" onClick={onAdd} title="Add option"
+          className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors">
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+        {totalCount > 1 && (
+          <button type="button" onClick={onRemove} title="Remove option"
+            className="w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors">
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
     </div>
   );
+}
+
+// Turns a label into an option `value` slug, guaranteed unique against `taken` — collisions
+// (either two labels normalizing to the same slug, e.g. "UDSM (Dar)" vs "udsm dar", or the
+// same label entered twice) get a numeric suffix instead of silently duplicating. Duplicate
+// values crash every `<SelectItem key={o.value}>`-style renderer across the app with a React
+// "two children with the same key" error and make the later duplicate invisible.
+function slugifyOptionValue(label: string, taken: Set<string>): string {
+  const base = label.toLowerCase().trim().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") || "option";
+  let candidate = base;
+  let n = 2;
+  while (taken.has(candidate)) candidate = `${base}_${n++}`;
+  taken.add(candidate);
+  return candidate;
 }
 
 function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
@@ -2400,6 +3048,9 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
   const parsedSettings = parseFieldSettings((field as any).settings);
   const [useGlobalSource, setUseGlobalSource] = useState(!!(parsedSettings?.globalListSource));
   const [sourceListId, setSourceListId] = useState(parsedSettings?.globalListSource?.listId || "");
+  // Id of the option that should grab focus on the next render — set right after
+  // creating a new one, cleared once SortableOption has actually focused it.
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
 
   const options: any[] = (field as any).options || [];
   const settings = parseFieldSettings((field as any).settings);
@@ -2420,10 +3071,12 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
   };
 
   const addOption = () => {
+    const id = `opt-${Date.now()}`;
     const label = "New Option";
+    setPendingFocusId(id);
     onUpdate({
       options: [...options, {
-        id: `opt-${Date.now()}`,
+        id,
         label,
         value: `option_${options.length + 1}`,
         color: "",
@@ -2433,9 +3086,10 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
   };
 
   const updateLabel = (index: number, label: string) => {
+    const taken = new Set(options.filter((_: any, i: number) => i !== index).map((o: any) => o.value));
     onUpdate({
       options: options.map((o: any, i: number) =>
-        i === index ? { ...o, label, value: label.toLowerCase().replace(/\s+/g, "_") } : o
+        i === index ? { ...o, label, value: slugifyOptionValue(label, taken) } : o
       ),
     } as any);
   };
@@ -2462,10 +3116,13 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
 
   const applyBulk = () => {
     const lines = bulkInput.split("\n").map((l: string) => l.trim()).filter(Boolean);
+    // Dedup against pre-existing options too when appending (not replacing), so a pasted
+    // line that collides with an option already on the field still gets a unique suffix.
+    const taken = new Set(replaceExisting ? [] : options.map((o: any) => o.value));
     const newOptions = lines.map((line: string, i: number) => ({
       id: `opt-${Date.now()}-${i}`,
       label: line,
-      value: line.toLowerCase().replace(/\s+/g, "_"),
+      value: slugifyOptionValue(line, taken),
       color: "",
       order: i,
     }));
@@ -2491,10 +3148,11 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
   };
 
   const applyImport = () => {
+    const taken = new Set(replaceExisting ? [] : options.map((o: any) => o.value));
     const newOptions = importItems.map((item: any, i: number) => ({
       id: `opt-${Date.now()}-${i}`,
       label: item.label,
-      value: item.value || item.label.toLowerCase().replace(/\s+/g, "_"),
+      value: item.value ? slugifyOptionValue(item.value, taken) : slugifyOptionValue(item.label, taken),
       color: item.color || "",
       order: i,
     }));
@@ -2723,9 +3381,13 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
                           key={opt.id || i}
                           opt={opt}
                           index={realIndex}
+                          totalCount={options.length}
                           onUpdateLabel={(label) => updateLabel(realIndex, label)}
                           onUpdateColor={(color) => updateColor(realIndex, color)}
+                          onAdd={addOption}
                           onRemove={() => removeOption(realIndex)}
+                          shouldFocus={!!opt.id && opt.id === pendingFocusId}
+                          onFocused={() => setPendingFocusId(null)}
                         />
                       );
                     })}
@@ -2734,11 +3396,13 @@ function FieldOptionsEditor({ field, onUpdate, globalLists, allFields = [] }: {
               </DndContext>
 
               {options.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-2">No options yet. Add one below or use Bulk add.</p>
+                <div className="text-center py-2 space-y-2">
+                  <p className="text-xs text-gray-400">No options yet. Add one below or use Bulk add.</p>
+                  <Button variant="outline" size="sm" onClick={addOption} className="w-full gap-1.5 text-xs">
+                    <Plus className="w-3 h-3" /> Add Option
+                  </Button>
+                </div>
               )}
-              <Button variant="outline" size="sm" onClick={addOption} className="w-full gap-1.5 text-xs mt-1">
-                <Plus className="w-3 h-3" /> Add Option
-              </Button>
 
               {/* Default value picker */}
               {options.length > 0 && (() => {
@@ -2818,7 +3482,10 @@ interface SubformColumn {
   formula?: string;
   lookupModuleId?: string;
   lookupDisplayField?: string;
+  aggregate?: boolean; // show a column total in the subform footer + expose as a SUM() formula token
 }
+
+const AGGREGATABLE_SUBFORM_COL_TYPES = ["NUMBER", "DECIMAL", "CURRENCY"];
 
 const SUBFORM_COL_TYPES = [
   { value: "TEXT",     label: "Text",     icon: "Aa" },
@@ -2832,6 +3499,208 @@ const SUBFORM_COL_TYPES = [
   { value: "FORMULA",  label: "Formula",  icon: "fx" },
 ];
 
+function SortableSubformColumn({
+  col,
+  columns,
+  modules,
+  expanded,
+  onToggle,
+  onUpdateColumn,
+  onRemoveColumn,
+}: {
+  col: SubformColumn;
+  columns: SubformColumn[];
+  modules: any[];
+  expanded: boolean;
+  onToggle: () => void;
+  onUpdateColumn: (changes: Partial<SubformColumn>) => void;
+  onRemoveColumn: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="border border-gray-200 rounded-lg overflow-hidden bg-white"
+    >
+      {/* Column header */}
+      <div
+        className="flex items-center gap-2 px-2.5 py-2 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors select-none"
+        onClick={onToggle}
+      >
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </button>
+
+        <span className="font-mono text-[10px] bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-500 shrink-0">
+          {SUBFORM_COL_TYPES.find(t => t.value === col.type)?.icon || "?"}
+        </span>
+
+        <span className="flex-1 text-xs font-medium text-gray-700 truncate">{col.label}</span>
+
+        {col.required && <span className="text-[10px] text-blue-500 shrink-0">req</span>}
+
+        <ChevronDown className={cn("w-3 h-3 text-gray-400 transition-transform shrink-0", expanded && "rotate-180")} />
+
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemoveColumn(); }}
+          title="Remove column"
+          className="text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0 p-0.5 rounded"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Expanded settings */}
+      {expanded && (
+        <div className="px-3 py-3 space-y-2.5 bg-white border-t border-gray-100">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Label</Label>
+              <Input
+                value={col.label}
+                onChange={e => {
+                  const lbl = e.target.value;
+                  onUpdateColumn({
+                    label: lbl,
+                    name: lbl.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") || col.name,
+                  });
+                }}
+                className="h-7 text-xs"
+                placeholder="Column label"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Type</Label>
+              <Select value={col.type} onValueChange={v => onUpdateColumn({ type: v })}>
+                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SUBFORM_COL_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value} className="text-xs">
+                      <span className="font-mono text-[10px] mr-1">{t.icon}</span>{t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Field Key</Label>
+            <Input
+              value={col.name}
+              onChange={e => onUpdateColumn({ name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
+              className="h-7 text-xs font-mono"
+              placeholder="column_key"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Required</Label>
+            <Switch
+              checked={col.required}
+              onCheckedChange={v => onUpdateColumn({ required: v })}
+            />
+          </div>
+
+          {AGGREGATABLE_SUBFORM_COL_TYPES.includes(col.type) && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">Show column total</Label>
+                <p className="text-[10px] text-gray-400">Sums this column across all rows in the subform footer</p>
+              </div>
+              <Switch
+                checked={!!col.aggregate}
+                onCheckedChange={v => onUpdateColumn({ aggregate: v })}
+              />
+            </div>
+          )}
+
+          {col.type === "FORMULA" && (
+            <div className="space-y-1.5">
+              <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Formula</Label>
+              <FormulaEditor
+                value={col.formula || ""}
+                onChange={(v) => onUpdateColumn({ formula: v })}
+                fields={columns
+                  .filter((c) => c.id !== col.id && FORMULA_COMPATIBLE_TYPES.includes(c.type))
+                  .map((c) => ({ name: c.name, label: c.label, type: c.type }))}
+              />
+            </div>
+          )}
+
+          {col.type === "DROPDOWN" && (
+            <div className="space-y-1">
+              <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Options (one per line)</Label>
+              <textarea
+                value={(col.options || []).map(o => o.label).join("\n")}
+                onChange={e => {
+                  const lines = e.target.value.split("\n");
+                  onUpdateColumn({
+                    options: lines
+                      .map((l, i) => ({ label: l.trim(), value: l.trim().toLowerCase().replace(/\s+/g, "_") || `opt_${i}` }))
+                      .filter(o => o.label),
+                  });
+                }}
+                placeholder={"Option A\nOption B\nOption C"}
+                rows={3}
+                className="w-full text-xs border border-gray-200 rounded p-2 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          )}
+
+          {col.type === "LOOKUP" && (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Lookup Module</Label>
+                <Select
+                  value={col.lookupModuleId || ""}
+                  onValueChange={v => onUpdateColumn({ lookupModuleId: v, lookupDisplayField: "" })}
+                >
+                  <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select module..." /></SelectTrigger>
+                  <SelectContent>
+                    {modules.map(m => (
+                      <SelectItem key={m.id} value={m.id} className="text-xs"><ModuleIcon icon={m.icon} slug={m.slug} className="w-3.5 h-3.5 inline-block mr-1 -mt-0.5" /> {m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {col.lookupModuleId && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Display Field</Label>
+                  <Input
+                    value={col.lookupDisplayField || ""}
+                    onChange={e => onUpdateColumn({ lookupDisplayField: e.target.value })}
+                    placeholder="e.g. name"
+                    className="h-7 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onRemoveColumn}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-red-100 text-xs font-medium text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <X className="w-3 h-3" /> Remove Column
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SubformConfig({
   field,
   modules,
@@ -2841,9 +3710,10 @@ function SubformConfig({
   modules: any[];
   onUpdate: (c: Partial<Field>) => void;
 }) {
-  const settings = (field as any).settings || {};
+  const settings = parseFieldSettings((field as any).settings);
   const columns: SubformColumn[] = settings.columns || [];
   const [expandedCol, setExpandedCol] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const saveColumns = (cols: SubformColumn[]) => {
     onUpdate({ settings: { ...settings, columns: cols } } as any);
@@ -2871,14 +3741,13 @@ function SubformConfig({
     if (expandedCol === id) setExpandedCol(null);
   };
 
-  const moveColumn = (id: string, dir: "up" | "down") => {
-    const idx = columns.findIndex(c => c.id === id);
-    if (dir === "up" && idx === 0) return;
-    if (dir === "down" && idx === columns.length - 1) return;
-    const next = [...columns];
-    const swapIdx = dir === "up" ? idx - 1 : idx + 1;
-    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    saveColumns(next);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = columns.findIndex(c => c.id === active.id);
+    const newIndex = columns.findIndex(c => c.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    saveColumns(arrayMove(columns, oldIndex, newIndex));
   };
 
   return (
@@ -2894,168 +3763,24 @@ function SubformConfig({
           <p className="text-[10px] text-gray-300 mt-0.5">Add columns to define the row structure</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {columns.map((col, idx) => (
-            <div key={col.id} className="border border-gray-200 rounded-lg overflow-hidden">
-              {/* Column header */}
-              <div
-                className="flex items-center gap-2 px-2.5 py-2 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors select-none"
-                onClick={() => setExpandedCol(expandedCol === col.id ? null : col.id)}
-              >
-                {/* Up/down arrows */}
-                <div className="flex flex-col shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); moveColumn(col.id, "up"); }}
-                    disabled={idx === 0}
-                    className="text-[10px] leading-[10px] text-gray-300 hover:text-gray-500 disabled:opacity-30 disabled:cursor-default"
-                  >▲</button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); moveColumn(col.id, "down"); }}
-                    disabled={idx === columns.length - 1}
-                    className="text-[10px] leading-[10px] text-gray-300 hover:text-gray-500 disabled:opacity-30 disabled:cursor-default"
-                  >▼</button>
-                </div>
-
-                <span className="font-mono text-[10px] bg-white border border-gray-200 rounded px-1 py-0.5 text-gray-500 shrink-0">
-                  {SUBFORM_COL_TYPES.find(t => t.value === col.type)?.icon || "?"}
-                </span>
-
-                <span className="flex-1 text-xs font-medium text-gray-700 truncate">{col.label}</span>
-
-                {col.required && <span className="text-[10px] text-blue-500 shrink-0">req</span>}
-
-                <ChevronDown className={cn("w-3 h-3 text-gray-400 transition-transform shrink-0", expandedCol === col.id && "rotate-180")} />
-
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeColumn(col.id); }}
-                  className="text-gray-300 hover:text-red-500 transition-colors shrink-0 p-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-
-              {/* Expanded settings */}
-              {expandedCol === col.id && (
-                <div className="px-3 py-3 space-y-2.5 bg-white border-t border-gray-100">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Label</Label>
-                      <Input
-                        value={col.label}
-                        onChange={e => {
-                          const lbl = e.target.value;
-                          updateColumn(col.id, {
-                            label: lbl,
-                            name: lbl.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") || col.name,
-                          });
-                        }}
-                        className="h-7 text-xs"
-                        placeholder="Column label"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Type</Label>
-                      <Select value={col.type} onValueChange={v => updateColumn(col.id, { type: v })}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {SUBFORM_COL_TYPES.map(t => (
-                            <SelectItem key={t.value} value={t.value} className="text-xs">
-                              <span className="font-mono text-[10px] mr-1">{t.icon}</span>{t.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Field Key</Label>
-                    <Input
-                      value={col.name}
-                      onChange={e => updateColumn(col.id, { name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
-                      className="h-7 text-xs font-mono"
-                      placeholder="column_key"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Required</Label>
-                    <Switch
-                      checked={col.required}
-                      onCheckedChange={v => updateColumn(col.id, { required: v })}
-                    />
-                  </div>
-
-                  {col.type === "FORMULA" && (
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Formula</Label>
-                      <FormulaEditor
-                        value={col.formula || ""}
-                        onChange={(v) => updateColumn(col.id, { formula: v })}
-                        fields={columns
-                          .filter((c) => c.id !== col.id && FORMULA_COMPATIBLE_TYPES.includes(c.type))
-                          .map((c) => ({ name: c.name, label: c.label, type: c.type }))}
-                      />
-                    </div>
-                  )}
-
-                  {col.type === "DROPDOWN" && (
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Options (one per line)</Label>
-                      <textarea
-                        value={(col.options || []).map(o => o.label).join("\n")}
-                        onChange={e => {
-                          const lines = e.target.value.split("\n");
-                          updateColumn(col.id, {
-                            options: lines
-                              .map((l, i) => ({ label: l.trim(), value: l.trim().toLowerCase().replace(/\s+/g, "_") || `opt_${i}` }))
-                              .filter(o => o.label),
-                          });
-                        }}
-                        placeholder={"Option A\nOption B\nOption C"}
-                        rows={3}
-                        className="w-full text-xs border border-gray-200 rounded p-2 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  )}
-
-                  {col.type === "LOOKUP" && (
-                    <div className="space-y-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Lookup Module</Label>
-                        <Select
-                          value={col.lookupModuleId || ""}
-                          onValueChange={v => updateColumn(col.id, { lookupModuleId: v, lookupDisplayField: "" })}
-                        >
-                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select module..." /></SelectTrigger>
-                          <SelectContent>
-                            {modules.map(m => (
-                              <SelectItem key={m.id} value={m.id} className="text-xs">{m.icon} {m.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {col.lookupModuleId && (
-                        <div className="space-y-1">
-                          <Label className="text-[10px] text-gray-500 uppercase tracking-wide">Display Field</Label>
-                          <Input
-                            value={col.lookupDisplayField || ""}
-                            onChange={e => updateColumn(col.id, { lookupDisplayField: e.target.value })}
-                            placeholder="e.g. name"
-                            className="h-7 text-xs"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={columns.map(c => c.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-1.5">
+              {columns.map((col) => (
+                <SortableSubformColumn
+                  key={col.id}
+                  col={col}
+                  columns={columns}
+                  modules={modules}
+                  expanded={expandedCol === col.id}
+                  onToggle={() => setExpandedCol(expandedCol === col.id ? null : col.id)}
+                  onUpdateColumn={(changes) => updateColumn(col.id, changes)}
+                  onRemoveColumn={() => removeColumn(col.id)}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       <Button variant="outline" size="sm" onClick={addColumn} className="w-full gap-1.5 text-xs">
@@ -3116,11 +3841,14 @@ function LayoutRulesEditor({ field, fields, onUpdate }: {
   const rules: LayoutRule[] = settings.conditions || [];
 
   const otherFields = fields.filter(f => f.id !== field.id);
+  // The field being edited is the sensible starting point for its own rules — list it
+  // first and pre-select it, rather than defaulting to an unrelated field.
+  const conditionFieldOptions = [field, ...otherFields];
 
   const addRule = () => {
     const newRule: LayoutRule = {
       id: `rule-${Date.now()}`,
-      whenField: otherFields[0]?.name || "",
+      whenField: field.name,
       operator: "equals",
       whenValue: "",
       action: "show",
@@ -3180,8 +3908,10 @@ function LayoutRulesEditor({ field, fields, onUpdate }: {
                     <SelectValue placeholder="Select field…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {otherFields.map(f => (
-                      <SelectItem key={f.id} value={f.name} className="text-xs">{f.label}</SelectItem>
+                    {conditionFieldOptions.map(f => (
+                      <SelectItem key={f.id} value={f.name} className="text-xs">
+                        {f.id === field.id ? `${f.label} (this field)` : f.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

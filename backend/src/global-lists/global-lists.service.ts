@@ -348,4 +348,66 @@ export class GlobalListsService {
     }
     return { created: created.length, items: created };
   }
+
+  // ── Staff Roles (Team Roles via Global List) ──────────────────────────────
+
+  private readonly DEFAULT_STAFF_ROLES = [
+    { label: 'Finance Officer',         value: 'finance_officer' },
+    { label: 'Education Officer',       value: 'education_officer' },
+    { label: 'HR Director',             value: 'hr_director' },
+    { label: 'Teller',                  value: 'teller' },
+    { label: 'Teacher',                 value: 'teacher' },
+    { label: 'Operations Manager',      value: 'operations_manager' },
+    { label: 'IT Officer',              value: 'it_officer' },
+    { label: 'Marketing Officer',       value: 'marketing_officer' },
+    { label: 'Customer Service',        value: 'customer_service' },
+    { label: 'Legal Officer',           value: 'legal_officer' },
+    { label: 'Procurement Officer',     value: 'procurement_officer' },
+    { label: 'Field Officer',           value: 'field_officer' },
+    { label: 'Programme Manager',       value: 'programme_manager' },
+    { label: 'Communications Officer',  value: 'communications_officer' },
+    { label: 'M&E Officer',             value: 'me_officer' },
+    { label: 'Admin Officer',           value: 'admin_officer' },
+  ];
+
+  async ensureStaffRolesList(orgId: string) {
+    let list = await this.prisma.globalList.findFirst({
+      where: { organizationId: orgId, slug: 'staff-roles', isActive: true },
+      include: { items: { where: { isActive: true }, orderBy: { order: 'asc' } } },
+    });
+
+    if (!list) {
+      list = await this.prisma.globalList.create({
+        data: {
+          name: 'Staff Roles',
+          slug: 'staff-roles',
+          description: 'Team roles and job positions for staff members.',
+          organizationId: orgId,
+          isActive: true,
+          isPublished: false,
+          levelDefinitions: [],
+          items: {
+            create: this.DEFAULT_STAFF_ROLES.map((r, i) => ({
+              label: r.label,
+              value: r.value,
+              level: 0,
+              order: i,
+              isActive: true,
+              metadata: {},
+            })),
+          },
+        },
+        include: { items: { where: { isActive: true }, orderBy: { order: 'asc' } } },
+      });
+    } else if (!Array.isArray(list.levelDefinitions)) {
+      // Heal records created before the JSON.stringify bug was fixed
+      await this.prisma.globalList.update({
+        where: { id: list.id },
+        data: { levelDefinitions: [] },
+      });
+      (list as any).levelDefinitions = [];
+    }
+
+    return list;
+  }
 }

@@ -37,7 +37,7 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { notifications, unreadCount, fetchNotifications, markRead, markAllRead } =
     useNotificationsStore();
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>("unread");
 
   useEffect(() => {
     fetchNotifications();
@@ -67,7 +67,7 @@ export default function NotificationsPage() {
   for (const notif of filtered) {
     const prev = grouped[grouped.length - 1];
     const tenMin = 10 * 60 * 1000;
-    const sameGroup = (a: { title: string; type: string; link?: string }, b: SingleNotif) =>
+    const sameGroup = (a: { title: string; type: string; link?: string; createdAt: string }, b: SingleNotif) =>
       a.title === b.title && a.type === b.type && (a.link ?? "") === (b.link ?? "") &&
       Math.abs(new Date(b.createdAt).getTime() - new Date(a.createdAt ?? b.createdAt).getTime()) < tenMin;
 

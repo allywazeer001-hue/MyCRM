@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const UPLOAD_BASE = path.join(process.cwd(), 'uploads', 'portal');
+const UPLOAD_BASE = process.env.PORTAL_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'portal');
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 
 @Injectable()
@@ -61,7 +61,7 @@ export class PortalDocumentService {
     const doc = await this.prisma.portalDocument.findFirst({ where: { id: docId, portalUserId } });
     if (!doc) throw new NotFoundException('Document not found');
 
-    const abs = path.join(process.cwd(), doc.filePath);
+    const abs = path.join(UPLOAD_BASE, doc.organizationId, doc.portalUserId, doc.fileName);
     if (fs.existsSync(abs)) fs.unlinkSync(abs);
 
     await this.prisma.portalDocument.update({ where: { id: docId }, data: { status: 'DELETED' } });

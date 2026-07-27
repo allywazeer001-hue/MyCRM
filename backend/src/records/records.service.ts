@@ -2,15 +2,19 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { ProcessService } from '../process/process.service';
+import { BlueprintsService } from '../blueprints/blueprints.service';
 import { RelationResolverService } from './relation-resolver.service';
-
+import { AppGateway } from '../websocket/app.gateway';
+import { getLockInfoForRecordData, partitionLockedFields, resolveStageLock } from '../blueprints/field-lock';
 @Injectable()
 export class RecordsService {
   constructor(
     private prisma: PrismaService,
     private workflows: WorkflowsService,
     private readonly processService: ProcessService,
+    private readonly blueprints: BlueprintsService,
     private readonly resolver: RelationResolverService,
+    private readonly gateway: AppGateway,
   ) {}
 
   async create(moduleId: string, orgId: string, userId: string, data: Record<string, any>) {
@@ -42,6 +46,7 @@ export class RecordsService {
     // Fire RECORD_CREATED workflows asynchronously (don't block the response)
     this.workflows.executeForRecord('RECORD_CREATED', moduleId, orgId, record).catch(() => {});
     this.processService.triggerForRecord(record.id, moduleId, "status", (enrichedData as any).status || "", userId, orgId).catch(() => {});
+    this.blueprints.evaluateAutomaticTransitions(record.id, orgId, userId, 'on_create').catch(() => {});
 
     return record;
   }
@@ -57,6 +62,29 @@ export class RecordsService {
     const padded = String(nextNum).padStart(paddingLength, '0');
     const parts = [prefix, padded, suffix].filter(Boolean);
     return parts.join('-');
+  }
+
+  // Distinct values a field actually holds across a module's records — used by pickers that let
+  // an admin choose a concrete value for a field (e.g. the Visualization Context "Camp Name"
+  // picker) without needing to know the data in advance. Capped so a huge/free-text field can't
+  // return an unusably large list.
+  // A previous version fetched only the first 5000 records (no ORDER BY, so an arbitrary
+  // DB-chosen subset) and extracted values in JS — any value that only appeared outside
+  // that window silently never showed up in the dropdown once a module grew past 5000
+  // records. Extracting DISTINCT at the SQL level scans the whole table and is both
+  // correct and far cheaper than pulling every record's JSON into Node to dedupe by hand.
+  async distinctFieldValues(moduleId: string, orgId: string, fieldName: string, limit = 200): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ val: string | null }[]>`
+      SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(data, CONCAT('$.', ${fieldName}))) AS val
+      FROM records
+      WHERE moduleId = ${moduleId} AND organizationId = ${orgId} AND isDeleted = false
+        AND JSON_EXTRACT(data, CONCAT('$.', ${fieldName})) IS NOT NULL
+      LIMIT ${limit}
+    `;
+    return rows
+      .map((r) => r.val)
+      .filter((v): v is string => v !== null && v !== undefined && v !== '')
+      .sort((a, b) => a.localeCompare(b));
   }
 
   async findAll(moduleId: string, orgId: string, query: any) {
@@ -131,8 +159,8 @@ export class RecordsService {
     const cv = c.value ?? '';
 
     switch (c.operator) {
-      case 'is':           return String(val) === String(cv);
-      case 'is_not':       return String(val) !== String(cv);
+      case 'is':           return Array.isArray(raw) ? raw.map(String).includes(String(cv)) : String(val) === String(cv);
+      case 'is_not':       return Array.isArray(raw) ? !raw.map(String).includes(String(cv)) : String(val) !== String(cv);
       case 'contains':     return String(val).toLowerCase().includes(String(cv).toLowerCase());
       case 'not_contains': return !String(val).toLowerCase().includes(String(cv).toLowerCase());
       case 'starts_with':  return String(val).toLowerCase().startsWith(String(cv).toLowerCase());
@@ -176,13 +204,49 @@ export class RecordsService {
     return this.resolver.resolveRecord(record, moduleFields);
   }
 
-  async update(id: string, orgId: string | null, userId: string, data: Record<string, any>) {
+  async update(
+    id: string,
+    orgId: string | null,
+    userId: string,
+    data: Record<string, any>,
+    lockCtx?: { role?: string; lockOverrideReason?: string },
+  ) {
     const where: any = orgId ? { id, organizationId: orgId, isDeleted: false } : { id, isDeleted: false };
     const record = await this.prisma.record.findFirst({ where });
     if (!record) throw new NotFoundException('Record not found');
 
+    // Use record's actual org for audit log (orgId may be null for SUPER_ADMIN cross-org access)
+    const auditOrgId = orgId ?? record.organizationId;
+
+    // The blueprint's stage/status field must only change via transition execution
+    // (manual button click or automatic evaluation) — never via a plain record save.
+    // Otherwise a form still holding a stale copy of this field (e.g. left open while
+    // an automatic transition fires in the background) silently reverts the stage
+    // the next time it's saved.
+    const blueprint = await this.prisma.blueprint.findFirst({
+      where: { moduleId: record.moduleId, organizationId: auditOrgId, isActive: true },
+      select: { statusFieldName: true },
+    });
+    const submittedData = { ...data };
+    if (blueprint?.statusFieldName && blueprint.statusFieldName in submittedData) {
+      delete submittedData[blueprint.statusFieldName];
+    }
+
     const existingData = (record.data as Record<string, any>) || {};
-    const mergedData = { ...existingData, ...data };
+
+    // Field Locks: a Blueprint stage can mark fields read-only. Locked fields the
+    // caller isn't authorized to touch (or hasn't given an override reason for
+    // yet) are silently dropped from this update rather than failing the whole
+    // request — the rest of the submitted fields still save normally.
+    const lock = await getLockInfoForRecordData(this.prisma, record.moduleId, auditOrgId, existingData);
+    const { allowed: lockedFilteredData, skipped, overridden } = partitionLockedFields(
+      submittedData,
+      lock,
+      { id: userId, role: lockCtx?.role },
+      !!lockCtx?.lockOverrideReason?.trim(),
+    );
+
+    const mergedData = { ...existingData, ...lockedFilteredData };
 
     const updated = await this.prisma.record.update({
       where: { id },
@@ -191,26 +255,53 @@ export class RecordsService {
 
     // Capture old values only for the fields that changed (for activity log)
     const oldValues: Record<string, any> = {};
-    for (const key of Object.keys(data)) oldValues[key] = existingData[key] ?? null;
+    for (const key of Object.keys(lockedFilteredData)) oldValues[key] = existingData[key] ?? null;
 
-    // Use record's actual org for audit log (orgId may be null for SUPER_ADMIN cross-org access)
-    const auditOrgId = orgId ?? record.organizationId;
     await this.prisma.auditLog.create({
       data: {
         userId, organizationId: auditOrgId,
         action: 'RECORD_UPDATED', entityType: 'Record', entityId: id,
-        metadata: { oldValues, newValues: data },
+        metadata: { oldValues, newValues: lockedFilteredData },
       },
     });
 
-    // Fire RECORD_UPDATED workflows asynchronously
+    if (overridden.length > 0 && lock) {
+      await this.prisma.auditLog.create({
+        data: {
+          userId, organizationId: auditOrgId,
+          action: 'FIELD_LOCK_OVERRIDE', entityType: 'Record', entityId: id,
+          metadata: {
+            fields: overridden.map(field => ({ field, oldValue: existingData[field] ?? null, newValue: lockedFilteredData[field] })),
+            reason: lockCtx?.lockOverrideReason,
+            blueprintId: lock.blueprintId,
+            stageId: lock.stageId,
+          },
+        },
+      });
+    }
+
+    this.gateway.emitToModule(record.moduleId, 'record:updated', { id, moduleId: record.moduleId, data: mergedData, updatedAt: updated.updatedAt });
+    this.gateway.emitToOrg(auditOrgId, 'record:updated', { id, moduleId: record.moduleId, data: mergedData, updatedAt: updated.updatedAt });
+
+    // Fire RECORD_UPDATED workflows asynchronously — plus FIELD_CHANGED workflows, which
+    // additionally only match when the ONE field they watch actually changed (see
+    // WorkflowsService.executeForRecord's fieldName gate), so picking a specific field
+    // there doesn't fire on every unrelated edit the way RECORD_UPDATED does.
     this.workflows.executeForRecord(
       'RECORD_UPDATED', record.moduleId, auditOrgId,
       { ...updated, data: mergedData },
       existingData,
     ).catch(() => {});
+    this.workflows.executeForRecord(
+      'FIELD_CHANGED', record.moduleId, auditOrgId,
+      { ...updated, data: mergedData },
+      existingData,
+    ).catch(() => {});
+    this.blueprints.evaluateAutomaticTransitions(
+      id, auditOrgId, userId, 'on_edit', Object.keys(lockedFilteredData), existingData,
+    ).catch(() => {});
 
-    return updated;
+    return { ...updated, _lockWarnings: skipped };
   }
 
   async softDelete(id: string, orgId: string | null, userId: string) {
@@ -233,25 +324,44 @@ export class RecordsService {
   }
 
   async bulkUpdateField(ids: string[], fieldName: string, value: any, orgId: string) {
-    let updated = 0;
-    const errors: string[] = [];
-    for (const id of ids) {
-      try {
-        const record = await this.prisma.record.findFirst({
-          where: { id, organizationId: orgId, isDeleted: false },
-        });
-        if (!record) { errors.push(id); continue; }
-        const currentData = (record.data as Record<string, any>) || {};
-        await this.prisma.record.update({
-          where: { id },
-          data: { data: { ...currentData, [fieldName]: value } },
-        });
-        updated++;
-      } catch {
-        errors.push(id);
-      }
+    // One query for every record instead of one findFirst per id, and the blueprint
+    // used for stage-lock checks is fetched once per distinct module instead of once
+    // per record — bulk updates commonly touch hundreds of records in the same module.
+    const records = await this.prisma.record.findMany({
+      where: { id: { in: ids }, organizationId: orgId, isDeleted: false },
+    });
+    const foundIds = new Set(records.map(r => r.id));
+    const errors: string[] = ids.filter(id => !foundIds.has(id));
+    const locked: string[] = [];
+
+    const moduleIds = [...new Set(records.map(r => r.moduleId))];
+    const blueprints = moduleIds.length
+      ? await this.prisma.blueprint.findMany({ where: { moduleId: { in: moduleIds }, organizationId: orgId, isActive: true } })
+      : [];
+    const blueprintByModule = new Map(blueprints.map(bp => [bp.moduleId, bp]));
+
+    const toUpdate: { id: string; data: Record<string, any> }[] = [];
+    for (const record of records) {
+      const currentData = (record.data as Record<string, any>) || {};
+
+      // Mass update has no override path — a field locked at the record's current
+      // stage is simply skipped, regardless of the caller's role.
+      const lock = resolveStageLock(blueprintByModule.get(record.moduleId) ?? null, currentData);
+      if (lock && lock.fields.includes(fieldName)) { locked.push(record.id); continue; }
+
+      toUpdate.push({ id: record.id, data: { ...currentData, [fieldName]: value } });
     }
-    return { updated, errors, total: ids.length };
+
+    const results = await Promise.allSettled(
+      toUpdate.map(({ id, data }) => this.prisma.record.update({ where: { id }, data: { data } })),
+    );
+    let updated = 0;
+    results.forEach((res, i) => {
+      if (res.status === 'fulfilled') updated++;
+      else errors.push(toUpdate[i].id);
+    });
+
+    return { updated, errors, locked, total: ids.length };
   }
 
   async addComment(recordId: string, orgId: string, userId: string, content: string) {
@@ -456,6 +566,7 @@ export class RecordsService {
     const { rows } = this.parseCsv(csvText);
     let imported = 0;
     const errors: string[] = [];
+    let lockedFieldsSkipped = 0;
 
     for (let i = 0; i < rows.length; i++) {
       try {
@@ -470,6 +581,17 @@ export class RecordsService {
             data[field.name] = await this.generateAutoNumber(field, moduleId, orgId);
           }
         }
+
+        // Imports have no override path either — if the mapped row lands the new
+        // record directly in a stage that locks fields, those fields are dropped
+        // from the imported data rather than failing the whole row.
+        const lock = await getLockInfoForRecordData(this.prisma, moduleId, orgId, data);
+        if (lock) {
+          for (const field of lock.fields) {
+            if (field in data) { delete data[field]; lockedFieldsSkipped++; }
+          }
+        }
+
         await this.prisma.record.create({
           data: { moduleId, organizationId: orgId, createdById: userId, data },
         });
@@ -484,12 +606,12 @@ export class RecordsService {
         data: {
           userId, organizationId: orgId,
           action: 'RECORDS_IMPORTED', entityType: mod.name, entityId: moduleId,
-          metadata: { imported, errors: errors.length },
+          metadata: { imported, errors: errors.length, lockedFieldsSkipped },
         },
       });
     }
 
-    return { imported, errors, total: rows.length };
+    return { imported, errors, lockedFieldsSkipped, total: rows.length };
   }
 
   async getImportTemplate(moduleId: string, orgId: string): Promise<string> {

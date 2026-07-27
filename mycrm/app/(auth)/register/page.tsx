@@ -343,7 +343,7 @@ export default function RegisterPage() {
     const Icon = ind?.icon ?? Sparkles;
     const color = ind?.color ?? "#3b82f6";
     return (
-      <div className="h-dvh flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+      <div className="h-full flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
         <div className="w-full max-w-sm text-center px-6">
           <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-xl"
             style={{ background: `linear-gradient(135deg,${color}cc,${color})` }}>
@@ -394,7 +394,7 @@ export default function RegisterPage() {
         .blob2     { animation: blobFloat2 11s ease-in-out infinite; }
       `}</style>
 
-      <div className="h-dvh flex overflow-hidden">
+      <div className="h-full flex overflow-hidden">
 
         {/* ── LEFT: dark panel ── */}
         <div className="hidden lg:flex lg:w-[38%] xl:w-[34%] relative overflow-hidden select-none flex-col">

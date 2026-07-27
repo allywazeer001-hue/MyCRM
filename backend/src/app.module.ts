@@ -15,10 +15,13 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { FilesModule } from './files/files.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
+import { VisualizationTemplatesModule } from './visualization-templates/visualization-templates.module';
 import { ViewsModule } from './views/views.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { GlobalListsModule } from './global-lists/global-lists.module';
+import { AnnouncementsModule } from './announcements/announcements.module';
+import { MediaModule } from './media/media.module';
 import { FormsModule } from './forms/forms.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { UserPreferencesModule } from './user-preferences/user-preferences.module';
@@ -40,6 +43,11 @@ import { RequestsModule } from './requests/requests.module';
 import { IndustrySetupModule } from './industry-setup/industry-setup.module';
 import { EmailTemplatesModule } from './email-templates/email-templates.module';
 import { EmailsModule } from './emails/emails.module';
+import { RecordRoutingModule } from './record-routing/record-routing.module';
+import { FieldRulesModule } from './field-rules/field-rules.module';
+import { PivotModule } from './pivot/pivot.module';
+import { DataQualityModule } from './data-quality/data-quality.module';
+import { ScheduledConfigurationsModule } from './scheduled-configurations/scheduled-configurations.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -58,10 +66,13 @@ import { EmailsModule } from './emails/emails.module';
     AuditModule,
     FilesModule,
     DashboardsModule,
+    VisualizationTemplatesModule,
     ViewsModule,
     PermissionsModule,
     WebsocketModule,
     GlobalListsModule,
+    AnnouncementsModule,
+    MediaModule,
     FormsModule,
     AnalyticsModule,
     UserPreferencesModule,
@@ -83,6 +94,11 @@ import { EmailsModule } from './emails/emails.module';
     IndustrySetupModule,
     EmailTemplatesModule,
     EmailsModule,
+    RecordRoutingModule,
+    FieldRulesModule,
+    PivotModule,
+    DataQualityModule,
+    ScheduledConfigurationsModule,
   ],
 })
 export class AppModule {}

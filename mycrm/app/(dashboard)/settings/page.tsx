@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import {
   User, Building2, Shield, Globe, Users, Mail,
   Zap, BarChart3, FileText, ArrowRight,
-  CheckCircle2, AlertCircle,
+  CheckCircle2, AlertCircle, GitFork, ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -235,6 +235,20 @@ const CONFIG_QUICK_LINKS = [
     color: "bg-violet-50 text-violet-600 border-violet-100",
   },
   {
+    href: "/settings/routing",
+    icon: GitFork,
+    label: "Request Routing",
+    description: "Route CRM records to users, departments, or roles based on configurable conditions.",
+    color: "bg-violet-50 text-violet-600 border-violet-100",
+  },
+  {
+    href: "/settings/field-rules",
+    icon: Zap,
+    label: "Field Rules",
+    description: "Auto-populate and control fields based on conditions as users fill out records.",
+    color: "bg-amber-50 text-amber-600 border-amber-100",
+  },
+  {
     href: "/settings/email",
     icon: Mail,
     label: "Email Settings",
@@ -247,6 +261,13 @@ const CONFIG_QUICK_LINKS = [
     label: "Analytics",
     description: "Customize dashboards and reporting preferences.",
     badge: "Coming Soon",
+  },
+  {
+    href: "/settings/data-quality",
+    icon: ShieldCheck,
+    label: "Data Quality",
+    description: "Configure automatic validation, scheduled scans, and duplicate detection rules.",
+    color: "bg-blue-50 text-blue-600 border-blue-100",
   },
 ];
 

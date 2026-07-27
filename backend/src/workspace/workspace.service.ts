@@ -197,6 +197,10 @@ export class WorkspaceService {
           params = [orgId, ...assnArgs];
           break;
         }
+        case 'completed':
+          where  = `t.organizationId = ? AND ${visOr} AND t.status = 'done'`;
+          params = [orgId, ...visArgs];
+          break;
         default: // 'all'
           where  = `t.organizationId = ? AND ${visOr}`;
           params = [orgId, ...visArgs];
@@ -206,6 +210,52 @@ export class WorkspaceService {
     const sql  = `${TASK_SQL} WHERE ${where} ORDER BY t.pinned DESC, t.status ASC, t.dueDate ASC, t.createdAt DESC`;
     const rows: any[] = await this.prisma.$queryRawUnsafe(sql, ...params);
     return rows.map(mapTask);
+  }
+
+  // ── Admin: get any user's tasks ────────────────────────────────────────────
+
+  async getUserTasksForAdmin(targetUserId: string, orgId: string, filter?: string) {
+    const visOr   = `(t.assignedById = ? OR t.assignedToId = ?)`;
+    const visArgs = [targetUserId, targetUserId];
+
+    let where = '';
+    let params: any[] = [];
+
+    switch (filter) {
+      case 'pending':
+        where  = `t.organizationId = ? AND ${visOr} AND t.status IN ('todo','in_progress')`;
+        params = [orgId, ...visArgs];
+        break;
+      case 'completed':
+        where  = `t.organizationId = ? AND ${visOr} AND t.status = 'done'`;
+        params = [orgId, ...visArgs];
+        break;
+      case 'overdue': {
+        const now   = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        where  = `t.organizationId = ? AND ${visOr} AND t.dueDate < ? AND t.status != 'done'`;
+        params = [orgId, ...visArgs, today];
+        break;
+      }
+      default:
+        where  = `t.organizationId = ? AND ${visOr}`;
+        params = [orgId, ...visArgs];
+    }
+
+    const sql  = `${TASK_SQL} WHERE ${where} ORDER BY t.status ASC, t.dueDate ASC, t.createdAt DESC`;
+    const rows: any[] = await this.prisma.$queryRawUnsafe(sql, ...params);
+
+    const all  = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT
+        SUM(CASE WHEN status IN ('todo','in_progress') THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
+        SUM(CASE WHEN dueDate < ? AND status != 'done' THEN 1 ELSE 0 END) AS overdue
+       FROM workspace_tasks
+       WHERE organizationId = ? AND (assignedById = ? OR assignedToId = ?)`,
+      new Date(), orgId, targetUserId, targetUserId,
+    );
+
+    return { tasks: rows.map(mapTask), summary: all[0] ?? { pending: 0, completed: 0, overdue: 0 } };
   }
 
   // ── Create task ────────────────────────────────────────────────────────────

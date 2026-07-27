@@ -144,7 +144,7 @@ export class IndustrySetupService {
             name:           wf.name,
             description:    wf.description ?? null,
             trigger:        wf.trigger as any,
-            triggerConfig:  {},
+            triggerConfig:  wf.triggerConfig ?? {},
             conditions:     [],
             isActive:       wf.isActive ?? true,
             tags:           [],

@@ -1,0 +1,3 @@
+-- No-op: the preceding `add_platform_announcement` migration already creates
+-- `platform_announcements` with startDate/endDate/dailyStartTime/dailyEndTime,
+-- so there is nothing left for this migration to add.

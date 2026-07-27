@@ -348,6 +348,7 @@ export const educationBlueprint: IndustryBlueprint = {
       name: 'Payment Status Change Alert',
       description: 'Notify finance team when payment status changes',
       trigger: 'FIELD_CHANGED',
+      triggerConfig: { fieldName: 'status' },
       moduleSlug: 'student_payments',
       actions: [
         {

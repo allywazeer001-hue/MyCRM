@@ -31,13 +31,28 @@ export interface LayoutSection {
   fieldIds: string[];
   fieldWidths?: Record<string, string>;
   conditions?: SectionRule[];
+  // When set, this section renders inside the named tab (see LayoutConfig.tabs)
+  // instead of the flat, always-visible section list. Absent = today's behavior,
+  // unchanged — tabs are strictly additive, nothing needs migrating.
+  tabId?: string;
+}
+
+// A named tab that one or more sections can be assigned to via LayoutSection.tabId.
+// Tabs render as a single <Tabs> block, ordered by `order`, placed after any
+// untabbed sections — grouping is per-section, not a separate nesting level, so a
+// module that has never touched tabs has an empty `tabs` array and renders exactly
+// as it always has.
+export interface LayoutTab {
+  id: string;
+  label: string;
+  order: number;
 }
 
 // ── Module-level layout rules ─────────────────────────────────────────────────
 // A rule fires when a field condition is met and runs one or more actions
 // (show/hide/require/readonly a field OR a section).
 
-export type ModuleRuleOperator   = "equals" | "not_equals" | "is_empty" | "not_empty";
+export type ModuleRuleOperator   = "equals" | "not_equals" | "is_empty" | "not_empty" | "in" | "not_in";
 export type ModuleRuleActionType = "show" | "hide" | "require" | "unrequire" | "readonly";
 export type ModuleRuleTarget     = "field" | "section";
 export type ModuleRuleLogic      = "AND" | "OR";
@@ -47,19 +62,35 @@ export interface ModuleRuleCondition {
   whenField: string;
   operator:  ModuleRuleOperator;
   whenValue: string;
+  // Used only by "in" / "not_in" — the field's value must match one of these.
+  // whenValue is left unused for those two operators.
+  whenValues?: string[];
 }
+
+// A nested AND/OR group — sits alongside plain conditions inside a rule's `conditions[]`
+// array (or inside another group's `children[]`), so old flat rules (every item is a plain
+// ModuleRuleCondition, no `type` field) keep evaluating exactly as before with zero migration.
+export interface ModuleRuleConditionGroup {
+  id:       string;
+  type:     "group";
+  operator: ModuleRuleLogic;
+  children: ModuleRuleConditionNode[];
+}
+
+export type ModuleRuleConditionNode = ModuleRuleCondition | ModuleRuleConditionGroup;
 
 export interface ModuleRuleAction {
   id:       string;
   type:     ModuleRuleActionType;
   target:   ModuleRuleTarget;
-  targetId: string;   // field.name for fields, section.id for sections
+  targetId: string;      // deprecated single-target — kept so rules saved before multi-target existed still evaluate
+  targetIds?: string[];  // field.name(s) for fields, section.id(s) for sections — the action applies to all of them
 }
 
 export interface ModuleLayoutRule {
   id:             string;
-  conditionLogic: ModuleRuleLogic;   // how multiple conditions are combined
-  conditions:     ModuleRuleCondition[];
+  conditionLogic: ModuleRuleLogic;   // how multiple top-level conditions/groups are combined
+  conditions:     ModuleRuleConditionNode[];
   actions:        ModuleRuleAction[];
 }
 
@@ -67,6 +98,12 @@ export interface LayoutConfig {
   templateId: string;
   columns: 1 | 2 | 3;
   sections: LayoutSection[];
+  tabs?: LayoutTab[];
+  // Column count for the record DETAIL/SHOW page specifically — independent of
+  // `columns` above, which governs the create/edit form. Defaults to 3 (matching
+  // the show page's previous hardcoded xl:grid-cols-3) so existing modules don't
+  // visually change until someone deliberately picks 2.
+  detailColumns?: 2 | 3;
   sidebarEnabled?: boolean;
   headerType?: "minimal" | "banner" | "none";
   density?: "compact" | "normal" | "spacious";
@@ -214,7 +251,7 @@ export function getTemplatesByCategory(cat: LayoutCategory): LayoutTemplate[] {
 
 export const DEFAULT_MODULE_LAYOUT: LayoutConfig = {
   templateId: "crm-standard",
-  columns: 2,
+  columns: 3,
   sections: [],
   headerType: "minimal",
   density: "normal",

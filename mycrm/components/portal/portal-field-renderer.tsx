@@ -9,7 +9,7 @@ export interface PortalFieldDef {
   fieldType: string;
   placeholder?: string;
   helpText?: string;
-  options: Array<{ label: string; value: string }>;
+  options: Array<{ id?: string; label: string; value: string }>;
   isRequired: boolean;
   isVisible: boolean;
   isEditable: boolean;
@@ -183,7 +183,7 @@ export function PortalFieldRenderer({ field, value, onChange, readOnly, external
       return (
         <select className={INPUT} value={value ?? ""} onChange={e => onChange?.(e.target.value)}>
           <option value="">— Select —</option>
-          {field.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {field.options.map((o, i) => <option key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</option>)}
         </select>
       );
     }
@@ -204,8 +204,8 @@ export function PortalFieldRenderer({ field, value, onChange, readOnly, external
       }
       return (
         <div className="space-y-1.5">
-          {field.options.map(o => (
-            <label key={o.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+          {field.options.map((o, i) => (
+            <label key={o.id ?? `${o.value}-${i}`} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
               <input type="checkbox" checked={selected.includes(o.value)}
                 onChange={e => {
                   const next = e.target.checked ? [...selected, o.value] : selected.filter(v => v !== o.value);

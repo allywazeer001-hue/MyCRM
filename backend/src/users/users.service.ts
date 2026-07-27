@@ -6,7 +6,7 @@ import { PermissionCheckService } from '../permissions/permission-check.service'
 const USER_SELECT = {
   id: true, email: true, firstName: true, lastName: true,
   role: true, usertype: true, isActive: true, status: true, mustChangePassword: true,
-  jobTitle: true, phone: true, departmentId: true, organizationId: true, createdAt: true,
+  jobTitle: true, phone: true, teamRole: true, departmentId: true, organizationId: true, createdAt: true,
   avatar: true, lastLoginAt: true, suspendedAt: true, lockedAt: true,
   department: { select: { id: true, name: true, color: true } },
 };
@@ -46,6 +46,7 @@ export class UsersService {
         role: data.role || 'USER',
         organizationId: orgId,
         departmentId: data.departmentId || null,
+        teamRole: data.teamRole || null,
         jobTitle: data.jobTitle || null,
         phone: data.phone || null,
         isActive: true,

@@ -1,19 +1,20 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Mail, Phone, Building2, Shield, Calendar,
   Clock, FileText, MessageSquare, Activity, CheckCircle2, XCircle,
   Eye, PenLine, Trash2, Download, Upload, Printer, BarChart2,
-  Workflow, Layout, FormInput, Settings2
+  Workflow, Layout, FormInput, Settings2, Circle, AlertTriangle,
+  CheckCheck, Loader2, RefreshCw, CalendarDays,
 } from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
 
 const ROLE_COLORS: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-700 border-red-200",
@@ -91,12 +92,29 @@ type ProfileData = {
   }>;
 };
 
+type TaskItem = {
+  id: string; title: string; status: string; priority: string;
+  dueDate?: string; createdAt: string;
+  assignedBy: { firstName: string; lastName: string };
+  assignedTo?: { firstName: string; lastName: string };
+};
+
+type TaskSummary = { pending: number; completed: number; overdue: number };
+
+const PRIORITY_DOT: Record<string, string> = {
+  critical: "bg-red-500", high: "bg-orange-500", medium: "bg-yellow-500", low: "bg-gray-300",
+};
+
 export default function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [taskSummary, setTaskSummary] = useState<TaskSummary>({ pending: 0, completed: 0, overdue: 0 });
+  const [taskFilter, setTaskFilter] = useState<"pending" | "completed" | "overdue" | "all">("pending");
+  const [loadingTasks, setLoadingTasks] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -105,6 +123,19 @@ export default function UserProfilePage() {
       .catch((err) => setError(err?.response?.data?.message || "Failed to load profile"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const loadTasks = useCallback(async (filter: string) => {
+    if (!id) return;
+    setLoadingTasks(true);
+    try {
+      const { data } = await api.get(`/workspace/users/${id}/tasks`, { params: { filter } });
+      setTasks(data.tasks ?? []);
+      setTaskSummary(data.summary ?? { pending: 0, completed: 0, overdue: 0 });
+    } catch {}
+    finally { setLoadingTasks(false); }
+  }, [id]);
+
+  useEffect(() => { loadTasks(taskFilter); }, [taskFilter, loadTasks]);
 
   if (loading) {
     return (
@@ -366,6 +397,96 @@ export default function UserProfilePage() {
           )}
         </div>
       </div>
+
+      {/* ── Task Monitoring ──────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <CheckCheck className="w-4 h-4 text-blue-600" /> Task Monitoring
+            </CardTitle>
+            <button onClick={() => loadTasks(taskFilter)} className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+              <RefreshCw className={cn("w-3.5 h-3.5", loadingTasks && "animate-spin")} />
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {/* Summary stats */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {[
+              { label: "Pending",   value: Number(taskSummary.pending),   icon: Circle,        accent: "bg-gray-50 border-gray-200 text-gray-700",   dot: "bg-gray-400"   },
+              { label: "Completed", value: Number(taskSummary.completed), icon: CheckCircle2,  accent: "bg-green-50 border-green-200 text-green-700", dot: "bg-green-500"  },
+              { label: "Overdue",   value: Number(taskSummary.overdue),   icon: AlertTriangle, accent: "bg-red-50 border-red-200 text-red-700",       dot: "bg-red-500"    },
+            ].map(s => (
+              <div key={s.label} className={cn("rounded-xl border p-3 flex flex-col gap-1", s.accent)}>
+                <s.icon className="w-4 h-4 opacity-70" />
+                <p className="text-xl font-bold">{s.value}</p>
+                <p className="text-xs opacity-70">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex border-b border-gray-100 mb-3">
+            {([
+              { key: "pending",   label: "Pending"   },
+              { key: "completed", label: "Completed" },
+              { key: "overdue",   label: "Overdue"   },
+              { key: "all",       label: "All"       },
+            ] as const).map(f => (
+              <button
+                key={f.key}
+                onClick={() => setTaskFilter(f.key)}
+                className={cn(
+                  "px-3 py-2 text-xs font-semibold border-b-2 transition-colors",
+                  taskFilter === f.key ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700",
+                )}
+              >{f.label}</button>
+            ))}
+          </div>
+
+          {/* Task list */}
+          {loadingTasks ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+            </div>
+          ) : tasks.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">No tasks</p>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+              {tasks.map(t => {
+                const due = t.dueDate ? new Date(t.dueDate) : null;
+                const overdue = due && due < new Date() && t.status !== "done";
+                return (
+                  <div key={t.id} className="flex items-center gap-3 py-2.5">
+                    <div className={cn("w-2 h-2 rounded-full shrink-0", PRIORITY_DOT[t.priority] ?? "bg-gray-300")} />
+                    <div className="flex-1 min-w-0">
+                      <p className={cn("text-sm text-gray-800 truncate", t.status === "done" && "line-through text-gray-400")}>{t.title}</p>
+                      <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
+                        {due && (
+                          <span className={cn("flex items-center gap-0.5", overdue && "text-red-500 font-medium")}>
+                            <CalendarDays className="w-2.5 h-2.5" />
+                            {due.toLocaleDateString("en", { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                        <span>by {t.assignedBy.firstName} {t.assignedBy.lastName}</span>
+                      </div>
+                    </div>
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded-full font-semibold border shrink-0",
+                      t.status === "done"         ? "bg-green-100 text-green-700 border-green-200" :
+                      t.status === "in_progress"  ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                                    "bg-gray-100 text-gray-500 border-gray-200",
+                    )}>
+                      {t.status === "done" ? "Done" : t.status === "in_progress" ? "In Progress" : "Todo"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

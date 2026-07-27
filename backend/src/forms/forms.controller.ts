@@ -199,8 +199,21 @@ export class PublicFormsController {
 
   @Post(':token/submit')
   submitForm(@Param('token') token: string, @Body() body: any, @Req() req: Request) {
-    const ip = req.ip || req.headers['x-forwarded-for'] as string;
+    // req.ip now resolves correctly via the 'trust proxy' setting in main.ts —
+    // it previously always returned the Next.js rewrite proxy's own loopback
+    // address instead of the actual submitter's IP (the || fallback below
+    // never ran, since req.ip was never falsy). Kept as a defensive fallback
+    // only for the case where a request arrives with no proxy hop at all.
+    const ip = req.ip || (req.headers['x-forwarded-for'] as string);
     const ua = req.headers['user-agent'];
     return this.svc.submitPublicForm(token, body, ip, ua);
+  }
+
+  @Post(':token/extract-document')
+  extractDocument(
+    @Param('token') token: string,
+    @Body() body: { fileBase64: string; mediaType: string },
+  ) {
+    return this.svc.extractDocument(token, body.fileBase64, body.mediaType);
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Database, Edit, Trash2, MoreHorizontal, Layers } from "lucide-react";
+import { Plus, Database, Edit, Trash2, MoreHorizontal, Layers, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,11 @@ export default function StudioPage() {
                       <Link href={`/m/${mod.slug}`}>
                         <DropdownMenuItem className="cursor-pointer">
                           <Layers className="mr-2 h-4 w-4" /> View Records
+                        </DropdownMenuItem>
+                      </Link>
+                      <Link href={`/settings/field-rules/${mod.id}`}>
+                        <DropdownMenuItem className="cursor-pointer">
+                          <Zap className="mr-2 h-4 w-4" /> Field Rules
                         </DropdownMenuItem>
                       </Link>
                       <DropdownMenuItem

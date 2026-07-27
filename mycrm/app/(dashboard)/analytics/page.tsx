@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react"; // useRef used for grid width measurement
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react"; // useRef used for grid width measurement
+import { useSearchParams, useRouter } from "next/navigation";
 // Chart rendering is done via the shared AnalyticsWidgetBody component
 import {
   BarChart3, Plus, RefreshCw, Trash2, Settings2, Target, Save,
@@ -7,7 +8,7 @@ import {
   AlertCircle, Loader2, Eye, EyeOff, Filter, ChevronRight, Layers,
   Pin, PinOff, Check, Pencil, Star, StarOff, Bookmark,
   GripVertical, Copy, Maximize2, Minimize2, LayoutGrid, LayoutDashboard,
-  BrainCircuit, MoreHorizontal,
+  BrainCircuit, MoreHorizontal, FileBarChart2, Sparkles, LayoutTemplate, Share2,
 } from "lucide-react";
 import { ReactGridLayout as _RGL } from "react-grid-layout/legacy";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +29,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AccessControlEditor } from "@/components/ui/access-control-editor";
 import { useModulesStore, Field } from "@/store/modules.store";
 import { api } from "@/lib/api";
 import { cn, generateId } from "@/lib/utils";
@@ -36,12 +38,15 @@ import {
   CHART_COLORS as SHARED_CHART_COLORS,
   GRID_COLS, GRID_ROW_HEIGHT, getWidgetDims, getWidgetMinDims,
   widgetW as sharedWidgetW,
-  type AnalyticsWidget, type AnalyticsTarget as SharedAnalyticsTarget,
+  type AnalyticsWidget, type AnalyticsTarget as SharedAnalyticsTarget, type ContextFilter,
 } from "@/components/analytics/analytics-widget";
 import { useAuthStore } from "@/store/auth.store";
 import { usePermissionsStore } from "@/store/permissions.store";
 import { useDashboardStore } from "@/store/dashboard.store";
 import { AnalysisPanel, type AnalysisContext } from "@/components/analytics/analysis-panel";
+import { generateVizSuggestions, reportFiltersToFilterGroup, type VizSuggestion } from "@/lib/report-viz-suggestions";
+import { ReportVisualizationWizard } from "@/components/analytics/report-visualization-wizard";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +85,17 @@ interface AnalyticsView {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+  isPublic?: boolean;
+  sharedRoles?: string[];
+  sharedDepartments?: string[];
+  sharedUsers?: string[];
+}
+
+interface VisualizationTemplate {
+  id: string;
+  name: string;
+  layoutConfiguration?: { widgets?: any[] };
+  contexts?: { fieldName: string; defaultValue?: string | null }[];
 }
 
 interface SavedFilter {
@@ -123,7 +139,7 @@ function getOperatorsForField(field?: Field): FilterOperator[] {
     case "DATE": case "DATETIME":
       return ["today", "yesterday", "this_week", "this_month", "date_between", "empty", "not_empty"];
     case "DROPDOWN": case "STATUS": case "RADIO": case "MULTI_SELECT":
-      return ["is", "is_not", "empty", "not_empty"];
+      return ["is", "is_not", "contains", "not_contains", "empty", "not_empty"];
     case "BOOLEAN":
       return ["is", "is_not"];
     default:
@@ -143,6 +159,55 @@ function newGroup(): FilterGroup {
 }
 function newCondition(fieldName = ""): FilterCondition {
   return { id: generateId(), field: fieldName, operator: "is", value: "" };
+}
+
+// ── Build a widget from an existing saved Report ────────────────────────────
+// Reports use a flat filter list with per-item AND/OR conjunctions and a
+// text-based operator vocabulary; widgets use one nested FilterGroup with a
+// single logic and a different (smaller) operator set — reportFiltersToFilterGroup
+// (shared with the report "visualize" suggestions page) does the conversion,
+// best-effort: operators with no equivalent (before/after a specific date) are
+// dropped rather than silently misapplied.
+function buildWidgetFromReport(
+  report: {
+    id: string; name: string; moduleId: string;
+    columns: { fieldName: string; fieldLabel: string; fieldType: string }[];
+    filters: { fieldName: string; fieldType: string; operator: string; value: string; value2: string; conjunction: "AND" | "OR" }[];
+  },
+  suggestion?: VizSuggestion,
+  chartType?: ChartType,
+): { widget: Omit<Widget, "id">; skippedFilters: number } {
+  const { filterGroup, skippedFilters } = reportFiltersToFilterGroup(report.filters ?? []);
+
+  if (suggestion) {
+    const widget = {
+      title: suggestion.label,
+      type: (chartType ?? suggestion.defaultType) as ChartType,
+      moduleId: report.moduleId,
+      aggregation: suggestion.aggregation as AggregationType,
+      aggregateField: suggestion.aggregateField,
+      groupByField: suggestion.groupByField,
+      secondaryGroupByField: suggestion.secondaryGroupByField,
+      barMode: suggestion.secondaryGroupByField ? "grouped" : undefined,
+      filterGroup: filterGroup as unknown as FilterGroup,
+      sourceReportId: report.id,
+    } as Omit<Widget, "id">;
+    return { widget, skippedFilters };
+  }
+
+  const groupByCandidate = (report.columns ?? []).find(c =>
+    ["DROPDOWN", "STATUS", "RADIO", "BOOLEAN", "TEXT", "NUMBER", "DATE"].includes(c.fieldType)
+  );
+  const widget = {
+    title: `${report.name} (Chart)`,
+    type: "bar" as ChartType,
+    moduleId: report.moduleId,
+    aggregation: "COUNT" as AggregationType,
+    groupByField: groupByCandidate?.fieldName,
+    filterGroup: filterGroup as unknown as FilterGroup,
+    sourceReportId: report.id,
+  } as Omit<Widget, "id">;
+  return { widget, skippedFilters };
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -308,7 +373,7 @@ function FilterConditionRow({
         </SelectTrigger>
         <SelectContent>
           {fields.map((f) => (
-            <SelectItem key={f.name} value={f.name} className="text-xs">
+            <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">
               {f.label}
             </SelectItem>
           ))}
@@ -514,6 +579,7 @@ interface WidgetDraft {
 
 function WidgetBuilderDialog({
   open, onClose, onSave, modules, targets, initial, savedFilters, onSaveSavedFilter,
+  lockedModuleId, contextField,
 }: {
   open: boolean;
   onClose: () => void;
@@ -523,11 +589,16 @@ function WidgetBuilderDialog({
   initial?: Widget;
   savedFilters: SavedFilter[];
   onSaveSavedFilter: (name: string, filterGroup: FilterGroup) => void;
+  /** Building a template with a module chosen upfront — every widget is locked to it. */
+  lockedModuleId?: string;
+  /** The template's common filter field — shown as a badge; the actual dynamic
+   *  condition is merged in server-side when someone creates from the template. */
+  contextField?: string;
 }) {
   const [draft, setDraft] = useState<WidgetDraft>({
     title: initial?.title || "",
     type: initial?.type || "bar",
-    moduleId: initial?.moduleId || "",
+    moduleId: initial?.moduleId || lockedModuleId || "",
     groupByField: initial?.groupByField || "",
     secondaryGroupByField: initial?.secondaryGroupByField || "",
     barMode: initial?.barMode || "grouped",
@@ -587,6 +658,11 @@ function WidgetBuilderDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
+          {contextField && (
+            <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
+              This widget will be dynamically filtered by <strong>{contextField}</strong> — no effect until a value is picked when someone creates from this template.
+            </p>
+          )}
           {/* Title */}
           <div className="space-y-1.5">
             <Label className="text-xs">Widget Title</Label>
@@ -620,21 +696,28 @@ function WidgetBuilderDialog({
             </div>
           </div>
 
-          {/* Module */}
+          {/* Module — locked when building a template (module chosen upfront) */}
           <div className="space-y-1.5">
             <Label className="text-xs">Module</Label>
-            <Select value={draft.moduleId} onValueChange={(v) => { set("moduleId", v); set("groupByField", ""); set("aggregateField", ""); }}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Select module" />
-              </SelectTrigger>
-              <SelectContent>
-                {modules.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.icon} {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {lockedModuleId ? (
+              <p className="h-9 flex items-center gap-1.5 px-3 rounded-md border border-gray-200 bg-gray-50 text-sm text-gray-600">
+                <ModuleIcon icon={modules.find((m) => m.id === lockedModuleId)?.icon} slug={modules.find((m) => m.id === lockedModuleId)?.slug} className="w-4 h-4 shrink-0" /> {modules.find((m) => m.id === lockedModuleId)?.name}
+                <span className="ml-auto text-xs text-gray-400">Fixed for this template</span>
+              </p>
+            ) : (
+              <Select value={draft.moduleId} onValueChange={(v) => { set("moduleId", v); set("groupByField", ""); set("aggregateField", ""); }}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select module" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modules.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      <ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1 -mt-0.5" /> {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {draft.type === "target" ? (
@@ -664,7 +747,7 @@ function WidgetBuilderDialog({
                     <Select value={draft.aggregateField} onValueChange={(v) => set("aggregateField", v)} disabled={!draft.moduleId}>
                       <SelectTrigger className="h-9"><SelectValue placeholder="Select field" /></SelectTrigger>
                       <SelectContent>
-                        {numericFields.map((f) => <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>)}
+                        {numericFields.map((f) => <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -705,7 +788,7 @@ function WidgetBuilderDialog({
                       <SelectTrigger className="h-9"><SelectValue placeholder="Select field" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">— No grouping (total count) —</SelectItem>
-                        {groupByFields.map((f) => <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>)}
+                        {groupByFields.map((f) => <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -723,7 +806,7 @@ function WidgetBuilderDialog({
                           <SelectContent>
                             <SelectItem value="__none__">— None (single series) —</SelectItem>
                             {groupByFields.filter(f => f.name !== draft.groupByField).map((f) => (
-                              <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>
+                              <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -785,7 +868,7 @@ function WidgetBuilderDialog({
                       <SelectTrigger className="h-9"><SelectValue placeholder="Select field" /></SelectTrigger>
                       <SelectContent>
                         {numericFields.map((f) => (
-                          <SelectItem key={f.name} value={f.name}>{f.label}</SelectItem>
+                          <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -969,7 +1052,7 @@ function TargetManagerDialog({
               <div className="grid grid-cols-2 gap-2">
                 <Select value={form.moduleId} onValueChange={(v) => setForm((f) => ({ ...f, moduleId: v }))}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Module" /></SelectTrigger>
-                  <SelectContent>{modules.map((m) => <SelectItem key={m.id} value={m.id} className="text-xs">{m.icon} {m.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{modules.map((m) => <SelectItem key={m.id} value={m.id} className="text-xs"><ModuleIcon icon={m.icon} slug={m.slug} className="w-3.5 h-3.5 inline-block mr-1 -mt-0.5" /> {m.name}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={form.aggregation} onValueChange={(v) => setForm((f) => ({ ...f, aggregation: v as AggregationType }))}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -983,7 +1066,7 @@ function TargetManagerDialog({
               {form.aggregation !== "COUNT" && (
                 <Select value={form.aggregateField} onValueChange={(v) => setForm((f) => ({ ...f, aggregateField: v }))}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Aggregate field" /></SelectTrigger>
-                  <SelectContent>{numericFields.map((f: Field) => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{numericFields.map((f: Field) => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
                 </Select>
               )}
               <div className="grid grid-cols-2 gap-2">
@@ -1059,7 +1142,7 @@ function GridCellsOverlay({ cols, rowHeight, rows }: { cols: number; rowHeight: 
 // ── Widget Card ────────────────────────────────────────────────────────────
 
 function WidgetCard({
-  widget, targets, onEdit, onRemove, onRefresh, onClone, reorderMode, colorIndex,
+  widget, targets, onEdit, onRemove, onRefresh, onClone, reorderMode, colorIndex, templateContextField,
 }: {
   widget: Widget;
   targets: AnalyticsTarget[];
@@ -1069,6 +1152,8 @@ function WidgetCard({
   onClone: () => void;
   reorderMode?: boolean;
   colorIndex?: number;
+  /** Set while building a template — shows a badge confirming this widget is dynamic on the field. */
+  templateContextField?: string;
 }) {
   const modules = useModulesStore(state => state.modules);
   const [drillSegment, setDrillSegment] = useState<string | null>(null);
@@ -1100,7 +1185,19 @@ function WidgetCard({
       <Card className="group relative overflow-hidden h-full flex flex-col">
         <CardHeader className="flex flex-row items-start justify-between pb-2 pt-3 px-5 shrink-0">
           <div className="min-w-0 flex-1">
-            <CardTitle className="text-sm font-semibold text-gray-800 truncate">{widget.title}</CardTitle>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <CardTitle className="text-sm font-semibold text-gray-800 truncate">{widget.title}</CardTitle>
+              {widget.sourceReportId && (
+                <span title="Live-linked to a report — filters stay in sync automatically" className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  <FileBarChart2 className="w-2.5 h-2.5" />Linked
+                </span>
+              )}
+              {templateContextField && (
+                <span title={`Dynamically filtered by ${templateContextField} when created from this template`} className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">
+                  <LayoutTemplate className="w-2.5 h-2.5" />Filtered by {templateContextField}
+                </span>
+              )}
+            </div>
             {widget.type !== "target" && (
               <p className="text-xs text-gray-400 mt-0.5">
                 {widget.aggregation.toLowerCase()}{widget.groupByField ? ` · ${widget.groupByField}` : ""}
@@ -1207,11 +1304,22 @@ function WidgetCard({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}>
+      <AnalyticsPageInner />
+    </Suspense>
+  );
+}
+
+function AnalyticsPageInner() {
   const { modules, fetchModules } = useModulesStore();
   const { toasts, show: showToast } = useToast();
   const { user } = useAuthStore();
   const { isAdmin } = usePermissionsStore();
   const { dashboards, loadDashboards, addAnalyticsWidget } = useDashboardStore();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [seedWidget, setSeedWidget] = useState<Widget | null>(null);
 
   // Grid width — measured via ResizeObserver so column widths are exact (no drag offset)
   const gridContainerRef = useRef<HTMLDivElement>(null);
@@ -1235,11 +1343,57 @@ export default function AnalyticsPage() {
   const [activeView, setActiveView] = useState<AnalyticsView | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Live context filter — set when the active view carries a `contextField` (created
+  // from a Visualization Template, or manually configured). Changing the value here
+  // reloads every widget in place via loadWidgetData's context param; it's never baked
+  // into any widget's own filter, so switching values repeatedly never conflicts with
+  // whatever was picked before (see visualization-templates.service.ts's instantiate()).
+  const viewContextField: string | undefined = (activeView?.config as any)?.contextField || undefined;
+  const [viewContextValue, setViewContextValue] = useState<string | undefined>(undefined);
+  const [contextValueOptions, setContextValueOptions] = useState<string[]>([]);
+  const [savingContext, setSavingContext] = useState(false);
+
+  // Stable key so this effect only re-runs when the SET of modules actually in use changes,
+  // not on every widget data/loading update (widgets reload constantly while this stays put).
+  const widgetModuleIdsKey = useMemo(
+    () => Array.from(new Set(widgets.map((w) => w.moduleId).filter(Boolean))).sort().join(","),
+    [widgets]
+  );
+
+  useEffect(() => {
+    if (!viewContextField) { setContextValueOptions([]); return; }
+    // Scope to the modules THIS view's widgets actually use — never guess by scanning every
+    // module in the org for one that happens to share a field name. Two unrelated modules
+    // can both have a "camp_name" field; picking the wrong one silently shows the wrong
+    // module's values (looks exactly like "some values are missing"). A template can
+    // legitimately span multiple modules (the ad-hoc "Save as Template" path doesn't lock to
+    // one), so union the distinct values across every module that actually has this field.
+    const candidateModuleIds = widgetModuleIdsKey ? widgetModuleIdsKey.split(",") : [];
+    const candidateModules = candidateModuleIds
+      .map((id) => modules.find((m: any) => m.id === id))
+      .filter((m: any) => m?.fields?.some((f: Field) => f.name === viewContextField));
+    if (candidateModules.length === 0) { setContextValueOptions([]); return; }
+    let cancelled = false;
+    Promise.all(
+      candidateModules.map((m: any) =>
+        api.get(`/modules/${m.id}/records/field-values/${viewContextField}`).then((r) => r.data ?? []).catch(() => [])
+      )
+    ).then((lists) => {
+      if (cancelled) return;
+      const merged = Array.from(new Set(lists.flat() as string[])).sort((a, b) => a.localeCompare(b));
+      setContextValueOptions(merged);
+    });
+    return () => { cancelled = true; };
+  }, [viewContextField, modules, widgetModuleIdsKey]);
+
   // UI state
   const [showBuilder, setShowBuilder] = useState(false);
+  const [showReportWizard, setShowReportWizard] = useState(false);
+  const [wizardInitialReportId, setWizardInitialReportId] = useState<string | undefined>(undefined);
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
   const [showTargetManager, setShowTargetManager] = useState(false);
   const [showSavedFilters, setShowSavedFilters] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [analyzeContext, setAnalyzeContext] = useState<AnalysisContext | null>(null);
   const [savingView, setSavingView] = useState(false);
@@ -1250,12 +1404,42 @@ export default function AnalyticsPage() {
   const [renameName, setRenameName] = useState("");
   const [addToDashboardView, setAddToDashboardView] = useState<AnalyticsView | null>(null);
 
+  // Standalone vs Template — asked when saving a brand-new visualization
+  const [saveMode, setSaveMode] = useState<"standalone" | "template">("standalone");
+  const [templateContextField, setTemplateContextField] = useState("");
+  // Set only while actively building a template via the guided "New Template" flow
+  // (module + context field chosen upfront) — every widget added gets locked to this
+  // module and visibly shows it's bound to the context field. Cleared on any canvas
+  // reset or when loading an existing view, since it's session-scoped, not persisted.
+  const [templateModuleId, setTemplateModuleId] = useState<string | null>(null);
+  const [showTemplateSetup, setShowTemplateSetup] = useState(false);
+  const [setupModuleId, setSetupModuleId] = useState("");
+  const [setupField, setSetupField] = useState("");
+
+  // "Create From Template" — the Analytics-page equivalent of the Dashboard's Templates panel
+  const [showTemplatesDialog, setShowTemplatesDialog] = useState(false);
+  const [templates, setTemplates] = useState<VisualizationTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateCtxValue, setTemplateCtxValue] = useState("");
+  const [templateCtxSuggestions, setTemplateCtxSuggestions] = useState<string[]>([]);
+  const [instantiatingTemplate, setInstantiatingTemplate] = useState(false);
+
+  // "Share" panel (who can see the active view) — mirrors the Dashboard's AccessPanel
+  const [showSharePanel, setShowSharePanel] = useState(false);
+
   useEffect(() => {
     fetchModules();
     fetchTargets();
     fetchSavedFilters();
     // Fetch views then auto-restore the last active view from user preferences
+    // (or, if arriving from the Visualization Library's "Open" action, that specific view)
     fetchViews().then(async (loadedViews) => {
+      const requestedViewId = searchParams.get("loadView");
+      if (requestedViewId) {
+        const v = loadedViews.find((x: AnalyticsView) => x.id === requestedViewId);
+        if (v) { loadView(v); router.replace("/analytics"); return; }
+      }
       try {
         const { data } = await api.get("/user-preferences/analytics_active_view");
         if (data?.value?.viewId) {
@@ -1265,6 +1449,49 @@ export default function AnalyticsPage() {
       } catch {}
     });
   }, [fetchModules]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // /analytics?openReportWizard=<reportId> — opens the guided wizard pre-selected
+  // to this report (used by the Reports list/viewer's "Visualize" button).
+  useEffect(() => {
+    const reportId = searchParams.get("openReportWizard");
+    if (!reportId) return;
+    setWizardInitialReportId(reportId);
+    setShowReportWizard(true);
+    router.replace("/analytics");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // "Create Visualization from Report" entry point:
+  //  - /analytics?fromReport=<id>                          → open the builder pre-filled with a best guess
+  //  - /analytics?fromReport=<id>&suggestion=<sid>&type=<t> → the report's suggestions page already had the
+  //    user pick a field-pairing + chart type; create the widget directly, no dialog.
+  useEffect(() => {
+    const reportId = searchParams.get("fromReport");
+    if (!reportId) return;
+    const suggestionId = searchParams.get("suggestion");
+    const chartType = searchParams.get("type") as ChartType | null;
+
+    api.get(`/reports/${reportId}`)
+      .then(({ data: report }) => {
+        const suggestion = suggestionId
+          ? generateVizSuggestions(report.columns ?? []).find(s => s.id === suggestionId)
+          : undefined;
+        const { widget, skippedFilters } = buildWidgetFromReport(report, suggestion, chartType ?? undefined);
+
+        if (suggestion) {
+          createAsNewVisualization(widget);
+        } else {
+          setSeedWidget({ ...widget, id: "__seed__" });
+          setShowBuilder(true);
+        }
+        if (skippedFilters > 0) {
+          showToast(`${skippedFilters} filter${skippedFilters !== 1 ? "s" : ""} from the report couldn't be converted and ${skippedFilters !== 1 ? "were" : "was"} skipped`, "error");
+        }
+      })
+      .catch(() => showToast("Could not load report for visualization", "error"));
+    router.replace("/analytics");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const fetchViews = async (): Promise<AnalyticsView[]> => {
     try {
@@ -1289,11 +1516,26 @@ export default function AnalyticsPage() {
     } catch {}
   };
 
-  const loadWidgetData = useCallback(async (widget: Widget): Promise<Widget> => {
+  // Only apply the live context filter to a widget whose own module actually has that
+  // field — widgets on unrelated modules stay untouched (mirrors the Dashboard's
+  // moduleHasContextField gate in dashboard-builder.tsx). Takes field/value explicitly
+  // (rather than always reading state) so a just-loaded view's config can be applied on
+  // its very first load, before the corresponding setState has actually committed.
+  const resolveContextForWith = useCallback((widget: Widget, field?: string, value?: string): ContextFilter | undefined => {
+    if (!field || !value) return undefined;
+    const mod = modules.find((m) => m.id === widget.moduleId);
+    if (!mod?.fields?.some((f: Field) => f.name === field)) return undefined;
+    return { field, value };
+  }, [modules]);
+
+  const loadWidgetData = useCallback(async (widget: Widget, contextOverride?: { field?: string; value?: string }): Promise<Widget> => {
+    const context = contextOverride
+      ? resolveContextForWith(widget, contextOverride.field, contextOverride.value)
+      : resolveContextForWith(widget, viewContextField, viewContextValue);
     if (widget.type === "target") {
       // Inline target (new style): delegate to shared loader which fetches the aggregate
       if (widget.targetValue !== undefined && widget.moduleId) {
-        return sharedLoadWidgetData(widget, targets);
+        return sharedLoadWidgetData(widget, targets, context);
       }
       // Legacy target by ID: call compute endpoint then update targets state
       const t = targets.find((x) => x.id === widget.targetId);
@@ -1304,8 +1546,8 @@ export default function AnalyticsPage() {
       } catch {}
       return { ...widget, loading: false };
     }
-    return sharedLoadWidgetData(widget, targets);
-  }, [targets]);
+    return sharedLoadWidgetData(widget, targets, context);
+  }, [targets, resolveContextForWith, viewContextField, viewContextValue]);
 
   const markDirty = () => {
     if (activeView) setHasChanges(true);
@@ -1398,6 +1640,11 @@ export default function AnalyticsPage() {
 
   // Load a saved view onto the canvas
   const loadView = async (view: AnalyticsView, savePreference = true) => {
+    setTemplateModuleId(null);
+    setSaveMode("standalone");
+    const freshContextField: string | undefined = (view.config as any)?.contextField || undefined;
+    const freshContextValue: string | undefined = (view.config as any)?.contextValue || undefined;
+    setViewContextValue(freshContextValue);
     // Auto-assign x,y,h for widgets saved before react-grid-layout was added
     let cx = 0, cy = 0, rowH = 0;
     const widgetsFromView: Widget[] = (view.config.widgets || []).map((w: any) => {
@@ -1413,20 +1660,56 @@ export default function AnalyticsPage() {
     setWidgets(widgetsFromView);
     setActiveView(view);
     setHasChanges(false);
-    const loaded = await Promise.all(widgetsFromView.map((w) => loadWidgetData(w)));
+    // Pass the view's context explicitly — state set just above hasn't committed yet.
+    const loaded = await Promise.all(widgetsFromView.map((w) => loadWidgetData(w, { field: freshContextField, value: freshContextValue })));
     setWidgets(loaded);
     if (savePreference) {
       try { await api.put("/user-preferences/analytics_active_view", { value: { viewId: view.id } }); } catch {}
     }
   };
 
-  // Save current state to the active view (update)
+  // Clears the canvas back to a blank slate — used by both "New Visualization →
+  // Start from Scratch" (which then opens the builder) and the plain "Clear
+  // canvas" menu item (which doesn't). Returns whether it actually proceeded (false if
+  // the user cancelled the discard-changes confirm) so callers can chain follow-up state.
+  const startBlankCanvas = (openBuilder: boolean): boolean => {
+    if (hasChanges && !confirm("Discard unsaved changes and start a new visualization?")) return false;
+    setActiveView(null);
+    setHasChanges(false);
+    setWidgets([]);
+    setSaveMode("standalone");
+    setTemplateModuleId(null);
+    setViewContextValue(undefined);
+    api.delete("/user-preferences/analytics_active_view").catch(() => {});
+    if (openBuilder) setShowBuilder(true);
+    return true;
+  };
+
+  // A visualization created "from an existing report" must become its OWN new
+  // visualization — never silently appended into whatever view happened to be
+  // open. Clears to a blank canvas first, adds the widget, then prompts to
+  // save it as a named view so it persists as a distinct saved visualization.
+  const createAsNewVisualization = (widget: Omit<Widget, "id">) => {
+    if (hasChanges && !confirm("Discard unsaved changes and start a new visualization?")) return;
+    setActiveView(null);
+    setHasChanges(false);
+    setWidgets([]);
+    setSaveMode("standalone");
+    api.delete("/user-preferences/analytics_active_view").catch(() => {});
+    addWidget(widget);
+    setViewName(widget.title || "");
+    setShowSaveView(true);
+  };
+
+  // Save current state to the active view (update) — spreads the existing config first
+  // so contextField/contextValue (if this view came from a template) survive a widget/
+  // layout edit instead of being silently wiped by only sending { widgets }.
   const saveChanges = async () => {
     if (!activeView) return;
     setSavingChanges(true);
     try {
       const updated = await api.patch(`/analytics/views/${activeView.id}`, {
-        config: { widgets: widgetsToConfig() },
+        config: { ...activeView.config, widgets: widgetsToConfig() },
       });
       setActiveView({ ...activeView, ...updated.data });
       setHasChanges(false);
@@ -1438,30 +1721,176 @@ export default function AnalyticsPage() {
     setSavingChanges(false);
   };
 
-  // Create a new view from current canvas
+  // Changes the live context value on the active view — persists immediately (so it's
+  // remembered next time this view is opened, matching the Dashboard page's Filter
+  // panel) and reloads every widget in place. Never creates a new view; this is what
+  // lets one template-derived view stand in for what used to be N duplicated
+  // visualizations (one per camp/region/etc.), a plain dropdown switching between them.
+  const changeContextValue = async (value: string) => {
+    if (!activeView || !viewContextField) return;
+    setSavingContext(true);
+    const nextConfig = { ...activeView.config, contextField: viewContextField, contextValue: value || null };
+    setViewContextValue(value || undefined);
+    try {
+      const { data } = await api.patch(`/analytics/views/${activeView.id}`, { config: nextConfig });
+      setActiveView({ ...activeView, ...data });
+      const loaded = await Promise.all(widgets.map((w) => loadWidgetData(w, { field: viewContextField, value })));
+      setWidgets(loaded);
+    } catch {
+      showToast("Failed to change filter", "error");
+    }
+    setSavingContext(false);
+  };
+
+  // Changes WHICH field drives the live common filter on the active view — distinct from
+  // changeContextValue above, which only changes the current slice of an already-chosen
+  // field. Persists immediately (same as the value) and resets the value back to "all"
+  // since the previous field's values don't apply to the new field.
+  const changeContextField = async (field: string) => {
+    if (!activeView) return;
+    const nextField = field || undefined;
+    if (nextField === viewContextField) return;
+    setSavingContext(true);
+    const nextConfig = { ...activeView.config, contextField: nextField ?? null, contextValue: null };
+    setViewContextValue(undefined);
+    try {
+      const { data } = await api.patch(`/analytics/views/${activeView.id}`, { config: nextConfig });
+      setActiveView({ ...activeView, ...data });
+      const loaded = await Promise.all(widgets.map((w) => loadWidgetData(w, { field: nextField, value: undefined })));
+      setWidgets(loaded);
+    } catch {
+      showToast("Failed to change common filter field", "error");
+    }
+    setSavingContext(false);
+  };
+
+  // Create a new view from current canvas — or, if saveMode is "template", save the
+  // canvas as a reusable Visualization Template instead (with a forced context field).
   const saveAsNewView = async () => {
     if (!viewName.trim()) return;
+    if (saveMode === "template" && !templateContextField) return;
     setSavingView(true);
     try {
-      const { data } = await api.post("/analytics/views", {
-        name: viewName,
-        config: { widgets: widgetsToConfig() },
-      });
-      await fetchViews();
-      setActiveView(data);
-      setHasChanges(false);
+      if (saveMode === "template") {
+        await api.post("/visualization-templates", {
+          name: viewName,
+          layoutConfiguration: { widgets: widgetsToConfig() },
+          contextField: templateContextField,
+          // Only known/meaningful when built via the guided "New Template" flow, which
+          // locks every widget to one module — an ad-hoc multi-module canvas has no single
+          // anchor module, so this is correctly omitted (backend defaults it to null) then.
+          moduleId: templateModuleId ?? undefined,
+        });
+        showToast(`Template "${viewName}" saved`);
+      } else {
+        const { data } = await api.post("/analytics/views", {
+          name: viewName,
+          config: { widgets: widgetsToConfig() },
+        });
+        await fetchViews();
+        setActiveView(data);
+        setHasChanges(false);
+        showToast(`View "${viewName}" saved`);
+      }
       setShowSaveView(false);
       setViewName("");
-      showToast(`View "${viewName}" saved`);
+      setSaveMode("standalone");
+      setTemplateContextField("");
     } catch {
-      showToast("Failed to save view", "error");
+      showToast(saveMode === "template" ? "Failed to save template" : "Failed to save view", "error");
     }
     setSavingView(false);
   };
 
+  // Fields from the modules the CURRENT widgets actually use, deduped by name — the
+  // dropdown of "common filter field" choices when saving a new visualization as a
+  // template. Scoped to widgets' own modules (not every module in the org) so you can
+  // never pick a field none of your widgets can actually be filtered by.
+  const fieldOptions = useMemo(() => {
+    const usedModuleIds = new Set(widgets.map((w) => w.moduleId).filter(Boolean));
+    const seen = new Map<string, string>();
+    for (const m of modules) {
+      if (usedModuleIds.size > 0 && !usedModuleIds.has(m.id)) continue;
+      for (const f of (m.fields ?? [])) if (!seen.has(f.name)) seen.set(f.name, f.label);
+    }
+    return Array.from(seen.entries()).map(([name, label]) => ({ name, label }));
+  }, [modules, widgets]);
+
+  // Confirms the guided "New Template" setup — module + common filter field chosen
+  // upfront, before any widget exists. Every widget added from here on is locked to
+  // that module and automatically dynamic on that field (see WidgetBuilderDialog's
+  // `lockedModuleId`/`contextField` props and the "Filtered by" badge on WidgetCard).
+  const confirmTemplateSetup = () => {
+    if (!setupModuleId || !setupField) return;
+    if (!startBlankCanvas(false)) return;
+    setTemplateModuleId(setupModuleId);
+    setTemplateContextField(setupField);
+    setSaveMode("template");
+    setShowTemplateSetup(false);
+    setShowBuilder(true);
+  };
+
+  // Populates the "Templates" dropdown's list — fetched on open, not tied to the
+  // instantiate dialog (that only opens once a specific template is picked below).
+  const fetchTemplatesList = async () => {
+    setLoadingTemplates(true);
+    try {
+      const { data } = await api.get("/visualization-templates");
+      setTemplates(data ?? []);
+    } catch {
+      setTemplates([]);
+    }
+    setLoadingTemplates(false);
+  };
+
+  // Picking a template from the dropdown jumps straight to the value-picking step.
+  const pickTemplate = (id: string) => {
+    setSelectedTemplateId(id); setTemplateCtxValue(""); setTemplateCtxSuggestions([]);
+    setShowTemplatesDialog(true);
+  };
+
+  const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
+  const selectedTemplateCtxField = selectedTemplate?.contexts?.[0]?.fieldName;
+
+  useEffect(() => {
+    if (!selectedTemplateCtxField) { setTemplateCtxSuggestions([]); return; }
+    const moduleWithField = modules.find(m => m.fields?.some(f => f.name === selectedTemplateCtxField));
+    if (!moduleWithField) { setTemplateCtxSuggestions([]); return; }
+    let cancelled = false;
+    api.get(`/modules/${moduleWithField.id}/records/field-values/${selectedTemplateCtxField}`)
+      .then(({ data }) => { if (!cancelled) setTemplateCtxSuggestions(data ?? []); })
+      .catch(() => { if (!cancelled) setTemplateCtxSuggestions([]); });
+    return () => { cancelled = true; };
+  }, [selectedTemplateCtxField, modules]);
+
+  const createFromTemplate = async () => {
+    if (!selectedTemplateId) return;
+    if (selectedTemplateCtxField && !templateCtxValue) return;
+    if (hasChanges && !confirm("Discard unsaved changes and create a new visualization from this template?")) return;
+    setInstantiatingTemplate(true);
+    try {
+      const { data } = await api.post(`/visualization-templates/${selectedTemplateId}/instantiate`, {
+        contextValue: templateCtxValue,
+        createDashboard: false,
+      });
+      await fetchViews();
+      await loadView(data.view);
+      setShowTemplatesDialog(false);
+      showToast(`Created "${data.view.name}"`);
+    } catch {
+      showToast("Failed to create visualization from template", "error");
+    }
+    setInstantiatingTemplate(false);
+  };
+
   const deleteView = async (id: string) => {
     if (!confirm("Delete this saved view?")) return;
-    await api.delete(`/analytics/views/${id}`);
+    try {
+      await api.delete(`/analytics/views/${id}`);
+    } catch {
+      showToast("Failed to delete view", "error");
+      return;
+    }
     if (activeView?.id === id) {
       setActiveView(null);
       setHasChanges(false);
@@ -1492,6 +1921,12 @@ export default function AnalyticsPage() {
     return isSuperAdmin || isAdmin || view.createdById === (user as any)?.id;
   };
 
+  // Gates Save Changes / Edit-reorder — actions that mutate the currently active, ALREADY
+  // SAVED view. No active view yet (still building a brand-new one) is always editable;
+  // "Save as New" is deliberately never gated by this since it only ever creates the
+  // viewer's own new copy, never touching a view they don't own/manage.
+  const canEditActiveView = !activeView || canManageView(activeView);
+
   const togglePin = async (view: AnalyticsView) => {
     try {
       await api.patch(`/analytics/views/${view.id}/toggle-pin`);
@@ -1520,8 +1955,11 @@ export default function AnalyticsPage() {
     }
   };
 
-  const pinnedViews = views.filter(v => v.isPinned);
-  const unpinnedViews = views.filter(v => !v.isPinned);
+  const viewsMatchingSearch = viewSearch.trim()
+    ? views.filter(v => v.name.toLowerCase().includes(viewSearch.trim().toLowerCase()))
+    : views;
+  const pinnedViews = viewsMatchingSearch.filter(v => v.isPinned);
+  const unpinnedViews = viewsMatchingSearch.filter(v => !v.isPinned);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1548,44 +1986,85 @@ export default function AnalyticsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Unsaved Changes: Save button */}
-          {activeView && hasChanges && (
-            <Button size="sm" className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={saveChanges} disabled={savingChanges}>
-              {savingChanges ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save Changes
-            </Button>
-          )}
-
-          {/* Saved Filters */}
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowSavedFilters(true)}>
-            <Bookmark className="w-4 h-4" />
-            <span className="hidden sm:inline">Saved Filters</span>
-            {savedFilters.length > 0 && <span className="text-xs text-gray-400 hidden sm:inline">({savedFilters.length})</span>}
-          </Button>
-
-          {/* Views Dropdown — always visible so users can see all saved views */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* New — every way to START a brand-new blank visualization or template.
+              Saving/sharing/deleting the CURRENT canvas lives in Actions instead;
+              browsing existing visualizations/templates lives in their own dropdowns. */}
           <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="gap-2">
+                <Sparkles className="w-4 h-4" /><span className="hidden sm:inline">New</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+              <DropdownMenuItem className="gap-2.5 cursor-pointer py-2.5" onClick={() => startBlankCanvas(true)}>
+                <LayoutGrid className="w-4 h-4 text-blue-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-800">Start from Scratch</p>
+                  <p className="text-xs text-gray-400">Blank canvas — add your own widgets</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2.5 cursor-pointer py-2.5" onClick={() => { setWizardInitialReportId(undefined); setShowReportWizard(true); }}>
+                <FileBarChart2 className="w-4 h-4 text-indigo-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-800">From an Existing Report</p>
+                  <p className="text-xs text-gray-400">Pick a report and get chart suggestions</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2.5 cursor-pointer py-2.5" onClick={() => {
+                if (hasChanges && !confirm("Discard unsaved changes and start a new template?")) return;
+                setSetupModuleId(""); setSetupField(""); setShowTemplateSetup(true);
+              }}>
+                <LayoutTemplate className="w-4 h-4 text-purple-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-800">New Template</p>
+                  <p className="text-xs text-gray-400">Build a reusable template directly — no visualization needed first</p>
+                </div>
+              </DropdownMenuItem>
+              {widgets.length > 0 && (
+                <DropdownMenuItem className="gap-2.5 cursor-pointer py-2.5 text-gray-500" onClick={() => startBlankCanvas(false)}>
+                  <X className="w-4 h-4 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium">Clear Canvas</p>
+                    <p className="text-xs text-gray-400">Empty the canvas without opening the widget picker</p>
+                  </div>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Visualizations — browse/switch/manage every saved visualization (replaces
+              the old "My Visualizations" page; this dropdown IS the visualization list). */}
+          <DropdownMenu onOpenChange={(open) => { if (!open) setViewSearch(""); }}>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
                   <BookOpen className="w-4 h-4" />
-                  Views
+                  <span className="hidden sm:inline">Visualizations</span>
                   {pinnedViews.length > 0 && <Pin className="w-3 h-3 text-blue-500" />}
                   <ChevronDown className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72 max-h-96 overflow-y-auto">
+              <DropdownMenuContent align="start" className="w-72 max-h-96 overflow-y-auto">
                 {views.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-gray-400">
-                    No saved views yet.{" "}
-                    {widgets.length > 0 && (
-                      <button className="text-blue-600 hover:underline" onClick={() => setShowSaveView(true)}>
-                        Save current canvas
-                      </button>
-                    )}
-                  </div>
+                  <div className="px-3 py-4 text-center text-sm text-gray-400">No saved visualizations yet.</div>
                 ) : (
                   <>
+                    {views.length > 5 && (
+                      <div className="px-2 py-1.5">
+                        <input
+                          autoFocus
+                          value={viewSearch}
+                          onChange={e => setViewSearch(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => e.stopPropagation()}
+                          placeholder="Search visualizations…"
+                          className="w-full h-8 px-2.5 text-xs border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
+                        />
+                      </div>
+                    )}
+                    {pinnedViews.length === 0 && unpinnedViews.length === 0 && (
+                      <div className="px-3 py-4 text-center text-sm text-gray-400">No matches</div>
+                    )}
                     {pinnedViews.length > 0 && (
                       <>
                         <div className="px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Pinned</div>
@@ -1615,42 +2094,148 @@ export default function AnalyticsPage() {
                     )}
                   </>
                 )}
-                <DropdownMenuSeparator />
-                {widgets.length > 0 && (
-                  <DropdownMenuItem className="gap-2 text-blue-600 cursor-pointer font-medium" onClick={() => setShowSaveView(true)}>
-                    <Save className="w-3.5 h-3.5" />
-                    {activeView ? "Save as New View" : "Save Current View"}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem className="gap-2 text-gray-500 cursor-pointer" onClick={() => { setActiveView(null); setHasChanges(false); setWidgets([]); api.delete("/user-preferences/analytics_active_view").catch(() => {}); }}>
-                  <X className="w-3.5 h-3.5" /> Clear canvas
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
-          {/* Save View (as new or update) */}
-          {widgets.length > 0 && (
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowSaveView(true)}>
-              <Save className="w-4 h-4" />
-              {activeView ? "Save as New" : "Save View"}
-            </Button>
-          )}
+          {/* Templates — browse saved templates and instantiate one, pre-filtered to a
+              single value (e.g. one camp). Sibling to Visualizations, not nested under New. */}
+          <DropdownMenu onOpenChange={(open) => { if (open) fetchTemplatesList(); }}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <LayoutTemplate className="w-4 h-4" />
+                <span className="hidden sm:inline">Templates</span>
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 max-h-96 overflow-y-auto">
+              {loadingTemplates ? (
+                <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-blue-500" /></div>
+              ) : templates.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-gray-400">
+                  No templates yet. Use Actions → Save as Template.
+                </div>
+              ) : (
+                templates.map((t) => (
+                  <DropdownMenuItem key={t.id} className="gap-2.5 cursor-pointer py-2" onClick={() => pickTemplate(t.id)}>
+                    <LayoutTemplate className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                    <span className="truncate">{t.name}</span>
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-          {/* Reorder mode toggle */}
-          {widgets.length > 0 && !reorderMode && gridWidth >= 640 && (
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => setReorderMode(true)}>
-              <LayoutGrid className="w-4 h-4" /><span className="hidden sm:inline">Reorder</span>
-            </Button>
+          {/* Actions — everything about the CURRENT canvas: save it as a template or a
+              standalone visualization, edit its layout, share it, or delete it. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <MoreHorizontal className="w-4 h-4" /><span className="hidden sm:inline">Actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              {widgets.length > 0 && (
+                <>
+                  <DropdownMenuItem className="gap-2.5 cursor-pointer py-2" onClick={() => { setSaveMode("template"); setShowSaveView(true); }}>
+                    <LayoutTemplate className="w-4 h-4 text-purple-500 shrink-0" /> Save as Template…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="gap-2.5 cursor-pointer py-2" onClick={() => { setSaveMode("standalone"); setShowSaveView(true); }}>
+                    <Save className="w-4 h-4 text-blue-500 shrink-0" /> Save as Standalone View…
+                  </DropdownMenuItem>
+                </>
+              )}
+              {canEditActiveView && !reorderMode && (
+                <DropdownMenuItem className="gap-2.5 cursor-pointer py-2" onClick={() => setReorderMode(true)}>
+                  <LayoutGrid className="w-4 h-4 text-gray-500 shrink-0" /> Edit Layout
+                </DropdownMenuItem>
+              )}
+              {activeView && canManageView(activeView) && (
+                <>
+                  {(widgets.length > 0 || canEditActiveView) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem className="gap-2.5 cursor-pointer py-2" onClick={() => setShowSharePanel(true)}>
+                    <Share2 className="w-4 h-4 text-teal-500 shrink-0" /> Share…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="gap-2.5 cursor-pointer py-2 text-red-600" onClick={() => deleteView(activeView.id)}>
+                    <Trash2 className="w-4 h-4 shrink-0" /> Delete this Visualization
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Filter bar (left) + view actions (right) — kept on their own row, visually
+          separated from the create/navigate controls above, so the toolbar reads as
+          distinct groups instead of one long undifferentiated row of buttons. */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowSavedFilters(true)}>
+            <Bookmark className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Saved Filters</span>
+            {savedFilters.length > 0 && <span className="text-xs text-gray-400">({savedFilters.length})</span>}
+          </Button>
+
+          {/* Common filter — the field AND value driving every widget's live slice on this
+              view (e.g. Camp Name → Singida). Arranged inline, right in the toolbar — no
+              popup covering the widgets below it. Whoever can manage the view can change
+              which FIELD drives it; everyone can still change the value, exactly like
+              flipping a pivot table's filter. */}
+          {activeView && widgets.length > 0 && fieldOptions.length > 0 && (
+            <div className="flex items-center h-8 rounded-lg border border-gray-200 bg-white pl-2 pr-1">
+              <Filter className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              {canEditActiveView ? (
+                <div className="relative flex items-center">
+                  <select
+                    value={viewContextField ?? ""}
+                    onChange={(e) => changeContextField(e.target.value)}
+                    disabled={savingContext}
+                    title="Which field drives this view's common filter"
+                    className="appearance-none bg-transparent text-xs font-medium text-gray-700 pl-1.5 pr-4 py-1 outline-none cursor-pointer max-w-[130px] truncate"
+                  >
+                    <option value="">No common filter</option>
+                    {fieldOptions.map((f) => <option key={f.name} value={f.name}>{f.label}</option>)}
+                  </select>
+                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-0.5 pointer-events-none" />
+                </div>
+              ) : (
+                viewContextField && (
+                  <span className="text-xs font-medium text-gray-700 pl-1.5 pr-1.5 shrink-0">
+                    {fieldOptions.find((f) => f.name === viewContextField)?.label ?? viewContextField}
+                  </span>
+                )
+              )}
+              {viewContextField && (
+                <>
+                  <div className="w-px h-4 bg-gray-200 shrink-0" />
+                  <div className="relative flex items-center">
+                    <select
+                      value={viewContextValue ?? ""}
+                      onChange={(e) => changeContextValue(e.target.value)}
+                      disabled={savingContext}
+                      className="appearance-none bg-transparent text-xs font-medium text-purple-700 pl-1.5 pr-4 py-1 outline-none cursor-pointer max-w-[150px] truncate"
+                    >
+                      <option value="">-- all (no filter) --</option>
+                      {contextValueOptions.map((v) => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                    <ChevronDown className="w-3 h-3 text-purple-400 absolute right-0.5 pointer-events-none" />
+                  </div>
+                </>
+              )}
+              {savingContext && <Loader2 className="w-3 h-3 animate-spin text-gray-400 shrink-0 ml-1 mr-0.5" />}
+            </div>
           )}
-          {reorderMode && (
-            <>
-              <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700" onClick={() => { saveChanges(); setReorderMode(false); }}>
-                <Save className="w-4 h-4" /> Save Layout
-              </Button>
-              <Button variant="outline" size="sm" className="gap-2" onClick={() => setReorderMode(false)}>
-                <X className="w-4 h-4" /> Exit Reorder
-              </Button>
-            </>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Save Changes overwrites the active view in place — only for whoever can
+              manage it; kept as its own prominent button (not in Actions) since its
+              amber highlight is meant to be noticed the moment there are unsaved edits. */}
+          {activeView && hasChanges && canEditActiveView && (
+            <Button size="sm" className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={saveChanges} disabled={savingChanges}>
+              {savingChanges ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Changes
+            </Button>
           )}
 
           <Button
@@ -1664,7 +2249,7 @@ export default function AnalyticsPage() {
                 contextSummary: widgets.length === 0
                   ? "No widgets have been added to this view yet."
                   : `View: ${activeView?.name ?? "Untitled"}\n\nWidgets (${widgets.length}):\n${widgets.map(w =>
-                      `- ${w.title || w.type} (${w.type}): module=${w.module ?? "n/a"}, field=${w.field ?? "n/a"}`
+                      `- ${w.title || w.type} (${w.type}): module=${modules.find(m => m.id === w.moduleId)?.name ?? "n/a"}, field=${w.groupByField ?? w.aggregateField ?? "n/a"}`
                     ).join("\n")}`,
               };
               setAnalyzeContext(ctx);
@@ -1674,11 +2259,32 @@ export default function AnalyticsPage() {
             <BrainCircuit className="w-4 h-4" /> Analyze
           </Button>
 
-          <Button size="sm" className="gap-2" onClick={() => setShowBuilder(true)}>
-            <Plus className="w-4 h-4" /><span className="hidden sm:inline">Add Widget</span>
-          </Button>
+          {/* Edit-session controls — Add Widget/Save Layout/Exit Edit only ever appear
+              while Edit is on (entered via Actions → Edit Layout), for BOTH templates and
+              standalone visualizations — no bypass for mobile or an empty canvas. */}
+          {reorderMode && canEditActiveView && (
+            <>
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => setShowBuilder(true)}>
+                <Plus className="w-4 h-4" /><span className="hidden sm:inline">Add Widget</span>
+              </Button>
+              <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700" onClick={() => { saveChanges(); setReorderMode(false); }}>
+                <Save className="w-4 h-4" /> Save Layout
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setReorderMode(false)}>
+                <X className="w-4 h-4" /> Exit Edit
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {showSharePanel && activeView && (
+        <AnalyticsViewSharePanel
+          view={activeView}
+          onClose={() => setShowSharePanel(false)}
+          onSaved={(updated) => setActiveView((prev) => prev ? { ...prev, ...updated } : prev)}
+        />
+      )}
 
       {/* Pinned views quick-access bar */}
       {pinnedViews.length > 0 && (
@@ -1767,25 +2373,150 @@ export default function AnalyticsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Save View Dialog */}
+      {/* Save View Dialog — new visualizations choose Standalone (a normal saved view) or
+          Template (a reusable recipe with one context field that gets a value picked later) */}
       <Dialog open={showSaveView} onOpenChange={setShowSaveView}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{activeView ? "Save as New View" : "Save Analytics View"}</DialogTitle>
           </DialogHeader>
-          <div className="py-2">
+          <div className="py-2 space-y-3">
             <Input
-              placeholder="View name (e.g. Finance Dashboard)"
+              placeholder={saveMode === "template" ? "Template name (e.g. Camp Operations)" : "View name (e.g. Finance Dashboard)"}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveAsNewView()}
               autoFocus
             />
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setSaveMode("standalone")}
+                className={cn("text-left px-3 py-2 rounded-xl border transition",
+                  saveMode === "standalone" ? "border-blue-400 bg-blue-50" : "border-gray-200 hover:border-gray-300")}>
+                <p className="text-sm font-medium text-gray-800">Standalone</p>
+                <p className="text-[11px] text-gray-400">A regular saved visualization</p>
+              </button>
+              <button type="button" onClick={() => setSaveMode("template")}
+                className={cn("text-left px-3 py-2 rounded-xl border transition",
+                  saveMode === "template" ? "border-blue-400 bg-blue-50" : "border-gray-200 hover:border-gray-300")}>
+                <p className="text-sm font-medium text-gray-800">Template</p>
+                <p className="text-[11px] text-gray-400">Reusable, with a filter field</p>
+              </button>
+            </div>
+            {saveMode === "template" && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Common Filter Field</label>
+                {templateModuleId ? (
+                  <p className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-600 flex items-center justify-between">
+                    {fieldOptions.find(f => f.name === templateContextField)?.label ?? templateContextField}
+                    <span className="text-xs text-gray-400">Chosen when you started this template</span>
+                  </p>
+                ) : (
+                  <select value={templateContextField} onChange={e => setTemplateContextField(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                    <option value="">-- select a field --</option>
+                    {fieldOptions.map(f => <option key={f.name} value={f.name}>{f.label}</option>)}
+                  </select>
+                )}
+                <p className="text-xs text-gray-400 mt-1">
+                  Whoever creates a visualization from this template will pick a value for this field (e.g. a specific Region or Camp Name) — always via a dropdown.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSaveView(false)}>Cancel</Button>
-            <Button onClick={saveAsNewView} disabled={!viewName.trim() || savingView}>
+            <Button variant="outline" onClick={() => { setShowSaveView(false); setSaveMode("standalone"); setTemplateContextField(""); }}>Cancel</Button>
+            <Button onClick={saveAsNewView} disabled={!viewName.trim() || savingView || (saveMode === "template" && !templateContextField)}>
               {savingView ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Template setup — module + common filter field, chosen before any widget exists */}
+      <Dialog open={showTemplateSetup} onOpenChange={setShowTemplateSetup}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutTemplate className="w-4 h-4 text-purple-500" />
+              New Template
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">Module</label>
+              <select value={setupModuleId} onChange={e => { setSetupModuleId(e.target.value); setSetupField(""); }}
+                className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                <option value="">-- select a module --</option>
+                {modules.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Every widget you add will be built from this module.</p>
+            </div>
+            {setupModuleId && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Common Filter Field</label>
+                <select value={setupField} onChange={e => setSetupField(e.target.value)}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                  <option value="">-- select a field --</option>
+                  {(modules.find((m: any) => m.id === setupModuleId)?.fields ?? []).map((f: Field) => (
+                    <option key={f.id} value={f.name}>{f.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Every widget you add gets a dynamic condition on this field — no value by default (no filtering effect), until whoever uses the template picks one from a dropdown.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTemplateSetup(false)}>Cancel</Button>
+            <Button onClick={confirmTemplateSetup} disabled={!setupModuleId || !setupField}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create From Template Dialog */}
+      <Dialog open={showTemplatesDialog} onOpenChange={setShowTemplatesDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutTemplate className="w-4 h-4 text-blue-500" />
+              Create From Template
+            </DialogTitle>
+          </DialogHeader>
+          {loadingTemplates ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+          ) : templates.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              No templates yet. Save a visualization as a Template first (Save View → Template).
+            </p>
+          ) : (
+            <div className="space-y-3 py-1">
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Template</label>
+                <select value={selectedTemplateId} onChange={e => { setSelectedTemplateId(e.target.value); setTemplateCtxValue(""); }}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                  <option value="">-- select a template --</option>
+                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              {selectedTemplate && selectedTemplateCtxField ? (
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">{selectedTemplateCtxField} value</label>
+                  <select value={templateCtxValue} onChange={e => setTemplateCtxValue(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                    <option value="">-- select a value --</option>
+                    {templateCtxSuggestions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              ) : selectedTemplate ? (
+                <p className="text-xs text-gray-400">This template has no context field — it will be created as-is.</p>
+              ) : null}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTemplatesDialog(false)}>Cancel</Button>
+            <Button onClick={createFromTemplate} disabled={instantiatingTemplate || !selectedTemplateId || (!!selectedTemplateCtxField && !templateCtxValue)}>
+              {instantiatingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1807,7 +2538,7 @@ export default function AnalyticsPage() {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="gap-2">
-                      <BookOpen className="w-4 h-4" /> Load a View <ChevronDown className="w-3 h-3" />
+                      <BookOpen className="w-4 h-4" /> Load a Visualization <ChevronDown className="w-3 h-3" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
@@ -1844,6 +2575,7 @@ export default function AnalyticsPage() {
                     onRemove={() => removeWidget(widget.id)}
                     onRefresh={() => refreshWidget(widget.id)}
                     onClone={() => cloneWidget(widget.id)}
+                    templateContextField={templateModuleId ? templateContextField : undefined}
                   />
                 </div>
               );
@@ -1901,6 +2633,7 @@ export default function AnalyticsPage() {
                   onRemove={() => removeWidget(widget.id)}
                   onRefresh={() => refreshWidget(widget.id)}
                   onClone={() => cloneWidget(widget.id)}
+                  templateContextField={templateModuleId ? templateContextField : undefined}
                 />
               </div>
             ))}
@@ -1911,16 +2644,27 @@ export default function AnalyticsPage() {
 
       {/* Widget Builder */}
       <WidgetBuilderDialog
-        key={editingWidget?.id ?? "new"}
+        key={editingWidget?.id ?? (seedWidget ? "from-report" : `new-${templateModuleId ?? "std"}`)}
         open={showBuilder}
-        onClose={() => { setShowBuilder(false); setEditingWidget(null); }}
+        onClose={() => { setShowBuilder(false); setEditingWidget(null); setSeedWidget(null); }}
         onSave={editingWidget ? (draft) => updateWidget(editingWidget.id, draft) : addWidget}
         modules={modules}
         targets={targets}
-        initial={editingWidget || undefined}
+        initial={editingWidget || seedWidget || undefined}
         savedFilters={savedFilters}
         onSaveSavedFilter={handleSaveSavedFilter}
+        lockedModuleId={templateModuleId ?? undefined}
+        contextField={templateModuleId ? templateContextField : undefined}
       />
+
+      {/* Create Visualization from Report — guided wizard (select → recommend → customize → preview) */}
+      {showReportWizard && (
+        <ReportVisualizationWizard
+          initialReportId={wizardInitialReportId}
+          onCancel={() => setShowReportWizard(false)}
+          onCreated={(widget) => { createAsNewVisualization(widget); setShowReportWizard(false); }}
+        />
+      )}
 
       {/* Target Manager */}
       {/* Saved Filters */}
@@ -1941,6 +2685,62 @@ export default function AnalyticsPage() {
         onClose={() => setAnalyzeOpen(false)}
         context={analyzeContext}
       />
+    </div>
+  );
+}
+
+// ── Share Panel ("who can see this visualization") ──────────────────────────
+// Mirrors the Dashboard's AccessPanel (dashboard-builder.tsx) — same access model
+// (isPublic / sharedRoles / sharedDepartments / sharedUsers), same floating-panel UI.
+
+function AnalyticsViewSharePanel({
+  view, onClose, onSaved,
+}: {
+  view: AnalyticsView;
+  onClose: () => void;
+  onSaved: (updated: Partial<AnalyticsView>) => void;
+}) {
+  const [isPublic, setIsPublic] = useState(view.isPublic ?? false);
+  const [sharedRoles, setSharedRoles] = useState<string[]>(view.sharedRoles ?? []);
+  const [sharedDepts, setSharedDepts] = useState<string[]>(view.sharedDepartments ?? []);
+  const [sharedUsers, setSharedUsers] = useState<string[]>(view.sharedUsers ?? []);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/analytics/views/${view.id}`, {
+        isPublic, sharedRoles, sharedDepartments: sharedDepts, sharedUsers,
+      });
+      onSaved(data);
+    } catch {}
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed right-4 top-16 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 w-96 overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Share Visualization</p>
+          <p className="text-xs text-gray-400 mt-0.5">Who can see &quot;{view.name}&quot;</p>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <AccessControlEditor
+          isPublic={isPublic} sharedRoles={sharedRoles} sharedDepartments={sharedDepts} sharedUsers={sharedUsers}
+          onChange={({ isPublic: ip, sharedRoles: sr, sharedDepartments: sd, sharedUsers: su }) => {
+            setIsPublic(ip); setSharedRoles(sr); setSharedDepts(sd); setSharedUsers(su);
+          }}
+        />
+      </div>
+      <div className="border-t border-gray-100 px-4 py-3 flex justify-end gap-2 shrink-0">
+        <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+        <Button size="sm" onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}Save
+        </Button>
+      </div>
     </div>
   );
 }

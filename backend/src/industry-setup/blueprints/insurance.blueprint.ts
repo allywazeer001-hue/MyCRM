@@ -348,6 +348,7 @@ export const insuranceBlueprint: IndustryBlueprint = {
       name: 'Policy Status Changed',
       description: 'Notify when a policy status is updated',
       trigger: 'FIELD_CHANGED',
+      triggerConfig: { fieldName: 'status' },
       moduleSlug: 'policies',
       actions: [
         {

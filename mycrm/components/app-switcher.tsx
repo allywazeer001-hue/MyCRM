@@ -20,7 +20,7 @@ const APPS = [
     id: "forms",
     label: "Cloud Forms",
     description: "Form builder & surveys",
-    href: "/cf",
+    href: "/cloudforms",
     newTab: false,
     gradient: "from-violet-500 to-violet-600",
     icon: <ClipboardList className="w-7 h-7 text-white" />,

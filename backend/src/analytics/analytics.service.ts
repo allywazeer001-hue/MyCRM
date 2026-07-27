@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PermissionCheckService, ShareableResource } from '../permissions/permission-check.service';
 
@@ -36,8 +36,11 @@ export class AnalyticsService {
     const cv = cond.value ? String(cond.value) : '';
 
     switch (cond.operator) {
-      case 'is':              return val === cv;
-      case 'is_not':          return val !== cv;
+      // Case-insensitive to match how the report's own preview evaluates
+      // "equals" filters (checkFilter in report-builder), and to tolerate
+      // ordinary casing differences in free-typed dropdown/status values.
+      case 'is':              return val.toLowerCase() === cv.toLowerCase();
+      case 'is_not':          return val.toLowerCase() !== cv.toLowerCase();
       case 'contains':        return val.toLowerCase().includes(cv.toLowerCase());
       case 'not_contains':    return !val.toLowerCase().includes(cv.toLowerCase());
       case 'starts_with':     return val.toLowerCase().startsWith(cv.toLowerCase());
@@ -99,8 +102,13 @@ export class AnalyticsService {
     });
     if (!mod) throw new NotFoundException('Module not found');
 
+    // Data lives in a JSON column, so filtering/grouping happens in-memory below —
+    // but we only ever need `data` for that, and a hard cap keeps one chart request
+    // from scanning an unbounded number of records on very large modules.
     let records = await this.prisma.record.findMany({
       where: { moduleId, organizationId: orgId, isDeleted: false },
+      select: { id: true, data: true },
+      take: 50_000,
     });
 
     // Apply filters
@@ -213,20 +221,28 @@ export class AnalyticsService {
 
   // ── Saved Views ──────────────────────────────────────────────────────────────
 
-  async getViews(_userId: string, orgId: string) {
-    // All views in the org are visible to any user with analytics access.
-    // Per-view access control only governs who can edit/delete a view (creator or admin).
+  async getViews(userId: string, orgId: string) {
+    // Views are org-scoped but respect per-view sharing rules (isPublic / sharedRoles /
+    // sharedDepartments / sharedUsers) — same "who can see" model as Dashboard.
     const views = await this.prisma.analyticsView.findMany({
       where: { organizationId: orgId },
       orderBy: { updatedAt: 'desc' },
     });
+    const visible: typeof views = [];
+    for (const v of views) {
+      if (await this.perm.canViewResource(userId, orgId, v as unknown as ShareableResource)) {
+        visible.push(v);
+      }
+    }
     // Pinned views first
-    return [...views.filter(v => v.isPinned), ...views.filter(v => !v.isPinned)];
+    return [...visible.filter(v => v.isPinned), ...visible.filter(v => !v.isPinned)];
   }
 
-  async getView(id: string, _userId: string, orgId: string) {
+  async getView(id: string, userId: string, orgId: string) {
     const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
     if (!view) throw new NotFoundException('View not found');
+    const allowed = await this.perm.canViewResource(userId, orgId, view as unknown as ShareableResource);
+    if (!allowed) throw new ForbiddenException('You do not have access to this visualization');
     return view;
   }
 
@@ -237,6 +253,10 @@ export class AnalyticsService {
         config: data.config ?? {},
         organizationId: orgId,
         createdById: userId,
+        isPublic: data.isPublic ?? false,
+        sharedRoles: data.sharedRoles ?? [],
+        sharedDepartments: data.sharedDepartments ?? [],
+        sharedUsers: data.sharedUsers ?? [],
       },
     });
   }
@@ -245,7 +265,7 @@ export class AnalyticsService {
     const view = await this.prisma.analyticsView.findFirst({ where: { id, organizationId: orgId } });
     if (!view) throw new NotFoundException('View not found');
     await this.perm.enforceCanEditResource(userId, orgId, view as unknown as ShareableResource);
-    const allowed = ['name', 'config', 'isPinned'];
+    const allowed = ['name', 'config', 'isPinned', 'isPublic', 'sharedRoles', 'sharedDepartments', 'sharedUsers'];
     const clean: any = {};
     for (const k of allowed) if (data[k] !== undefined) clean[k] = data[k];
     return this.prisma.analyticsView.update({ where: { id }, data: clean });

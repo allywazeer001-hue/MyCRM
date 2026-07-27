@@ -1,7 +1,13 @@
-import type { ModuleLayoutRule } from "./layout-templates";
+import type { ModuleLayoutRule, ModuleRuleAction, ModuleRuleConditionNode } from "./layout-templates";
+
+// Actions saved before multi-target support only have a single `targetId`;
+// newer ones carry `targetIds`. Always resolve through this so both shapes work.
+function actionTargetIds(a: ModuleRuleAction): string[] {
+  return a.targetIds?.length ? a.targetIds : (a.targetId ? [a.targetId] : []);
+}
 
 function matchCond(
-  cond: { whenField: string; operator: string; whenValue: string },
+  cond: { whenField: string; operator: string; whenValue: string; whenValues?: string[] },
   data: Record<string, any>,
 ): boolean {
   const v = data[cond.whenField];
@@ -10,8 +16,23 @@ function matchCond(
     case "not_equals": return String(v ?? "") !== String(cond.whenValue ?? "");
     case "is_empty":   return v === null || v === undefined || v === "";
     case "not_empty":  return v !== null && v !== undefined && v !== "";
+    case "in":         return (cond.whenValues ?? []).map(String).includes(String(v ?? ""));
+    case "not_in":     return !(cond.whenValues ?? []).map(String).includes(String(v ?? ""));
     default:           return false;
   }
+}
+
+// A rule's `conditions[]` items are either plain leaf conditions (old shape, no `type`
+// field — evaluated exactly as before) or nested `{type:"group", operator, children}`
+// groups added alongside them. Recursing here is what makes nested AND/OR possible while
+// leaving every pre-existing rule's flat conditions array evaluating identically.
+function evalConditionNode(node: ModuleRuleConditionNode, data: Record<string, any>): boolean {
+  if ((node as any).type === "group") {
+    const g = node as any;
+    const results: boolean[] = (g.children ?? []).map((c: ModuleRuleConditionNode) => evalConditionNode(c, data));
+    return g.operator === "OR" ? results.some(Boolean) : results.every(Boolean);
+  }
+  return matchCond(node as any, data);
 }
 
 export interface RuleEffects {
@@ -56,10 +77,11 @@ export function evaluateModuleRules(
 
   for (const rule of rules) {
     for (const a of rule.actions ?? []) {
-      if (a.type === "show" && a.target === "field")   allShowF.add(a.targetId);
-      if (a.type === "show" && a.target === "section") allShowS.add(a.targetId);
-      if (a.type === "hide" && a.target === "field")   allHideF.add(a.targetId);
-      if (a.type === "hide" && a.target === "section") allHideS.add(a.targetId);
+      const ids = actionTargetIds(a);
+      if (a.type === "show" && a.target === "field")   ids.forEach(id => allShowF.add(id));
+      if (a.type === "show" && a.target === "section") ids.forEach(id => allShowS.add(id));
+      if (a.type === "hide" && a.target === "field")   ids.forEach(id => allHideF.add(id));
+      if (a.type === "hide" && a.target === "section") ids.forEach(id => allHideS.add(id));
     }
   }
 
@@ -76,7 +98,7 @@ export function evaluateModuleRules(
     const conds = rule.conditions ?? [];
     if (conds.length === 0) continue;
 
-    const results = conds.map(c => matchCond(c, formData));
+    const results = conds.map(c => evalConditionNode(c, formData));
     const fired   = rule.conditionLogic === "OR"
       ? results.some(Boolean)
       : results.every(Boolean);
@@ -84,13 +106,14 @@ export function evaluateModuleRules(
     if (!fired) continue;
 
     for (const a of rule.actions ?? []) {
-      if (a.type === "show"      && a.target === "field")   firedShowF.add(a.targetId);
-      if (a.type === "show"      && a.target === "section") firedShowS.add(a.targetId);
-      if (a.type === "hide"      && a.target === "field")   firedHideF.add(a.targetId);
-      if (a.type === "hide"      && a.target === "section") firedHideS.add(a.targetId);
-      if (a.type === "require")                             firedReq.add(a.targetId);
-      if (a.type === "unrequire")                           firedUnreq.add(a.targetId);
-      if (a.type === "readonly")                            firedRO.add(a.targetId);
+      const ids = actionTargetIds(a);
+      if (a.type === "show"      && a.target === "field")   ids.forEach(id => firedShowF.add(id));
+      if (a.type === "show"      && a.target === "section") ids.forEach(id => firedShowS.add(id));
+      if (a.type === "hide"      && a.target === "field")   ids.forEach(id => firedHideF.add(id));
+      if (a.type === "hide"      && a.target === "section") ids.forEach(id => firedHideS.add(id));
+      if (a.type === "require")                             ids.forEach(id => firedReq.add(id));
+      if (a.type === "unrequire")                           ids.forEach(id => firedUnreq.add(id));
+      if (a.type === "readonly")                            ids.forEach(id => firedRO.add(id));
     }
   }
 

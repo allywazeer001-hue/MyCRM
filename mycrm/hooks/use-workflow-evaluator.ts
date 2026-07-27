@@ -6,6 +6,26 @@ export interface WFCondition { id: string; field: string; operator: string; valu
 export interface WFDef { id: string; name: string; trigger: string; moduleId: string; conditions: WFCondition[]; isActive: boolean; }
 export interface WFExecLog { workflowId: string; workflowName: string; conditionResult: boolean; fieldChanged?: string; oldValue?: any; newValue?: any; actionsExecuted: number; }
 
+// NaN-safe numeric parse — Number("2026-01-15") is NaN, which is exactly how a
+// non-numeric bound (a date) is distinguished from a genuine number below.
+function toNumOrNaN(v: any): number {
+  if (v == null || v === "") return NaN;
+  const n = Number(v);
+  return n;
+}
+
+function toTimestamp(v: any): number {
+  if (v == null || v === "") return NaN;
+  return new Date(v).getTime();
+}
+
+function sameCalendarDay(a: any, b: any): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  if (isNaN(da.getTime()) || isNaN(db.getTime())) return false;
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
 function evalCond(cond: WFCondition, data: Record<string, any>, prev: Record<string, any>): boolean {
   const fv = data[cond.field];
   const cv = cond.value;
@@ -24,8 +44,20 @@ function evalCond(cond: WFCondition, data: Record<string, any>, prev: Record<str
     case "lte": return num(fv) <= num(cv);
     case "between": {
       const parts = String(cv || "").split(",");
-      return num(fv) >= num(parts[0]?.trim()) && num(fv) <= num(parts[1]?.trim());
+      const minRaw = parts[0]?.trim(), maxRaw = parts[1]?.trim();
+      const minNum = toNumOrNaN(minRaw), maxNum = toNumOrNaN(maxRaw);
+      if (!isNaN(minNum) && !isNaN(maxNum)) {
+        return num(fv) >= minNum && num(fv) <= maxNum;
+      }
+      // Bounds aren't plain numbers — treat as a date range instead.
+      const minTs = toTimestamp(minRaw), maxTs = toTimestamp(maxRaw), fvTs = toTimestamp(fv);
+      return !isNaN(minTs) && !isNaN(maxTs) && !isNaN(fvTs) && fvTs >= minTs && fvTs <= maxTs;
     }
+    case "before":       return toTimestamp(fv) < toTimestamp(cv);
+    case "after":        return toTimestamp(fv) > toTimestamp(cv);
+    case "on":           return sameCalendarDay(fv, cv);
+    case "on_or_before": return toTimestamp(fv) <= toTimestamp(cv);
+    case "on_or_after":  return toTimestamp(fv) >= toTimestamp(cv);
     case "changed": return str(fv) !== str(prev[cond.field]);
     default: return false;
   }

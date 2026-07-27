@@ -35,6 +35,8 @@ export interface BlueprintTransition {
   toPhaseId: string;
   description?: string;
   buttonColor?: string;
+  buttonIcon?: string;
+  isCommon?: boolean;
   requiredFields: string[];
   allowedRoles: string[];
   allowedUsers: string[];
@@ -45,6 +47,9 @@ export interface BlueprintTransition {
   notifyRoles: string[];
   notifyUsers: string[];
   confirmMessage?: string;
+  commentMode?: "required" | "optional" | "disabled";
+  commentPlaceholder?: string;
+  attachmentMode?: "required" | "optional" | "disabled";
 }
 
 export interface BlueprintInfo {
@@ -71,6 +76,7 @@ export interface BlueprintRuntimeState {
   currentStage: BlueprintPhase | null;
   availableTransitions: BlueprintTransition[];
   lockedFields: string[];
+  canOverrideLockedFields: boolean;
   phases: BlueprintPhase[];
   phaseGroups: BlueprintPhaseGroup[];
   canInitialize: boolean;
@@ -154,6 +160,7 @@ export const useBlueprintRuntimeStore = create<BlueprintRuntimeStore>((set, get)
             currentStage:         data?.currentStage ?? null,
             availableTransitions: data?.availableTransitions ?? [],
             lockedFields:         data?.lockedFields ?? [],
+            canOverrideLockedFields: data?.canOverrideLockedFields ?? false,
             phases:               data?.phases ?? [],
             phaseGroups,
             canInitialize:        data?.canInitialize ?? false,

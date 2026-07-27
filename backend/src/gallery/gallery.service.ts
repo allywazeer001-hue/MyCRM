@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const UPLOAD_BASE = path.join(process.cwd(), 'uploads', 'gallery');
+const UPLOAD_BASE = process.env.GALLERY_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'gallery');
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
 
 const GALLERY_CATEGORIES = [

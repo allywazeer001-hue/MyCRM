@@ -34,8 +34,8 @@ import {
   X,
 } from "lucide-react";
 
-import { cn, generateId } from "@/lib/utils";
-import type { LayoutConfig, LayoutSection } from "@/lib/layout-templates";
+import { cn, generateId, parseFieldSettings } from "@/lib/utils";
+import type { LayoutConfig, LayoutSection, LayoutTab } from "@/lib/layout-templates";
 import type { Field } from "@/store/modules.store";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ export interface ModuleLayoutCanvasProps {
   // Palette drag support
   draggingFromPalette?: boolean;
   onPaletteHoverSection?: (sectionId: string | null) => void;
+  onPaletteHoverField?: (fieldId: string | null) => void;
   skipAutoAssignRef?: React.MutableRefObject<boolean>;
 }
 
@@ -142,7 +143,7 @@ function DroppableSection({
 
 // ── FieldTypeMock — realistic input preview per field type ────────────────────
 
-function FieldTypeMock({ type, isSelected }: { type: string; isSelected: boolean }) {
+function FieldTypeMock({ type, isSelected, field }: { type: string; isSelected: boolean; field?: Field }) {
   const base = cn(
     "w-full rounded-md border text-xs text-gray-300 transition-colors",
     isSelected ? "border-blue-300 bg-white" : "border-gray-200 bg-gray-50/80"
@@ -346,16 +347,42 @@ function FieldTypeMock({ type, isSelected }: { type: string; isSelected: boolean
         </div>
       );
 
-    case "INLINE_SUBFORM":
+    case "INLINE_SUBFORM": {
+      const subformSettings = field ? parseFieldSettings((field as any).settings) : {};
+      const subformCols: { label: string }[] = Array.isArray(subformSettings.columns) ? subformSettings.columns : [];
+      const previewCols = subformCols.slice(0, 3);
       return (
         <div className={cn("rounded-md border border-gray-200 bg-gray-50/50 overflow-hidden")}>
-          <div className="px-2 py-1 bg-gray-100/80 flex gap-4 border-b border-gray-200">
-            <span className="text-[10px] text-gray-400 font-semibold">COL A</span>
-            <span className="text-[10px] text-gray-400 font-semibold">COL B</span>
+          <div className="px-2 py-1 bg-gray-100/80 flex items-center gap-3 border-b border-gray-200 overflow-hidden">
+            {previewCols.length > 0 ? (
+              <>
+                {previewCols.map((c, i) => (
+                  <span key={i} className="text-[10px] text-gray-400 font-semibold truncate max-w-[72px]">{c.label}</span>
+                ))}
+                {subformCols.length > previewCols.length && (
+                  <span className="text-[10px] text-gray-300 shrink-0">+{subformCols.length - previewCols.length} more</span>
+                )}
+              </>
+            ) : (
+              <span className="text-[10px] text-gray-300 italic">No columns configured</span>
+            )}
           </div>
-          <div className="px-2 py-1.5 text-[10px] text-gray-300 italic">+ Add row</div>
+          {/* Draft-row mock — mirrors the real subform: fill the inputs, tap + to add */}
+          {previewCols.length > 0 ? (
+            <div className="px-2 py-1.5 flex items-center gap-1.5 bg-blue-50/20">
+              {previewCols.map((_, i) => (
+                <div key={i} className="h-4 flex-1 max-w-[52px] rounded border border-gray-200 bg-white" />
+              ))}
+              <div className="ml-auto w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                <Plus className="w-2.5 h-2.5 text-white" />
+              </div>
+            </div>
+          ) : (
+            <div className="px-2 py-1.5 text-[10px] text-gray-300 italic">+ Add row</div>
+          )}
         </div>
       );
+    }
 
     default:
       return (
@@ -378,6 +405,7 @@ function FieldCard({
   previewMode,
   onSelect,
   onRemove,
+  onDelete,
   onSetWidth,
 }: {
   field: Field;
@@ -388,6 +416,7 @@ function FieldCard({
   previewMode: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  onDelete: () => void;
   onSetWidth: (w: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -456,6 +485,7 @@ function FieldCard({
     <div
       ref={setNodeRef}
       style={style}
+      data-field-id={field.id}
       // Spread dnd attributes + listeners on the ENTIRE card — whole surface is draggable
       {...attributes}
       {...listeners}
@@ -487,7 +517,7 @@ function FieldCard({
 
       {/* Field-type-specific placeholder */}
       <dd className="pointer-events-none">
-        <FieldTypeMock type={field.type} isSelected={isSelected} />
+        <FieldTypeMock type={field.type} isSelected={isSelected} field={field} />
       </dd>
 
       {/* Toolbar — stop pointer propagation so clicking these buttons
@@ -528,14 +558,24 @@ function FieldCard({
             </div>
           )}
 
-          {/* Remove from section */}
+          {/* Remove from section — keeps the field, just unassigns it (still shows up under "Unassigned Fields") */}
           <button
             onPointerDown={e => e.stopPropagation()}
             onClick={onRemove}
-            className="ml-0.5 text-gray-300 hover:text-red-500 transition-colors"
-            title="Remove from section"
+            className="ml-0.5 text-gray-300 hover:text-blue-500 transition-colors"
+            title="Move out of this section (keeps the field — it moves to Unassigned Fields)"
           >
             <X className="h-3 w-3" />
+          </button>
+
+          {/* Delete field — permanently removes it (with confirmation) */}
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={onDelete}
+            className="text-gray-300 hover:text-red-500 transition-colors"
+            title="Delete field"
+          >
+            <Trash2 className="h-3 w-3" />
           </button>
         </div>
       )}
@@ -555,11 +595,14 @@ interface SectionCardProps {
   onDeleteSection: () => void;
   onDuplicateSection: () => void;
   onRemoveFromSection: (fieldId: string) => void;
+  onDeleteField: (fieldId: string) => void;
   onSetFieldWidth: (fieldId: string, width: string) => void;
   isOver: boolean;
   isPaletteOver?: boolean;
   /** Passed from SortableSectionCard — spread onto the drag handle button */
   sectionDragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
+  /** Tabs this section can be assigned to — see the "Tabs" strip above the section list */
+  tabs?: LayoutTab[];
 }
 
 function SectionCard({
@@ -572,10 +615,12 @@ function SectionCard({
   onDeleteSection,
   onDuplicateSection,
   onRemoveFromSection,
+  onDeleteField,
   onSetFieldWidth,
   isOver,
   isPaletteOver = false,
   sectionDragHandleProps,
+  tabs = [],
 }: SectionCardProps) {
   const [collapsed, setCollapsed] = useState(section.collapsed ?? false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -654,6 +699,28 @@ function SectionCard({
 
         {/* Horizontal rule */}
         <div className="flex-1 h-px bg-gray-100" />
+
+        {/* Tab assignment — always visible (not hover-gated) once tabs exist, since a
+            section that never gets assigned is exactly how a tab silently ends up empty
+            and never shows up on the record page. "No tab" keeps the section inline
+            (today's behavior); picking a tab pulls it out of the flat list into that tab. */}
+        {!previewMode && tabs.length > 0 && (
+          <select
+            value={section.tabId ?? ""}
+            onChange={e => onUpdateSection({ tabId: e.target.value || undefined })}
+            onPointerDown={e => e.stopPropagation()}
+            className={cn(
+              "text-[10px] font-medium rounded px-1.5 py-0.5 max-w-[110px] focus:outline-none shrink-0",
+              section.tabId
+                ? "text-gray-500 bg-white border border-gray-200 focus:border-blue-300"
+                : "text-amber-700 bg-amber-50 border border-amber-200 focus:border-amber-400"
+            )}
+            title={section.tabId ? "Which tab this section appears in" : "Not assigned to any tab — pick one so it shows up on the record page"}
+          >
+            <option value="">No tab</option>
+            {tabs.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        )}
 
         {/* Builder controls — only in edit mode, fade in on hover */}
         {!previewMode && (
@@ -752,6 +819,7 @@ function SectionCard({
                     previewMode={previewMode}
                     onSelect={() => onFieldSelect(selectedFieldId === field.id ? null : field)}
                     onRemove={() => onRemoveFromSection(field.id)}
+                    onDelete={() => onDeleteField(field.id)}
                     onSetWidth={w => onSetFieldWidth(field.id, w)}
                   />
                 ))}
@@ -948,6 +1016,52 @@ type ActiveDrag =
   | { type: "section"; section: LayoutSection }
   | null;
 
+// ── TabChip — inline-renameable, matches the section title's double-click UX ──
+
+function TabChip({ tab, onRename, onDelete }: { tab: LayoutTab; onRename: (label: string) => void; onDelete: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(tab.label);
+
+  function commit() {
+    setEditing(false);
+    if (value.trim() && value.trim() !== tab.label) onRename(value.trim());
+    else setValue(tab.label);
+  }
+
+  return (
+    <div className="group flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full border border-gray-200 bg-white text-xs">
+      {editing ? (
+        <input
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") { setValue(tab.label); setEditing(false); }
+          }}
+          className="w-20 bg-transparent border-b border-blue-400 focus:outline-none text-gray-700"
+        />
+      ) : (
+        <span
+          className="font-medium text-gray-600 cursor-text"
+          onDoubleClick={() => setEditing(true)}
+          title="Double-click to rename"
+        >
+          {tab.label}
+        </span>
+      )}
+      <button
+        onClick={onDelete}
+        className="text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+        title="Delete tab (sections move back to the flat list)"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 // ── ModuleLayoutCanvas ────────────────────────────────────────────────────────
 
 // Smart width helper — same logic as in page.tsx so canvas can use it independently
@@ -973,12 +1087,14 @@ export function ModuleLayoutCanvas({
   previewMode = false,
   draggingFromPalette = false,
   onPaletteHoverSection,
+  onPaletteHoverField,
   skipAutoAssignRef,
 }: ModuleLayoutCanvasProps) {
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
   const [overDropId, setOverDropId] = useState<string | null>(null);
   const [paletteHoverSectionId, setPaletteHoverSectionId] = useState<string | null>(null);
   const paletteHoverRef = useRef<string | null>(null);
+  const paletteHoverFieldRef = useRef<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -988,9 +1104,11 @@ export function ModuleLayoutCanvas({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // Palette hover section detection via pointermove + elementsFromPoint.
+  // Palette hover section+field detection via pointermove + elementsFromPoint.
   // onMouseEnter/Leave doesn't work during dnd-kit drag (pointer is captured by
   // the dragged palette item), but elementsFromPoint is unaffected by capture.
+  // The field-level hit lets the drop land exactly where the cursor is, instead
+  // of always appending to the end of the section.
   useEffect(() => {
     if (!draggingFromPalette) {
       if (paletteHoverRef.current !== null) {
@@ -998,16 +1116,26 @@ export function ModuleLayoutCanvas({
         setPaletteHoverSectionId(null);
         onPaletteHoverSection?.(null);
       }
+      if (paletteHoverFieldRef.current !== null) {
+        paletteHoverFieldRef.current = null;
+        onPaletteHoverField?.(null);
+      }
       return;
     }
     const onMove = (e: PointerEvent) => {
       const els = document.elementsFromPoint(e.clientX, e.clientY);
-      const hit = els.find(el => !!(el as HTMLElement).dataset?.sectionId) as HTMLElement | undefined;
-      const newId = hit?.dataset.sectionId ?? null;
-      if (newId !== paletteHoverRef.current) {
-        paletteHoverRef.current = newId;
-        setPaletteHoverSectionId(newId);
-        onPaletteHoverSection?.(newId);
+      const sectionHit = els.find(el => !!(el as HTMLElement).dataset?.sectionId) as HTMLElement | undefined;
+      const fieldHit = els.find(el => !!(el as HTMLElement).dataset?.fieldId) as HTMLElement | undefined;
+      const newSectionId = sectionHit?.dataset.sectionId ?? null;
+      const newFieldId = fieldHit?.dataset.fieldId ?? null;
+      if (newSectionId !== paletteHoverRef.current) {
+        paletteHoverRef.current = newSectionId;
+        setPaletteHoverSectionId(newSectionId);
+        onPaletteHoverSection?.(newSectionId);
+      }
+      if (newFieldId !== paletteHoverFieldRef.current) {
+        paletteHoverFieldRef.current = newFieldId;
+        onPaletteHoverField?.(newFieldId);
       }
     };
     document.addEventListener("pointermove", onMove);
@@ -1016,6 +1144,7 @@ export function ModuleLayoutCanvas({
   }, [draggingFromPalette]);
 
   const sections = layoutConfig.sections ?? [];
+  const tabs = layoutConfig.tabs ?? [];
   const assignedIds = new Set(sections.flatMap(s => s.fieldIds));
   const unassignedFields = fields.filter(f => !assignedIds.has(f.id));
 
@@ -1023,6 +1152,32 @@ export function ModuleLayoutCanvas({
     (newSections: LayoutSection[]) => onLayoutChange({ ...layoutConfig, sections: newSections }),
     [layoutConfig, onLayoutChange]
   );
+
+  // ── Tab operations ───────────────────────────────────────────────────────────
+  // A tab is just a named group other sections opt into via LayoutSection.tabId —
+  // deleting a tab un-assigns its sections back to the flat list rather than
+  // deleting them, since the fields themselves shouldn't disappear.
+
+  function addTab() {
+    const t: LayoutTab = { id: `t-${generateId().slice(0, 8)}`, label: "New Tab", order: tabs.length };
+    onLayoutChange({ ...layoutConfig, tabs: [...tabs, t] });
+  }
+
+  function renameTab(tabId: string, label: string) {
+    onLayoutChange({ ...layoutConfig, tabs: tabs.map(t => t.id === tabId ? { ...t, label } : t) });
+  }
+
+  function deleteTab(tabId: string) {
+    onLayoutChange({
+      ...layoutConfig,
+      tabs: tabs.filter(t => t.id !== tabId),
+      sections: sections.map(s => s.tabId === tabId ? { ...s, tabId: undefined } : s),
+    });
+  }
+
+  function setDetailColumns(n: 2 | 3) {
+    onLayoutChange({ ...layoutConfig, detailColumns: n } as any);
+  }
 
   // Auto-assign any unassigned fields to the first section (or create one).
   // This runs whenever a new field is added via the palette click/drag.
@@ -1255,9 +1410,16 @@ export function ModuleLayoutCanvas({
     const newSrcIds = srcSec.fieldIds.filter(id => id !== fieldId);
     const newDstIds = [...dstSec.fieldIds];
     newDstIds.splice(insertIdx, 0, fieldId);
+    // Carry the field's width setting over to the destination section — otherwise it's left
+    // behind in the source section's map and silently reads back as "full" in the new one.
+    const movedWidth = srcSec.fieldWidths?.[fieldId];
+    const newSrcWidths = { ...(srcSec.fieldWidths ?? {}) };
+    delete newSrcWidths[fieldId];
+    const newDstWidths = { ...(dstSec.fieldWidths ?? {}) };
+    if (movedWidth) newDstWidths[fieldId] = movedWidth;
     emit(sections.map(s => {
-      if (s.id === fromSid) return { ...s, fieldIds: newSrcIds };
-      if (s.id === toSid)   return { ...s, fieldIds: newDstIds };
+      if (s.id === fromSid) return { ...s, fieldIds: newSrcIds, fieldWidths: newSrcWidths };
+      if (s.id === toSid)   return { ...s, fieldIds: newDstIds, fieldWidths: newDstWidths };
       return s;
     }));
   }
@@ -1283,6 +1445,45 @@ export function ModuleLayoutCanvas({
       onDragCancel={onDragCancel}
     >
       <div className="space-y-6">
+        {/* Detail page columns + Tabs — module-level layout settings, not per-section */}
+        {!previewMode && (
+          <div className="flex flex-wrap items-center gap-4 pb-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">Detail page columns</span>
+              <div className="flex items-center gap-0.5 bg-white border border-gray-200 rounded overflow-hidden">
+                {([2, 3] as const).map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setDetailColumns(n)}
+                    className={cn(
+                      "w-6 h-6 text-[11px] font-bold transition-colors",
+                      ((layoutConfig as any).detailColumns ?? 3) === n
+                        ? "bg-blue-500 text-white"
+                        : "text-gray-400 hover:bg-gray-50"
+                    )}
+                    title={`${n} columns on the record detail page`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-medium text-gray-500 mr-0.5">Tabs</span>
+              {tabs.map(t => (
+                <TabChip key={t.id} tab={t} onRename={label => renameTab(t.id, label)} onDelete={() => deleteTab(t.id)} />
+              ))}
+              <button
+                onClick={addTab}
+                className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-gray-300 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+              >
+                <Plus className="h-3 w-3" /> Add Tab
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Sections — wrapped in a SortableContext so they can be reordered */}
         <SortableContext items={sectionSortableIds} strategy={verticalListSortingStrategy}>
           {sections.map(section => (
@@ -1300,9 +1501,11 @@ export function ModuleLayoutCanvas({
                 onDeleteSection={() => deleteSection(section.id)}
                 onDuplicateSection={() => duplicateSection(section.id)}
                 onRemoveFromSection={fid => removeFromSection(fid, section.id)}
+                onDeleteField={onDeleteField}
                 onSetFieldWidth={(fid, w) => setFieldWidth(section.id, fid, w)}
                 isOver={overSectionId === section.id}
                 isPaletteOver={draggingFromPalette && paletteHoverSectionId === section.id}
+                tabs={tabs}
               />
             </div>
           ))}

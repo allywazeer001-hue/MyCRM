@@ -1,16 +1,18 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   X, Sparkles, ArrowRight, Layers, Activity,
   Users, Database, FileText, BarChart3, Workflow,
-  ChevronRight, Loader2, Zap, Building2,
+  ChevronRight, Loader2, Zap, Building2, ChevronDown,
+  Check, Package, Hash,
 } from "lucide-react";
 import { DashboardBuilder } from "@/components/ui/dashboard-builder";
 import { useAuthStore } from "@/store/auth.store";
 import { useModulesStore } from "@/store/modules.store";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Welcome banner ────────────────────────────────────────────────────────────
 
@@ -71,10 +73,64 @@ function WelcomeBanner() {
   );
 }
 
+// ── View selector dropdown ─────────────────────────────────────────────────────
+
+type DashView = "analytics" | "org_summary";
+
+const VIEW_OPTIONS: { value: DashView; label: string; icon: React.ElementType }[] = [
+  { value: "analytics",   label: "Analytics Dashboard",   icon: BarChart3  },
+  { value: "org_summary", label: "Organisation Summary",  icon: Building2  },
+];
+
+function ViewSelector({ view, onChange }: { view: DashView; onChange: (v: DashView) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = VIEW_OPTIONS.find(o => o.value === view)!;
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    if (open) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 text-sm font-semibold text-gray-700 transition-colors shadow-sm"
+      >
+        <current.icon className="w-3.5 h-3.5 text-gray-500" />
+        {current.label}
+        <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden min-w-[200px]">
+          {VIEW_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left",
+                view === opt.value
+                  ? "bg-blue-50 text-blue-700 font-semibold"
+                  : "text-gray-700 hover:bg-gray-50",
+              )}
+            >
+              <opt.icon className="w-4 h-4 shrink-0" />
+              {opt.label}
+              {view === opt.value && <Check className="w-3.5 h-3.5 ml-auto" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, sub, color, href }: {
-  icon: React.ElementType; label: string; value: string | number; sub?: string;
+function StatCard({ icon: Icon, label, value, color, href }: {
+  icon: React.ElementType; label: string; value: string | number;
   color: string; href?: string;
 }) {
   const inner = (
@@ -86,89 +142,14 @@ function StatCard({ icon: Icon, label, value, sub, color, href }: {
         <Icon className="w-5 h-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xl font-bold text-gray-900 leading-tight">{typeof value === "number" ? value.toLocaleString() : value}</p>
+        <p className="text-xl font-bold text-gray-900 leading-tight">
+          {typeof value === "number" ? value.toLocaleString() : value}
+        </p>
         <p className="text-xs text-gray-500 truncate">{label}</p>
-        {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
   return href ? <Link href={href}>{inner}</Link> : inner;
-}
-
-
-
-// ── Recent activity ───────────────────────────────────────────────────────────
-
-function RecentActivity() {
-  const [logs, setLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get("/audit?limit=8")
-      .then(r => setLogs(r.data ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const ACTION_COLORS: Record<string, string> = {
-    CREATE: "bg-green-100 text-green-600",
-    UPDATE: "bg-blue-100 text-blue-600",
-    DELETE: "bg-red-100 text-red-600",
-    LOGIN:  "bg-violet-100 text-violet-600",
-  };
-
-  const formatAction = (action: string) =>
-    action.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-
-  const timeAgo = (ts: string) => {
-    const diff = Date.now() - new Date(ts).getTime();
-    if (diff < 60000) return "just now";
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return `${Math.floor(diff / 86400000)}d ago`;
-  };
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-        <Activity className="w-4 h-4 text-gray-400" />
-        <p className="text-sm font-semibold text-gray-800">Recent Activity</p>
-      </div>
-      <div className="divide-y divide-gray-50">
-        {loading ? (
-          <div className="flex items-center justify-center py-8"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>
-        ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-gray-400 gap-2">
-            <Activity className="w-6 h-6 opacity-40" />
-            <p className="text-xs">No activity yet</p>
-          </div>
-        ) : logs.map((log: any) => {
-          const actionKey = log.action?.split("_")[0] ?? "UPDATE";
-          const badge = ACTION_COLORS[actionKey] ?? "bg-gray-100 text-gray-500";
-          return (
-            <div key={log.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50/50 transition-colors">
-              <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-[10px] font-semibold text-gray-500">
-                  {log.user?.firstName?.[0]}{log.user?.lastName?.[0]}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-700 truncate">
-                  <span className="font-medium text-gray-900">{log.user?.firstName} {log.user?.lastName}</span>
-                  {" "}
-                  <span className={cn("inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full", badge)}>
-                    {formatAction(log.action)}
-                  </span>
-                </p>
-                {log.entity && <p className="text-[11px] text-gray-400 truncate mt-0.5">{log.entity}</p>}
-              </div>
-              <p className="text-[10px] text-gray-400 shrink-0 mt-0.5">{timeAgo(log.createdAt)}</p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 // ── Quick actions ─────────────────────────────────────────────────────────────
@@ -183,7 +164,7 @@ function QuickActions() {
     <div className="grid grid-cols-3 gap-3">
       {actions.map(a => (
         <Link key={a.href} href={a.href}>
-          <div className={cn("border rounded-xl p-3.5 hover:shadow-sm transition-all cursor-pointer group", a.color)}>
+          <div className={cn("border rounded-xl p-3.5 hover:shadow-sm transition-all cursor-pointer", a.color)}>
             <a.icon className="w-5 h-5 mb-2" />
             <p className="text-sm font-semibold text-gray-900">{a.label}</p>
             <p className="text-xs text-gray-500 mt-0.5">{a.desc}</p>
@@ -231,79 +212,191 @@ function GettingStarted() {
   );
 }
 
-// ── Main overview section ─────────────────────────────────────────────────────
+// ── Organisation Summary view (admin only) ────────────────────────────────────
 
-function DashboardOverview() {
-  const { user }    = useAuthStore();
+function OrgSummaryView() {
   const { modules } = useModulesStore();
-  const [stats, setStats] = useState<any>(null);
+  const { user }    = useAuthStore();
+  const [stats, setStats]   = useState<any>(null);
+  const [depts, setDepts]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get("/organizations/me/stats").then(r => setStats(r.data)).catch(() => {});
+    Promise.all([
+      api.get("/organizations/me/stats").then(r => setStats(r.data)).catch(() => {}),
+      api.get("/departments").then(r => setDepts(Array.isArray(r.data) ? r.data : [])).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, []);
 
   const activeModules = modules.filter(m => m.isActive !== false);
-  const hasModules    = activeModules.length > 0;
-
-  const orgName = (user as any)?.organization?.name ?? "Your Organization";
+  const orgName = (user as any)?.organization?.name ?? "Organisation";
 
   return (
-    <div className="space-y-5">
-      {/* Org header row */}
-      <div>
-        <h1 className="text-lg font-bold text-gray-900">{orgName}</h1>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        </p>
+    <div className="space-y-6">
+      {/* Org name */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
+          {orgName[0]?.toUpperCase()}
+        </div>
+        <div>
+          <h2 className="text-base font-bold text-gray-900">{orgName}</h2>
+          <p className="text-xs text-gray-400">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </p>
+        </div>
       </div>
 
-      {/* Stats row */}
-      {stats && (
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard icon={Database} label="Records"   value={stats.records   ?? "—"} color="bg-emerald-50 text-emerald-600" />
-          <StatCard icon={Users}    label="Users"     value={stats.users     ?? "—"} color="bg-violet-50 text-violet-600"  href="/users" />
-          <StatCard icon={Workflow} label="Workflows" value={stats.workflows ?? "—"} color="bg-orange-50 text-orange-600"  href="/settings/automation" />
+      {/* Stat cards */}
+      {loading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <StatCard icon={Database}  label="Total Records"  value={stats?.records   ?? 0} color="bg-emerald-50 text-emerald-600" />
+          <StatCard icon={Users}     label="Staff Members"  value={stats?.users     ?? 0} color="bg-violet-50 text-violet-600"   href="/users" />
+          <StatCard icon={Building2} label="Departments"    value={depts.length}          color="bg-blue-50 text-blue-600"       href="/admin/departments" />
+          <StatCard icon={Layers}    label="Modules"        value={activeModules.length}  color="bg-indigo-50 text-indigo-600"   href="/studio" />
+          <StatCard icon={Workflow}  label="Workflows"      value={stats?.workflows ?? 0} color="bg-orange-50 text-orange-600"   href="/settings/automation" />
         </div>
       )}
 
-      {!hasModules ? (
-        /* No modules — show onboarding checklist */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2">
-            <GettingStarted />
+      {/* Departments + Modules grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+        {/* Departments */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-800">Departments</p>
+              <span className="text-xs text-gray-400">({depts.length})</span>
+            </div>
+            <Link href="/admin/departments" className="text-xs text-blue-600 hover:underline font-medium">
+              Manage →
+            </Link>
           </div>
-          <QuickActions />
+          {loading ? (
+            <div className="p-4 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-8 bg-gray-100 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : depts.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-gray-400">
+              <p className="text-sm">No departments yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+              {depts.map((d: any) => (
+                <div key={d.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color || "#6366f1" }} />
+                  <span className="flex-1 text-sm text-gray-700 font-medium truncate">{d.name}</span>
+                  {d._count?.users !== undefined && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      {d._count.users}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        /* Has modules — quick actions + activity */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2">
-            <QuickActions />
+
+        {/* Modules */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-800">Active Modules</p>
+              <span className="text-xs text-gray-400">({activeModules.length})</span>
+            </div>
+            <Link href="/studio" className="text-xs text-blue-600 hover:underline font-medium">
+              Studio →
+            </Link>
           </div>
-          <RecentActivity />
+          {activeModules.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-2">
+              <Layers className="w-6 h-6 text-gray-300" />
+              <p className="text-sm text-gray-400">No modules yet</p>
+              <Link href="/studio/new" className="text-xs text-blue-600 hover:underline">Create one →</Link>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+              {activeModules.map((mod: any) => (
+                <Link key={mod.id} href={`/m/${mod.slug}`}>
+                  <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors cursor-pointer">
+                    <ModuleIcon icon={mod.icon} slug={mod.slug} className="w-4 h-4 shrink-0" />
+                    <span className="flex-1 text-sm text-gray-700 font-medium truncate">{mod.name}</span>
+                    <Hash className="w-3.5 h-3.5 text-gray-300 shrink-0" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Quick actions */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Quick Actions</p>
+        <QuickActions />
+      </div>
     </div>
   );
+}
+
+// ── Analytics view ─────────────────────────────────────────────────────────────
+
+function AnalyticsView() {
+  const { modules } = useModulesStore();
+  const hasModules = modules.filter(m => m.isActive !== false).length > 0;
+
+  if (!hasModules) {
+    return (
+      <div className="space-y-5">
+        <GettingStarted />
+        <QuickActions />
+      </div>
+    );
+  }
+
+  return <DashboardBuilder />;
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  return (
-    <div className="space-y-6">
-      <WelcomeBanner />
-      <DashboardOverview />
+  const { user } = useAuthStore();
+  const isAdmin  = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const [view, setView] = useState<DashView>("analytics");
 
-      {/* Analytics widgets section */}
-      <div>
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-4 h-4 text-gray-400" />
-          <p className="text-sm font-semibold text-gray-700">Analytics Dashboard</p>
-          <div className="h-px flex-1 bg-gray-200" />
+  return (
+    <div className="space-y-5">
+      <WelcomeBanner />
+
+      {/* Page header */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </p>
         </div>
-        <DashboardBuilder />
+        {isAdmin && (
+          <ViewSelector view={view} onChange={setView} />
+        )}
       </div>
+
+      {/* Content */}
+      {!isAdmin || view === "analytics" ? (
+        <AnalyticsView />
+      ) : (
+        <OrgSummaryView />
+      )}
     </div>
   );
 }

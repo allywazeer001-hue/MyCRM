@@ -1,173 +1,126 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Mail, Plus, Send, FileText, Clock, CheckCircle2, XCircle,
-  Trash2, Edit2, Save, X, ChevronRight, Search, Eye, EyeOff, Link2,
+  Mail, Plus, FileText, Clock,
+  Trash2, Edit2, Save, ChevronRight,
+  Palette, ArrowLeft, Search, CalendarClock, Ban, Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EmailCanvas, renderEmailToHtml, DEFAULT_DESIGN } from "@/components/email/email-canvas";
+import type { EmailDesign } from "@/components/email/email-canvas";
+import { BulkSendEmailModal } from "@/components/email/bulk-send-email-modal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface EmailTemplate { id: string; name: string; subject: string; body: string; updatedAt: string; }
-interface EmailLog { id: string; toEmail: string; toName?: string; subject: string; status: string; sentAt: string; sentBy?: { firstName: string; lastName: string }; body?: string; }
-interface Recipient { email: string; name?: string; mergeData?: Record<string, string>; }
-interface CrmModule  { id: string; name: string; slug: string; }
-interface CrmContact { id: string; label: string; email?: string; }
-
-type Tab = "compose" | "sent" | "templates";
-
-// ── Merge tags ────────────────────────────────────────────────────────────────
-const MERGE_TAGS = [
-  { tag: "{{name}}",        label: "Full name"     },
-  { tag: "{{firstName}}",   label: "First name"    },
-  { tag: "{{lastName}}",    label: "Last name"     },
-  { tag: "{{email}}",       label: "Email"         },
-  { tag: "{{customLink}}",  label: "Custom link"   },
-  { tag: "{{orgName}}",     label: "Organisation"  },
-];
-
-function insertAtCursor(el: HTMLTextAreaElement | null, text: string, setter: (v: string) => void, current: string) {
-  if (!el) { setter(current + text); return; }
-  const start = el.selectionStart ?? current.length;
-  const end   = el.selectionEnd   ?? current.length;
-  setter(current.slice(0, start) + text + current.slice(end));
-  setTimeout(() => { el.selectionStart = el.selectionEnd = start + text.length; el.focus(); }, 0);
+interface EmailTemplate {
+  id: string; name: string; subject: string; body: string;
+  design?: EmailDesign; updatedAt: string;
 }
-
-// ── CRM contact picker ────────────────────────────────────────────────────────
-function ContactPicker({ onAdd }: { onAdd: (r: Recipient) => void }) {
-  const [modules,  setModules]  = useState<CrmModule[]>([]);
-  const [moduleId, setModuleId] = useState("");
-  const [search,   setSearch]   = useState("");
-  const [results,  setResults]  = useState<CrmContact[]>([]);
-  const [loading,  setLoading]  = useState(false);
-
-  useEffect(() => {
-    api.get("/modules").then(r => setModules(r.data ?? [])).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!moduleId) { setResults([]); return; }
-    setLoading(true);
-    api.get(`/records/lookup?moduleId=${moduleId}&displayField=name&search=${encodeURIComponent(search)}`)
-      .then(r => setResults(r.data ?? []))
-      .catch(() => setResults([]))
-      .finally(() => setLoading(false));
-  }, [moduleId, search]);
-
-  return (
-    <div className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
-      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Pick from CRM</p>
-      <div className="flex gap-2">
-        <select value={moduleId} onChange={e => { setModuleId(e.target.value); setSearch(""); }}
-          className="h-8 text-xs border border-slate-200 rounded-md px-2 bg-white flex-1">
-          <option value="">— select module —</option>
-          {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search…" className="h-8 text-xs pl-7" disabled={!moduleId} />
-        </div>
-      </div>
-      {loading && <p className="text-xs text-slate-400">Searching…</p>}
-      {results.length > 0 && (
-        <div className="max-h-36 overflow-y-auto space-y-1">
-          {results.map(c => (
-            <div key={c.id} className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-100 rounded text-xs">
-              <div>
-                <span className="font-medium text-slate-800">{c.label}</span>
-                {c.email && <span className="text-slate-400 ml-2">{c.email}</span>}
-              </div>
-              <button onClick={() => c.email && onAdd({ email: c.email, name: c.label })}
-                disabled={!c.email}
-                className="text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                Add
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+interface CampaignReport {
+  batchId: string; subject: string; sentAt: string; total: number;
+  delivered: number; failed: number; bounced: number;
+  opened: number; notOpened: number; clicked: number; notClicked: number;
 }
+interface ScheduledEmailItem {
+  id: string; subject: string; sendAt: string; status: string;
+  recipients: { email: string; name?: string }[];
+}
+type Tab = "templates" | "sent" | "scheduled";
 
-// ── Recipient row ─────────────────────────────────────────────────────────────
-function RecipientRow({ r, idx, onChange, onRemove }: {
-  r: Recipient; idx: number;
-  onChange: (idx: number, r: Recipient) => void;
-  onRemove: (idx: number) => void;
+// ── Template Canvas Editor (full screen) ──────────────────────────────────────
+function TemplateCanvasEditor({ tpl, onSave, onCancel }: {
+  tpl?: EmailTemplate;
+  onSave: (d: { name: string; subject: string; body: string; design: EmailDesign }) => Promise<void>;
+  onCancel: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const md = r.mergeData ?? {};
-  return (
-    <div className="border border-slate-200 rounded-lg p-2 space-y-2 bg-white">
-      <div className="flex gap-2 items-center">
-        <Input value={r.email} onChange={e => onChange(idx, { ...r, email: e.target.value })}
-          placeholder="recipient@email.com" className="h-8 text-sm flex-1" />
-        <Input value={r.name ?? ""} onChange={e => onChange(idx, { ...r, name: e.target.value })}
-          placeholder="Name (optional)" className="h-8 text-sm w-40" />
-        <button onClick={() => setOpen(p => !p)} title="Set merge data per recipient"
-          className="p-1.5 rounded hover:bg-slate-100 text-slate-400">
-          {open ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-        </button>
-        <button onClick={() => onRemove(idx)} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-500">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      {open && (
-        <div className="grid grid-cols-2 gap-1.5 pl-1">
-          {["firstName","lastName","customLink","orgName"].map(k => (
-            <div key={k} className="flex gap-1 items-center">
-              <span className="text-[10px] text-slate-400 w-24 shrink-0 font-mono">{`{{${k}}}`}</span>
-              <Input value={md[k] ?? ""} onChange={e => onChange(idx, { ...r, mergeData: { ...md, [k]: e.target.value } })}
-                placeholder={k} className="h-6 text-xs" />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+  const [name,          setName]          = useState(tpl?.name    ?? "");
+  const [subject,       setSubject]       = useState(tpl?.subject ?? "");
+  const [design,        setDesign]        = useState<EmailDesign>(tpl?.design ?? DEFAULT_DESIGN);
+  const [saving,        setSaving]        = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [error,         setError]         = useState("");
 
-// ── Template editor ───────────────────────────────────────────────────────────
-function TemplateEditor({ tpl, onSave, onCancel }: {
-  tpl?: EmailTemplate; onSave: (d: { name: string; subject: string; body: string }) => void; onCancel: () => void;
-}) {
-  const [name, setName]       = useState(tpl?.name    ?? "");
-  const [subject, setSubject] = useState(tpl?.subject ?? "");
-  const [body, setBody]       = useState(tpl?.body    ?? "");
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const handleSave = async () => {
+    if (!name.trim())    { setError("Template name is required."); return; }
+    if (!subject.trim()) { setError("Subject line is required."); return; }
+    setSaving(true); setError("");
+    try {
+      const body = renderEmailToHtml(design);
+      await onSave({ name: name.trim(), subject: subject.trim(), body, design });
+    } catch (e: any) {
+      const msg = e?.response?.data?.message ?? e?.message ?? "Failed to save. Check your connection.";
+      setError(Array.isArray(msg) ? msg.join(", ") : String(msg));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isBusy = saving || imageUploading;
+  const saveLabel = imageUploading ? "Uploading image…" : saving ? "Saving…" : null;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-800 flex-1">{tpl ? "Edit Template" : "New Template"}</h3>
-        <Button size="sm" variant="ghost" onClick={onCancel}><X className="w-4 h-4" /></Button>
-      </div>
-      <Input value={name}    onChange={e => setName(e.target.value)}    placeholder="Template name"  className="h-8 text-sm" />
-      <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject line"   className="h-8 text-sm" />
-      <div className="flex flex-wrap gap-1">
-        {MERGE_TAGS.map(m => (
-          <button key={m.tag} onClick={() => insertAtCursor(bodyRef.current, m.tag, setBody, body)}
-            className="text-[10px] px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full font-mono">
-            {m.tag}
+    <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col">
+      {/* Top bar — two rows */}
+      <div className="bg-white border-b border-slate-200 shrink-0">
+        {/* Row 1: nav + actions */}
+        <div className="h-12 flex items-center gap-3 px-4">
+          <button onClick={onCancel} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 transition-colors shrink-0">
+            <ArrowLeft className="w-4 h-4" /> Back
           </button>
-        ))}
+          <div className="w-px h-5 bg-slate-200" />
+          <Palette className="w-4 h-4 text-indigo-600 shrink-0" />
+          <span className="text-sm font-semibold text-slate-800 shrink-0">
+            {tpl ? "Edit Template" : "New Template"}
+          </span>
+          <div className="flex-1" />
+          {imageUploading && (
+            <span className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 rounded px-2 py-1 flex items-center gap-1.5 shrink-0">
+              <span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin inline-block" />
+              Uploading image…
+            </span>
+          )}
+          {error && !imageUploading && (
+            <span className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 max-w-sm truncate shrink-0" title={error}>
+              ⚠ {error}
+            </span>
+          )}
+          <Button size="sm" variant="outline" onClick={onCancel} disabled={isBusy} className="shrink-0">Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={isBusy} className="shrink-0">
+            {isBusy
+              ? <><span className="w-3.5 h-3.5 mr-1 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />{saveLabel}</>
+              : <><Save className="w-3.5 h-3.5 mr-1" />Save Template</>
+            }
+          </Button>
+        </div>
+        {/* Row 2: name + subject fields */}
+        <div className="h-11 flex items-center gap-2 px-4 border-t border-slate-100 bg-slate-50">
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide shrink-0 w-12">Name</span>
+          <Input value={name} onChange={e => { setName(e.target.value); setError(""); }}
+            placeholder="Template name…"
+            className={cn("h-8 text-sm w-52 shrink-0", !name && error ? "border-red-400 ring-1 ring-red-400" : "")} />
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide shrink-0 w-16 text-right">Subject</span>
+          <Input value={subject} onChange={e => { setSubject(e.target.value); setError(""); }}
+            placeholder="Email subject line…"
+            className={cn("h-8 text-sm flex-1", !subject && error ? "border-red-400 ring-1 ring-red-400" : "")} />
+          <div className="flex gap-1 shrink-0">
+            {["{{name}}","{{firstName}}","{{email}}"].map(tag => (
+              <button key={tag} onClick={() => { setSubject(s => s + tag); setError(""); }}
+                className="text-[10px] px-1.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded font-mono transition-colors">
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-      <Textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)}
-        placeholder="Email body… use {{name}}, {{customLink}} etc."
-        className="text-sm min-h-[200px] font-mono" />
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" onClick={() => onSave({ name, subject, body })} disabled={!name || !subject || !body}>
-          <Save className="w-3.5 h-3.5 mr-1" /> Save Template
-        </Button>
+
+      {/* Canvas */}
+      <div className="flex-1 overflow-hidden">
+        <EmailCanvas design={design} onChange={setDesign} onUploadingChange={setImageUploading} />
       </div>
     </div>
   );
@@ -175,73 +128,66 @@ function TemplateEditor({ tpl, onSave, onCancel }: {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function EmailSettingsPage() {
-  const [tab, setTab] = useState<Tab>("compose");
-
-  // compose
-  const [recipients,   setRecipients]   = useState<Recipient[]>([]);
-  const [subject,      setSubject]      = useState("");
-  const [body,         setBody]         = useState("");
-  const [selectedTpl,  setSelectedTpl]  = useState("");
-  const [sending,      setSending]      = useState(false);
-  const [sendResult,   setSendResult]   = useState<{ sent: number; failed: number } | null>(null);
-  const [showPicker,   setShowPicker]   = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>("templates");
 
   // templates
   const [templates,  setTemplates]  = useState<EmailTemplate[]>([]);
   const [editingTpl, setEditingTpl] = useState<EmailTemplate | "new" | null>(null);
   const [tplLoading, setTplLoading] = useState(false);
 
-  // sent log
-  const [logs,        setLogs]        = useState<EmailLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [previewLog,  setPreviewLog]  = useState<EmailLog | null>(null);
+  // reports (grouped campaigns)
+  const [reports,        setReports]        = useState<CampaignReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [subjectFilter,  setSubjectFilter]  = useState("");
+  const [dateFrom,       setDateFrom]       = useState("");
+  const [dateTo,         setDateTo]         = useState("");
+  const [composeOpen,    setComposeOpen]    = useState(false);
+
+  // scheduled sends
+  const [scheduled,        setScheduled]        = useState<ScheduledEmailItem[]>([]);
+  const [scheduledLoading, setScheduledLoading] = useState(false);
 
   useEffect(() => {
     setTplLoading(true);
     api.get("/email-templates").then(r => setTemplates(r.data ?? [])).catch(() => {}).finally(() => setTplLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (tab !== "sent") return;
-    setLogsLoading(true);
-    api.get("/emails").then(r => setLogs(r.data ?? [])).catch(() => {}).finally(() => setLogsLoading(false));
-  }, [tab]);
-
-  useEffect(() => {
-    if (!selectedTpl) return;
-    const t = templates.find(x => x.id === selectedTpl);
-    if (t) { setSubject(t.subject); setBody(t.body); }
-  }, [selectedTpl]);
-
-  const addRecipient    = () => setRecipients(p => [...p, { email: "", name: "" }]);
-  const addCrmRecipient = (r: Recipient) => setRecipients(p => p.some(x => x.email === r.email) ? p : [...p, r]);
-  const updateRecipient = (idx: number, r: Recipient) => setRecipients(p => p.map((x, i) => i === idx ? r : x));
-  const removeRecipient = (idx: number) => setRecipients(p => p.filter((_, i) => i !== idx));
-
-  const handleSend = async () => {
-    const valid = recipients.filter(r => r.email.trim());
-    if (!valid.length || !subject || !body) return;
-    setSending(true); setSendResult(null);
-    try {
-      const { data } = await api.post("/emails/send", { recipients: valid, subject, body, templateId: selectedTpl || undefined });
-      setSendResult(data);
-      setRecipients([]); setSubject(""); setBody(""); setSelectedTpl("");
-    } catch { setSendResult({ sent: 0, failed: valid.length }); }
-    finally { setSending(false); }
+  const loadReports = () => {
+    setReportsLoading(true);
+    const params = new URLSearchParams();
+    if (subjectFilter.trim()) params.set("subject", subjectFilter.trim());
+    if (dateFrom) params.set("from", new Date(dateFrom).toISOString());
+    if (dateTo) params.set("to", new Date(dateTo).toISOString());
+    api.get(`/emails/reports?${params}`).then(r => setReports(r.data ?? [])).catch(() => {}).finally(() => setReportsLoading(false));
   };
 
-  const handleSaveTpl = async (data: { name: string; subject: string; body: string }) => {
-    try {
-      if (editingTpl === "new") {
-        const r = await api.post("/email-templates", data);
-        setTemplates(p => [r.data, ...p]);
-      } else if (editingTpl) {
-        const r = await api.patch(`/email-templates/${(editingTpl as EmailTemplate).id}`, data);
-        setTemplates(p => p.map(t => t.id === (editingTpl as EmailTemplate).id ? r.data : t));
-      }
-      setEditingTpl(null);
-    } catch {}
+  useEffect(() => {
+    if (tab !== "sent") return;
+    loadReports();
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (tab !== "scheduled") return;
+    setScheduledLoading(true);
+    api.get("/emails/scheduled").then(r => setScheduled(r.data ?? [])).catch(() => {}).finally(() => setScheduledLoading(false));
+  }, [tab]);
+
+
+  const handleCancelScheduled = async (id: string) => {
+    await api.post(`/emails/scheduled/${id}/cancel`);
+    setScheduled(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleSaveTpl = async (data: { name: string; subject: string; body: string; design: EmailDesign }) => {
+    if (editingTpl === "new") {
+      const r = await api.post("/email-templates", data);
+      setTemplates(p => [r.data, ...p]);
+    } else if (editingTpl) {
+      const r = await api.patch(`/email-templates/${(editingTpl as EmailTemplate).id}`, data);
+      setTemplates(p => p.map(t => t.id === (editingTpl as EmailTemplate).id ? r.data : t));
+    }
+    setEditingTpl(null);
   };
 
   const handleDeleteTpl = async (id: string) => {
@@ -249,10 +195,16 @@ export default function EmailSettingsPage() {
     setTemplates(p => p.filter(t => t.id !== id));
   };
 
-  const handlePreviewLog = async (log: EmailLog) => {
-    const { data } = await api.get(`/emails/${log.id}`);
-    setPreviewLog(data);
-  };
+  // Full-screen canvas editor
+  if (editingTpl !== null) {
+    return (
+      <TemplateCanvasEditor
+        tpl={editingTpl === "new" ? undefined : editingTpl as EmailTemplate}
+        onSave={handleSaveTpl}
+        onCancel={() => setEditingTpl(null)}
+      />
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
@@ -273,10 +225,9 @@ export default function EmailSettingsPage() {
               <Plus className="w-3.5 h-3.5 mr-1" /> New Template
             </Button>
           )}
-          {tab === "compose" && (
-            <Button size="sm" onClick={handleSend}
-              disabled={sending || !recipients.some(r => r.email.trim()) || !subject || !body}>
-              {sending ? "Sending…" : <><Send className="w-3.5 h-3.5 mr-1" />Send</>}
+          {(tab === "sent" || tab === "scheduled") && (
+            <Button size="sm" onClick={() => setComposeOpen(true)}>
+              <Send className="w-3.5 h-3.5 mr-1" /> Compose
             </Button>
           )}
         </div>
@@ -284,232 +235,155 @@ export default function EmailSettingsPage() {
 
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-200 px-6 flex gap-1">
-        {(["compose","sent","templates"] as Tab[]).map(t => (
+        {(["templates","sent","scheduled"] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={cn("px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
               tab === t ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800")}>
-            {t === "compose"   && <Send     className="w-3.5 h-3.5 inline mr-1.5" />}
-            {t === "sent"      && <Clock    className="w-3.5 h-3.5 inline mr-1.5" />}
-            {t === "templates" && <FileText className="w-3.5 h-3.5 inline mr-1.5" />}
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "sent"      && <Clock        className="w-3.5 h-3.5 inline mr-1.5" />}
+            {t === "templates" && <FileText     className="w-3.5 h-3.5 inline mr-1.5" />}
+            {t === "scheduled" && <CalendarClock className="w-3.5 h-3.5 inline mr-1.5" />}
+            {t === "templates" ? "Templates" : t === "sent" ? "Reports" : "Scheduled"}
           </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="p-6 max-w-4xl mx-auto space-y-4">
+          <div className="p-6 max-w-6xl mx-auto space-y-4">
 
-            {/* ── COMPOSE ─────────────────────────────────────────────────── */}
-            {tab === "compose" && (
-              <>
-                {sendResult && (
-                  <div className={cn("flex items-center gap-2 p-3 rounded-lg text-sm border",
-                    sendResult.failed
-                      ? "bg-red-50 text-red-700 border-red-200"
-                      : "bg-green-50 text-green-700 border-green-200")}>
-                    {sendResult.failed ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                    {sendResult.sent} sent{sendResult.failed ? `, ${sendResult.failed} failed` : " successfully"}
-                  </div>
-                )}
-
-                {/* Template picker */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Template (optional)</p>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setSelectedTpl("")}
-                      className={cn("px-3 py-1.5 rounded-lg text-xs border transition-colors",
-                        !selectedTpl ? "bg-indigo-600 text-white border-indigo-600"
-                                     : "bg-white text-slate-600 border-slate-200 hover:border-slate-300")}>
-                      Blank
-                    </button>
-                    {templates.map(t => (
-                      <button key={t.id} onClick={() => setSelectedTpl(t.id)}
-                        className={cn("px-3 py-1.5 rounded-lg text-xs border transition-colors",
-                          selectedTpl === t.id ? "bg-indigo-600 text-white border-indigo-600"
-                                               : "bg-white text-slate-600 border-slate-200 hover:border-slate-300")}>
-                        {t.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Recipients */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">To</p>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="h-7 text-xs"
-                        onClick={() => setShowPicker(p => !p)}>
-                        <Search className="w-3 h-3 mr-1" /> From CRM
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addRecipient}>
-                        <Plus className="w-3 h-3 mr-1" /> Add manually
-                      </Button>
-                    </div>
-                  </div>
-
-                  {showPicker && <ContactPicker onAdd={r => { addCrmRecipient(r); }} />}
-
-                  {recipients.length === 0 && (
-                    <p className="text-xs text-slate-400 text-center py-3">
-                      No recipients yet — search from CRM or add manually
-                    </p>
-                  )}
-                  {recipients.map((r, i) => (
-                    <RecipientRow key={i} r={r} idx={i} onChange={updateRecipient} onRemove={removeRecipient} />
-                  ))}
-                  {recipients.length > 0 && (
-                    <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Eye className="w-3 h-3" />
-                      Click the eye icon on each recipient to set per-person merge data (e.g. their unique link)
-                    </p>
-                  )}
-                </div>
-
-                {/* Subject */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</p>
-                  <Input value={subject} onChange={e => setSubject(e.target.value)}
-                    placeholder="e.g. Your application — {{name}}" className="h-9 text-sm" />
-                </div>
-
-                {/* Body */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Body</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {MERGE_TAGS.map(m => (
-                      <button key={m.tag} onClick={() => insertAtCursor(bodyRef.current, m.tag, setBody, body)}
-                        title={m.label}
-                        className="text-[10px] px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full font-mono transition-colors">
-                        {m.tag}
-                      </button>
-                    ))}
-                  </div>
-                  <Textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)}
-                    placeholder={"Hi {{firstName}},\n\nYour application link: {{customLink}}\n\nRegards"}
-                    className="text-sm min-h-[240px] font-mono" />
-                  <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <Link2 className="w-3 h-3" />
-                    Click a tag above to insert at cursor. Each recipient gets their own personalised version.
-                  </p>
-                </div>
-              </>
-            )}
-
-            {/* ── SENT ────────────────────────────────────────────────────── */}
+            {/* ── SENT / REPORTS ──────────────────────────────────────────── */}
             {tab === "sent" && (
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-                {logsLoading ? (
+              <>
+              {/* Filters */}
+              <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[180px]">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                  <input value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && loadReports()}
+                    placeholder="Filter by subject…"
+                    className="w-full h-9 pl-8 pr-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                </div>
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                  className="h-9 px-2.5 text-sm border border-slate-200 rounded-lg" />
+                <span className="text-xs text-slate-400">to</span>
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                  className="h-9 px-2.5 text-sm border border-slate-200 rounded-lg" />
+                <Button size="sm" variant="outline" onClick={loadReports}>Apply</Button>
+                {(subjectFilter || dateFrom || dateTo) && (
+                  <Button size="sm" variant="ghost" onClick={() => { setSubjectFilter(""); setDateFrom(""); setDateTo(""); setTimeout(loadReports, 0); }}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              {/* Campaign reports — one row per send batch; click through to its hierarchical funnel page */}
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                {reportsLoading ? (
                   <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
-                ) : logs.length === 0 ? (
+                ) : reports.length === 0 ? (
                   <div className="p-10 text-center">
                     <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="text-sm text-slate-400">No emails sent yet</p>
                   </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">To</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Subject</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Status</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500">Sent</th>
-                        <th className="px-4 py-2.5" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map(log => (
-                        <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-2.5">
-                            <p className="font-medium text-slate-800">{log.toName || log.toEmail}</p>
-                            {log.toName && <p className="text-[11px] text-slate-400">{log.toEmail}</p>}
-                          </td>
-                          <td className="px-4 py-2.5 text-slate-600 max-w-xs truncate">{log.subject}</td>
-                          <td className="px-4 py-2.5">
-                            <Badge variant="outline" className={cn("text-[10px]",
-                              log.status === "sent" ? "bg-green-50 text-green-700 border-green-200"
-                                                    : "bg-red-50 text-red-700 border-red-200")}>
-                              {log.status === "sent"
-                                ? <CheckCircle2 className="w-3 h-3 mr-1 inline" />
-                                : <XCircle     className="w-3 h-3 mr-1 inline" />}
-                              {log.status}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-2.5 text-slate-400 text-xs">
-                            {new Date(log.sentAt).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <button onClick={() => handlePreviewLog(log)}
-                              className="p-1 rounded hover:bg-slate-200 text-slate-400">
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                ) : reports.map(r => (
+                  <button key={r.batchId} onClick={() => router.push(`/settings/email/reports/${r.batchId}`)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 text-sm truncate">{r.subject}</p>
+                      <p className="text-[11px] text-slate-400">{new Date(r.sentAt).toLocaleString()} · {r.total} recipient{r.total === 1 ? "" : "s"}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200">{r.delivered} delivered</Badge>
+                      {r.bounced > 0 && <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">{r.bounced} bounced</Badge>}
+                      {r.failed > 0 && <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200">{r.failed} failed</Badge>}
+                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">{r.opened} opened</Badge>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                  </button>
+                ))}
+              </div>
+              </>
+            )}
+
+            {/* ── SCHEDULED ───────────────────────────────────────────────── */}
+            {tab === "scheduled" && (
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                {scheduledLoading ? (
+                  <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+                ) : scheduled.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <CalendarClock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-400">Nothing scheduled</p>
+                  </div>
+                ) : scheduled.map(s => (
+                  <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                    <CalendarClock className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 text-sm truncate">{s.subject}</p>
+                      <p className="text-[11px] text-slate-400">
+                        Sends {new Date(s.sendAt).toLocaleString()} · {s.recipients.length} recipient{s.recipients.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" className="text-red-500 hover:text-red-600 hover:border-red-300 shrink-0"
+                      onClick={() => handleCancelScheduled(s.id)}>
+                      <Ban className="w-3.5 h-3.5 mr-1" /> Cancel
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
 
             {/* ── TEMPLATES ───────────────────────────────────────────────── */}
             {tab === "templates" && (
               <>
-                {editingTpl && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-5">
-                    <TemplateEditor
-                      tpl={editingTpl === "new" ? undefined : editingTpl as EmailTemplate}
-                      onSave={handleSaveTpl}
-                      onCancel={() => setEditingTpl(null)}
-                    />
-                  </div>
-                )}
-                {!editingTpl && !tplLoading && templates.length === 0 && (
+                {!tplLoading && templates.length === 0 && (
                   <div className="bg-white border border-slate-200 rounded-xl p-12 text-center">
-                    <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-slate-600 mb-1">No templates yet</p>
-                    <p className="text-xs text-slate-400 mb-4">Create reusable templates with merge tags like {`{{name}}`}</p>
+                    <Palette className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-600 mb-1">No email templates yet</p>
+                    <p className="text-xs text-slate-400 mb-4">
+                      Design beautiful emails with the visual canvas builder — images, buttons, colours, fonts and more
+                    </p>
                     <Button size="sm" onClick={() => setEditingTpl("new")}>
-                      <Plus className="w-3.5 h-3.5 mr-1" /> Create Template
+                      <Plus className="w-3.5 h-3.5 mr-1" /> Design First Template
                     </Button>
                   </div>
                 )}
-                {!editingTpl && templates.map(t => (
-                  <div key={t.id} className="bg-white border border-slate-200 rounded-xl p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800 text-sm">{t.name}</p>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">Subject: {t.subject}</p>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2 font-mono">{t.body}</p>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <Button size="sm" variant="outline" className="h-7 px-2"
-                          onClick={() => { setSelectedTpl(t.id); setTab("compose"); }}>
-                          <Send className="w-3 h-3 mr-1" /> Use
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2"
-                          onClick={() => setEditingTpl(t)}>
-                          <Edit2 className="w-3 h-3" />
-                        </Button>
-                        <Button size="sm" variant="outline"
-                          className="h-7 px-2 text-red-500 hover:text-red-600 hover:border-red-300"
-                          onClick={() => handleDeleteTpl(t.id)}>
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {templates.map(t => (
+                    <div key={t.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow">
+                      {/* Mini preview */}
+                      {t.design && (
+                        <div className="relative h-36 overflow-hidden border-b border-slate-100 bg-slate-50">
+                          <iframe
+                            srcDoc={renderEmailToHtml(t.design)}
+                            className="absolute inset-0 w-full pointer-events-none"
+                            style={{ height: 600, transform: "scale(0.24)", transformOrigin: "top left", width: "417%", marginBottom: -460 }}
+                          />
+                          <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white/80" />
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-slate-800 text-sm">{t.name}</p>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">Subject: {t.subject}</p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Button size="sm" variant="outline" className="h-7 px-2"
+                              onClick={() => setEditingTpl(t)}>
+                              <Edit2 className="w-3 h-3" />
+                            </Button>
+                            <Button size="sm" variant="outline"
+                              className="h-7 px-2 text-red-500 hover:text-red-600 hover:border-red-300"
+                              onClick={() => handleDeleteTpl(t.id)}>
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {(t.body.match(/\{\{(\w+)\}\}/g) ?? [])
-                        .filter((v, i, a) => a.indexOf(v) === i)
-                        .map(tag => (
-                          <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded font-mono">
-                            {tag}
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </>
             )}
 
@@ -517,30 +391,16 @@ export default function EmailSettingsPage() {
         </ScrollArea>
       </div>
 
-      {/* Email preview modal */}
-      {previewLog && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <div>
-                <p className="font-semibold text-slate-800">{previewLog.subject}</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  To: {previewLog.toName ? `${previewLog.toName} <${previewLog.toEmail}>` : previewLog.toEmail}
-                  &nbsp;·&nbsp;{new Date(previewLog.sentAt).toLocaleString()}
-                </p>
-              </div>
-              <button onClick={() => setPreviewLog(null)} className="p-1.5 rounded hover:bg-slate-100">
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
-            </div>
-            <ScrollArea className="flex-1 p-5">
-              <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
-                {previewLog.body}
-              </pre>
-            </ScrollArea>
-          </div>
-        </div>
-      )}
+      {/* Compose — audience mode (organization + all users) */}
+      <BulkSendEmailModal
+        open={composeOpen}
+        onClose={() => {
+          setComposeOpen(false);
+          if (tab === "sent") loadReports();
+          if (tab === "scheduled") api.get("/emails/scheduled").then(r => setScheduled(r.data ?? [])).catch(() => {});
+        }}
+        mode="audience"
+      />
     </div>
   );
 }

@@ -16,6 +16,11 @@ export class GlobalListsController {
     return this.svc.getPublishedLists();
   }
 
+  @Get('staff-roles')
+  ensureStaffRoles(@CurrentUser() user: any) {
+    return this.svc.ensureStaffRolesList(user.organizationId);
+  }
+
   @Get()
   findAll(@CurrentUser() user: any) {
     return this.svc.findAll(user.organizationId);

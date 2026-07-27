@@ -1151,9 +1151,18 @@ export default function GlobalListsPage() {
     setEditingListId(null);
   };
 
+  const normalizeLevelDefs = (l: any) => {
+    const defs = l.levelDefinitions;
+    if (!Array.isArray(defs)) {
+      try { l.levelDefinitions = typeof defs === "string" ? JSON.parse(defs) : []; } catch { l.levelDefinitions = []; }
+      if (!Array.isArray(l.levelDefinitions)) l.levelDefinitions = [];
+    }
+    return l;
+  };
+
   const loadLists = () => {
     setLoadError(""); setLoading(true);
-    api.get("/global-lists").then(r => setLists(r.data || [])).catch(() => setLoadError("Failed to load Global Lists. Please retry.")).finally(() => setLoading(false));
+    api.get("/global-lists").then(r => setLists((r.data || []).map(normalizeLevelDefs))).catch(() => setLoadError("Failed to load Global Lists. Please retry.")).finally(() => setLoading(false));
   };
 
   useEffect(() => { loadLists(); }, []);

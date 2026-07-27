@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { ModuleIcon } from "@/components/ui/module-icon";
 import { Loader2, Settings2, CheckCircle, XCircle, AlertCircle, ChevronRight, ToggleLeft, ToggleRight } from "lucide-react";
 
 interface ModuleRow {
@@ -126,7 +127,7 @@ export default function PortalSettingsPage() {
                       className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
                       style={{ backgroundColor: module.color ? module.color + "20" : "#f3f4f6" }}
                     >
-                      {module.icon || "📦"}
+                      <ModuleIcon icon={module.icon} slug={module.slug} className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate">{module.name}</p>

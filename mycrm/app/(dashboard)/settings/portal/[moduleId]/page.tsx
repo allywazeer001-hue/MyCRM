@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { ModuleIcon } from "@/components/ui/module-icon";
 import {
   Loader2, ArrowLeft, Plus, Trash2, Save, CheckCircle,
   GripVertical, Eye, EyeOff, Pencil, Lock,
@@ -159,7 +160,7 @@ export default function ModulePortalConfigPage() {
         </button>
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-lg">{module?.icon ?? "📦"}</span>
+            <ModuleIcon icon={module?.icon} slug={module?.slug} className="w-5 h-5" />
             <h1 className="text-xl font-bold text-gray-900">{module?.name} — Portal Config</h1>
           </div>
           <p className="text-sm text-gray-500 mt-0.5 ml-7">Configure portal access and field mappings</p>

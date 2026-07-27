@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -176,7 +177,7 @@ function CreateWizard({ open, onClose, onCreated }: {
                 <button key={mod.id} onClick={() => handleSelectModule(mod)}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 text-left transition-colors group">
                   <div className="w-8 h-8 rounded-lg bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center text-sm">
-                    {mod.icon || "📋"}
+                    <ModuleIcon icon={mod.icon} slug={mod.slug} className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{mod.name}</p>
@@ -193,7 +194,7 @@ function CreateWizard({ open, onClose, onCreated }: {
         {step === 2 && selectedMod && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded-lg">
-              <span className="text-sm">{selectedMod.icon || "📋"}</span>
+              <ModuleIcon icon={selectedMod.icon} slug={selectedMod.slug} className="w-4 h-4" />
               <span className="text-sm font-medium text-gray-700">{selectedMod.name}</span>
               <button onClick={() => setStep(1)} className="ml-auto text-xs text-gray-400 hover:text-gray-600">Change</button>
             </div>
@@ -281,13 +282,8 @@ function BlueprintCard({ bp, onToggle, onDelete }: {
       "bg-white border rounded-xl overflow-hidden hover:shadow-sm transition-all",
       !bp.isActive && "opacity-60",
     )}>
-      {/* Phase color bar */}
-      <div className="h-1.5 flex">
-        {phases.slice(0, 8).map((p, i) => (
-          <div key={i} className="flex-1" style={{ backgroundColor: p.color || "#6366f1" }} />
-        ))}
-        {phases.length === 0 && <div className="flex-1 bg-gray-200" />}
-      </div>
+      {/* Accent strip */}
+      <div className={cn("h-1.5", bp.isActive ? "bg-indigo-500" : "bg-gray-200")} />
 
       <div className="p-5">
         <div className="flex items-start gap-3">
@@ -314,7 +310,7 @@ function BlueprintCard({ bp, onToggle, onDelete }: {
         <div className="mt-3 flex items-center gap-3 flex-wrap text-xs text-gray-500">
           {bp.module && (
             <span className="flex items-center gap-1">
-              <span>{bp.module.icon || "📋"}</span> {bp.module.name}
+              <ModuleIcon icon={bp.module.icon} slug={bp.module.slug} className="w-3.5 h-3.5" /> {bp.module.name}
             </span>
           )}
           <span className="flex items-center gap-1">
@@ -329,9 +325,7 @@ function BlueprintCard({ bp, onToggle, onDelete }: {
         {phases.length > 0 && (
           <div className="mt-3 flex items-center gap-1.5 flex-wrap">
             {phases.slice(0, 5).map((p: any, i: number) => (
-              <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border"
-                style={{ borderColor: p.color + "44", backgroundColor: p.color + "11", color: p.color }}>
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+              <span key={i} className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-600">
                 {p.label || p.name}
               </span>
             ))}
@@ -411,7 +405,7 @@ export default function BlueprintsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       {toast && <Toast msg={toast.msg} type={toast.type} />}
 
       {/* Header */}
@@ -464,7 +458,7 @@ export default function BlueprintsPage() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {blueprints.map(bp => (
             <BlueprintCard key={bp.id} bp={bp} onToggle={handleToggle} onDelete={handleDelete} />
           ))}

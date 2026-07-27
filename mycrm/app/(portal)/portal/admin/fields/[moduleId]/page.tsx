@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { portalApi } from "@/lib/portal-api";
 import {
-  Loader2, Plus, Trash2, Edit2, ChevronUp, ChevronDown, Save, X, Eye, EyeOff,
+  Loader2, Plus, Minus, Trash2, Edit2, ChevronUp, ChevronDown, Save, X, Eye, EyeOff,
   Link2,
 } from "lucide-react";
 
@@ -86,7 +86,6 @@ function FieldForm({ initial, moduleId, onSave, onClose }: {
     options: initial?.options ?? [],
   });
   const [saving, setSaving] = useState(false);
-  const [optionInput, setOptionInput] = useState("");
 
   const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
@@ -104,10 +103,15 @@ function FieldForm({ initial, moduleId, onSave, onClose }: {
   };
 
   const addOption = () => {
-    if (!optionInput.trim()) return;
-    setForm(f => ({ ...f, options: [...f.options, { label: optionInput.trim(), value: slugify(optionInput.trim()) }] }));
-    setOptionInput("");
+    const n = form.options.length + 1;
+    setForm(f => ({ ...f, options: [...f.options, { label: `Option ${n}`, value: slugify(`Option ${n}`) }] }));
   };
+
+  const updateOption = (i: number, label: string) =>
+    setForm(f => ({ ...f, options: f.options.map((o, j) => j === i ? { label, value: slugify(label) } : o) }));
+
+  const removeOption = (i: number) =>
+    setForm(f => ({ ...f, options: f.options.filter((_, j) => j !== i) }));
 
   const inputCls = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500";
 
@@ -140,18 +144,35 @@ function FieldForm({ initial, moduleId, onSave, onClose }: {
           {(form.fieldType === "dropdown" || form.fieldType === "multiselect") && (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Options</label>
-              <div className="space-y-1 mb-2">
-                {form.options.map((o, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-gray-700 bg-gray-50 border border-gray-100 px-2 py-1.5 rounded-lg">
-                    <span className="flex-1">{o.label}</span>
-                    <button onClick={() => setForm(f => ({ ...f, options: f.options.filter((_, j) => j !== i) }))} className="text-gray-400 hover:text-red-500 transition-colors"><X className="w-3 h-3" /></button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input className={`${inputCls} flex-1`} value={optionInput} onChange={e => setOptionInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addOption()} placeholder="Option label" />
-                <button onClick={addOption} className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors font-medium">+</button>
-              </div>
+              {form.options.length === 0 ? (
+                <button onClick={addOption} className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors font-medium">+ Add Option</button>
+              ) : (
+                <div className="space-y-1.5">
+                  {form.options.map((o, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input
+                        className={`${inputCls} flex-1`}
+                        value={o.label}
+                        onChange={e => updateOption(i, e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addOption(); } }}
+                        placeholder="Option label"
+                      />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={addOption} title="Add option"
+                          className="w-7 h-7 rounded-full bg-violet-600 hover:bg-violet-700 text-white flex items-center justify-center transition-colors">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                        {form.options.length > 1 && (
+                          <button onClick={() => removeOption(i)} title="Remove option"
+                            className="w-7 h-7 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors">
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

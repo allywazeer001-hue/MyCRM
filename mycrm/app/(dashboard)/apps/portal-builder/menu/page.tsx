@@ -522,7 +522,7 @@ function AddMenuWizard({
                   >
                     <option value="">— Top level —</option>
                     {allFlat.filter(i => !i.parentId && i.id !== editingItem?.id).map(i => (
-                      <option key={i.id} value={i.id}>{i.icon} {i.label}</option>
+                      <option key={i.id} value={i.id}>{i.label}</option>
                     ))}
                   </select>
                 </div>

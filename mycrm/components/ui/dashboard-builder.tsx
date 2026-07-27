@@ -9,7 +9,7 @@
  *   • Sections (type="section") as full-width collapsible dividers
  *   • Per-dashboard access control (Share panel)
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // react-grid-layout — direct import, width measured via ResizeObserver (reliable in Next.js/Turbopack)
 import { ReactGridLayout as _RGL } from "react-grid-layout/legacy";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,7 +19,7 @@ import {
   LayoutDashboard, ChevronDown, ChevronRight, Pencil, Trash2, Check,
   GripVertical, X, Plus, BarChart3, Settings2,
   Star, Loader2, Activity, Grid3X3, Users, FolderOpen, Folder, Search,
-  BrainCircuit,
+  BrainCircuit, Filter, LayoutTemplate,
 } from "lucide-react";
 import { AnalysisPanel, type AnalysisContext } from "@/components/analytics/analysis-panel";
 import { Button } from "./button";
@@ -35,13 +35,14 @@ import {
 import {
   GRID_COLS, GRID_ROW_HEIGHT, getWidgetDims, getWidgetMinDims,
   AnalyticsWidgetBody, loadWidgetData,
-  type AnalyticsWidget, type AnalyticsTarget,
+  type AnalyticsWidget, type AnalyticsTarget, type ContextFilter,
 } from "@/components/analytics/analytics-widget";
 import { useModulesStore } from "@/store/modules.store";
 import { useAuthStore } from "@/store/auth.store";
 import { usePermissionsStore } from "@/store/permissions.store";
 import { api } from "@/lib/api";
 import { AccessControlEditor } from "./access-control-editor";
+import { ModuleIcon } from "./module-icon";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -90,9 +91,10 @@ function autoPositionWidgets(widgets: WidgetDef[]): WidgetDef[] {
 
 // ── Single live analytics chart ────────────────────────────────────────────────
 
-function AnalyticsChartWidget({ widget }: { widget: WidgetDef }) {
+function AnalyticsChartWidget({ widget, dashboardContext }: { widget: WidgetDef; dashboardContext?: ContextFilter }) {
   const viewId   = widget.config.analyticsViewId as string;
   const widgetId = widget.config.analyticsWidgetId as string;
+  const { modules } = useModulesStore();
   const [liveWidget, setLiveWidget] = useState<AnalyticsWidget | null>(null);
   const [targets,    setTargets]    = useState<AnalyticsTarget[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -126,14 +128,18 @@ function AnalyticsChartWidget({ widget }: { widget: WidgetDef }) {
           targetValue: cfg.targetValue,
           w: (widget.w ?? 6) * 2, loading: true,
         };
-        const loaded = await loadWidgetData(base, tgts);
+        // Only apply the dashboard's global context filter if this chart's own module
+        // actually has that field — charts on unrelated modules stay untouched.
+        const moduleHasContextField = !!dashboardContext && modules
+          .find(m => m.id === cfg.moduleId)?.fields?.some(f => f.name === dashboardContext.field);
+        const loaded = await loadWidgetData(base, tgts, moduleHasContextField ? dashboardContext : undefined);
         if (!cancelled) setLiveWidget(loaded);
       } catch {
         if (!cancelled) setLiveWidget({ id: widget.id, title: widget.title, type: "bar", moduleId: "", aggregation: "COUNT", loading: false, error: "Failed to load" });
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [viewId, widgetId, widget.w]); // eslint-disable-line
+  }, [viewId, widgetId, widget.w, dashboardContext?.field, dashboardContext?.value, modules]); // eslint-disable-line
 
   if (loading || !liveWidget) return <div className="flex items-center justify-center h-full"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>;
   return (
@@ -313,13 +319,13 @@ function BuiltinWidgetContent({ widget }: { widget: WidgetDef }) {
   }, [widget]);
 
   if (widget.type === "module_grid") return (
-    <div className="p-3 grid grid-cols-4 gap-2">
+    <div className="p-3 grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2">
       {modules.slice(0, 8).map((m, i) => {
         const colors = ["bg-blue-500","bg-purple-500","bg-green-500","bg-orange-500","bg-pink-500","bg-teal-500","bg-red-500","bg-indigo-500"];
         return (
-          <div key={m.id} className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-50 transition cursor-pointer">
-            <div className={`w-8 h-8 rounded-lg ${colors[i%colors.length]} bg-opacity-15 flex items-center justify-center text-sm`}>{m.icon||"📦"}</div>
-            <span className="text-[10px] text-gray-600 text-center truncate w-full">{m.name}</span>
+          <div key={m.id} className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-gray-50 transition cursor-pointer">
+            <div className={`w-11 h-11 rounded-lg ${colors[i%colors.length]} bg-opacity-15 flex items-center justify-center shrink-0`}><ModuleIcon icon={m.icon} slug={m.slug} className="w-6 h-6" /></div>
+            <span className="text-xs text-gray-600 text-center truncate w-full">{m.name}</span>
           </div>
         );
       })}
@@ -348,8 +354,8 @@ function BuiltinWidgetContent({ widget }: { widget: WidgetDef }) {
 
 // ── Widget card ────────────────────────────────────────────────────────────────
 
-function WidgetCard({ widget, editing, dashboardId }: {
-  widget: WidgetDef; editing: boolean; dashboardId: string;
+function WidgetCard({ widget, editing, dashboardId, dashboardContext }: {
+  widget: WidgetDef; editing: boolean; dashboardId: string; dashboardContext?: ContextFilter;
 }) {
   const { removeWidget, updateWidget } = useDashboardStore();
   const [titleEdit, setTitleEdit] = useState(false);
@@ -399,7 +405,7 @@ function WidgetCard({ widget, editing, dashboardId }: {
 
       {/* Content fills the remaining height */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {isAnalyticsChart  && <AnalyticsChartWidget widget={widget} />}
+        {isAnalyticsChart  && <AnalyticsChartWidget widget={widget} dashboardContext={dashboardContext} />}
         {isAnalyticsView && widget.analyticsViewId && <AnalyticsViewWidget viewId={widget.analyticsViewId} />}
         {(widget.type === "activity_feed" || widget.type === "module_grid") && <BuiltinWidgetContent widget={widget} />}
       </div>
@@ -642,6 +648,337 @@ function AccessPanel({ dashboard, onClose }: { dashboard: Dashboard; onClose: ()
   );
 }
 
+// ── Context filter panel (Dynamic Analytics Context Engine) ────────────────────
+// Pick one field + value; every chart on this dashboard whose module has that
+// field gets it AND-merged into its filter (see loadWidgetData/mergeContextFilter).
+
+function ContextFilterPanel({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
+  const { setDashboardContext } = useDashboardStore();
+  const { modules } = useModulesStore();
+  const [fieldName, setFieldName] = useState(dashboard.config?.contextField ?? "");
+  const [value,      setValue]     = useState(dashboard.config?.contextValue ?? "");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const fieldOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const m of modules) {
+      for (const f of m.fields ?? []) {
+        if (!seen.has(f.name)) seen.set(f.name, f.label);
+      }
+    }
+    return Array.from(seen.entries()).map(([name, label]) => ({ name, label }));
+  }, [modules]);
+
+  useEffect(() => {
+    if (!fieldName) { setSuggestions([]); return; }
+    const moduleWithField = modules.find(m => m.fields?.some(f => f.name === fieldName));
+    if (!moduleWithField) { setSuggestions([]); return; }
+    let cancelled = false;
+    api.get(`/modules/${moduleWithField.id}/records/field-values/${fieldName}`)
+      .then(({ data }) => { if (!cancelled) setSuggestions(data ?? []); })
+      .catch(() => { if (!cancelled) setSuggestions([]); });
+    return () => { cancelled = true; };
+  }, [fieldName, modules]);
+
+  const handleApply = async () => {
+    setSaving(true);
+    await setDashboardContext(dashboard.id, fieldName || null, value || null);
+    setSaving(false); onClose();
+  };
+  const handleClear = async () => {
+    setSaving(true);
+    await setDashboardContext(dashboard.id, null, null);
+    setSaving(false); onClose();
+  };
+
+  return (
+    <div data-testid="context-filter-panel" className="fixed right-4 top-16 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 w-96 overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Context Filter</p>
+          <p className="text-xs text-gray-400 mt-0.5">Pick one field &amp; value to filter every chart on &quot;{dashboard.name}&quot;</p>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div>
+          <label className="text-xs font-medium text-gray-500 mb-1 block">Field</label>
+          <select value={fieldName} onChange={e => { setFieldName(e.target.value); setValue(""); }}
+            className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+            <option value="">-- none --</option>
+            {fieldOptions.map(f => <option key={f.name} value={f.name}>{f.label}</option>)}
+          </select>
+        </div>
+        {fieldName && (
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">Value</label>
+            <input value={value} onChange={e => setValue(e.target.value)} list="context-filter-suggestions"
+              placeholder="Type or pick a value..."
+              className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400" />
+            <datalist id="context-filter-suggestions">
+              {suggestions.map(s => <option key={s} value={s} />)}
+            </datalist>
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {suggestions.slice(0, 12).map(s => (
+                  <button key={s} onClick={() => setValue(s)}
+                    className={cn("text-xs px-2 py-1 rounded-full border transition",
+                      value === s ? "bg-blue-500 text-white border-blue-500" : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100")}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {dashboard.config?.contextField && (
+          <p className="text-xs text-gray-400">
+            Currently filtering by <strong>{dashboard.config.contextField}</strong> = &quot;{dashboard.config.contextValue}&quot;
+          </p>
+        )}
+      </div>
+      <div className="border-t border-gray-100 px-4 py-3 flex justify-between gap-2 shrink-0">
+        <Button variant="outline" size="sm" onClick={handleClear} disabled={saving || !dashboard.config?.contextField}>Clear</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleApply} disabled={saving || !fieldName || !value}>
+            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}Apply
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Visualization templates panel — save current dashboard as a reusable
+//    template, or spin up a new dashboard from an existing template ─────────────
+
+interface VisualizationTemplate {
+  id: string;
+  name: string;
+  layoutConfiguration?: { widgets?: any[] };
+  contexts?: { fieldName: string; defaultValue?: string | null }[];
+}
+
+function TemplatePanel({ dashboard, onClose, onCreated }: {
+  dashboard: Dashboard; onClose: () => void; onCreated: (dashboardId: string) => void;
+}) {
+  const [tab, setTab] = useState<"create" | "save">("create");
+  const { modules } = useModulesStore();
+
+  // ── "Create from template" state ──
+  const [templates, setTemplates] = useState<VisualizationTemplate[]>([]);
+  const [loadingTpls, setLoadingTpls] = useState(true);
+  const [selectedTplId, setSelectedTplId] = useState("");
+  const [newDashName, setNewDashName] = useState("");
+  const [ctxValue, setCtxValue] = useState("");
+  const [ctxSuggestions, setCtxSuggestions] = useState<string[]>([]);
+  const [instantiating, setInstantiating] = useState(false);
+
+  // ── "Save as template" state ──
+  const [templateName, setTemplateName] = useState(`${dashboard.name} Template`);
+  const [contextField, setContextField] = useState("");
+  const [savingTpl, setSavingTpl] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => {
+    if (tab !== "create") return;
+    let cancelled = false;
+    setLoadingTpls(true);
+    api.get("/visualization-templates").then(({ data }) => { if (!cancelled) setTemplates(data ?? []); })
+      .finally(() => { if (!cancelled) setLoadingTpls(false); });
+    return () => { cancelled = true; };
+  }, [tab]);
+
+  const selectedTpl = templates.find(t => t.id === selectedTplId);
+  const tplContextField = selectedTpl?.contexts?.[0]?.fieldName;
+
+  useEffect(() => {
+    if (!tplContextField) { setCtxSuggestions([]); return; }
+    const moduleWithField = modules.find(m => m.fields?.some(f => f.name === tplContextField));
+    if (!moduleWithField) { setCtxSuggestions([]); return; }
+    let cancelled = false;
+    api.get(`/modules/${moduleWithField.id}/records/field-values/${tplContextField}`)
+      .then(({ data }) => { if (!cancelled) setCtxSuggestions(data ?? []); })
+      .catch(() => { if (!cancelled) setCtxSuggestions([]); });
+    return () => { cancelled = true; };
+  }, [tplContextField, modules]);
+
+  const fieldOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const m of modules) for (const f of m.fields ?? []) if (!seen.has(f.name)) seen.set(f.name, f.label);
+    return Array.from(seen.entries()).map(([name, label]) => ({ name, label }));
+  }, [modules]);
+
+  const handleInstantiate = async () => {
+    if (!selectedTplId || !ctxValue) return;
+    setInstantiating(true);
+    try {
+      const { data } = await api.post(`/visualization-templates/${selectedTplId}/instantiate`, {
+        contextValue: ctxValue,
+        dashboardName: newDashName || undefined,
+      });
+      onCreated(data.id);
+    } catch {
+      setSaveError("Failed to create dashboard from template.");
+    } finally {
+      setInstantiating(false);
+    }
+  };
+
+  const handleSaveAsTemplate = async () => {
+    setSavingTpl(true); setSaveError("");
+    try {
+      // Dashboard widgets only store {analyticsViewId, analyticsWidgetId} pointers — a
+      // template needs the full, self-contained chart definition (same shape an
+      // AnalyticsView already stores), so resolve every pointer against its source view.
+      const chartWidgets = (dashboard.config?.widgets ?? []).filter(w => w.type === "analytics_widget");
+      if (chartWidgets.length === 0) {
+        setSaveError("This dashboard has no chart widgets to save into a template.");
+        setSavingTpl(false);
+        return;
+      }
+      const viewIds = Array.from(new Set(chartWidgets.map(w => w.config.analyticsViewId as string)));
+      const viewsById: Record<string, any> = {};
+      await Promise.all(viewIds.map(async id => {
+        const { data } = await api.get(`/analytics/views/${id}`);
+        viewsById[id] = data;
+      }));
+      const widgets = chartWidgets.map(w => {
+        const view = viewsById[w.config.analyticsViewId as string];
+        const cfg = view?.config?.widgets?.find((x: any) => x.id === w.config.analyticsWidgetId);
+        if (!cfg) return null;
+        return {
+          id: cfg.id, title: w.title || cfg.title, type: cfg.type, moduleId: cfg.moduleId,
+          groupByField: cfg.groupByField, secondaryGroupByField: cfg.secondaryGroupByField,
+          barMode: cfg.barMode, aggregation: cfg.aggregation, aggregateField: cfg.aggregateField,
+          filterGroup: cfg.filterGroup, targetId: cfg.targetId, targetValue: cfg.targetValue,
+          x: w.x, y: w.y, w: w.w, h: w.h,
+        };
+      }).filter(Boolean);
+      if (widgets.length === 0) {
+        setSaveError("Couldn't resolve any chart widgets — their source analytics views may have been deleted.");
+        setSavingTpl(false);
+        return;
+      }
+      await api.post("/visualization-templates", {
+        name: templateName.trim() || `${dashboard.name} Template`,
+        layoutConfiguration: { widgets },
+        contextField: contextField || undefined,
+      });
+      onClose();
+    } catch {
+      setSaveError("Failed to save template.");
+    } finally {
+      setSavingTpl(false);
+    }
+  };
+
+  return (
+    <div data-testid="template-panel" className="fixed right-4 top-16 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 w-96 overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+        <p className="text-sm font-semibold text-gray-800">Visualization Templates</p>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex border-b border-gray-100 shrink-0">
+        <button onClick={() => setTab("create")}
+          className={cn("flex-1 text-xs font-medium py-2", tab === "create" ? "text-blue-600 border-b-2 border-blue-500" : "text-gray-400")}>
+          Create From Template
+        </button>
+        <button onClick={() => setTab("save")}
+          className={cn("flex-1 text-xs font-medium py-2", tab === "save" ? "text-blue-600 border-b-2 border-blue-500" : "text-gray-400")}>
+          Save This Dashboard
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {tab === "create" ? (
+          loadingTpls ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+          ) : templates.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-8">No templates yet. Save a dashboard as a template first.</p>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Template</label>
+                <select value={selectedTplId} onChange={e => { setSelectedTplId(e.target.value); setCtxValue(""); }}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                  <option value="">-- select a template --</option>
+                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              {selectedTpl && (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 mb-1 block">New Dashboard Name (optional)</label>
+                    <Input value={newDashName} onChange={e => setNewDashName(e.target.value)}
+                      placeholder={tplContextField ? `${selectedTpl.name} — ${ctxValue || "..."}` : selectedTpl.name} />
+                  </div>
+                  {tplContextField ? (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">{tplContextField} value</label>
+                      <input value={ctxValue} onChange={e => setCtxValue(e.target.value)} list="tpl-ctx-suggestions"
+                        placeholder="Type or pick a value..."
+                        className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400" />
+                      <datalist id="tpl-ctx-suggestions">
+                        {ctxSuggestions.map(s => <option key={s} value={s} />)}
+                      </datalist>
+                      {ctxSuggestions.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {ctxSuggestions.slice(0, 12).map(s => (
+                            <button key={s} onClick={() => setCtxValue(s)}
+                              className={cn("text-xs px-2 py-1 rounded-full border transition",
+                                ctxValue === s ? "bg-blue-500 text-white border-blue-500" : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100")}>
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">This template has no context field — it will be created as-is.</p>
+                  )}
+                </>
+              )}
+            </>
+          )
+        ) : (
+          <>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">Template Name</label>
+              <Input value={templateName} onChange={e => setTemplateName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1 block">Context Field (optional)</label>
+              <select value={contextField} onChange={e => setContextField(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+                <option value="">-- none --</option>
+                {fieldOptions.map(f => <option key={f.name} value={f.name}>{f.label}</option>)}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Whoever creates a dashboard from this template will pick a value for this field.</p>
+            </div>
+          </>
+        )}
+        {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+      </div>
+
+      <div className="border-t border-gray-100 px-4 py-3 flex justify-end gap-2 shrink-0">
+        <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+        {tab === "create" ? (
+          <Button size="sm" onClick={handleInstantiate} disabled={instantiating || !selectedTplId || (!!tplContextField && !ctxValue)}>
+            {instantiating && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}Create Dashboard
+          </Button>
+        ) : (
+          <Button size="sm" onClick={handleSaveAsTemplate} disabled={savingTpl}>
+            {savingTpl && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}Save Template
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard Builder ─────────────────────────────────────────────────────
 
 export function DashboardBuilder() {
@@ -658,6 +995,8 @@ export function DashboardBuilder() {
   const [editing,     setEditing]     = useState(false);
   const [picker,      setPicker]      = useState(false);
   const [accessPanel, setAccessPanel] = useState(false);
+  const [contextPanel, setContextPanel] = useState(false);
+  const [templatePanel, setTemplatePanel] = useState(false);
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [analyzeContext, setAnalyzeContext] = useState<AnalysisContext | null>(null);
   const [ddOpen,      setDdOpen]      = useState(false);
@@ -683,6 +1022,9 @@ export function DashboardBuilder() {
 
   const dashboard  = activeDashboard();
   const rawWidgets = dashboard?.config?.widgets ?? [];
+  const dashboardContext: ContextFilter | undefined = (dashboard?.config?.contextField && dashboard?.config?.contextValue)
+    ? { field: dashboard.config.contextField, value: dashboard.config.contextValue }
+    : undefined;
 
   // Auto-position any widgets that were saved without x,y (backward compat)
   const allWidgets = autoPositionWidgets(rawWidgets);
@@ -828,6 +1170,17 @@ export function DashboardBuilder() {
           <BrainCircuit className="w-3.5 h-3.5" /> Analyze
         </Button>
 
+        <Button
+          variant={contextPanel || dashboard.config?.contextField ? "default" : "outline"}
+          size="sm" className="h-8 text-xs gap-1.5"
+          onClick={() => { setContextPanel(p => !p); setPicker(false); setAccessPanel(false); setTemplatePanel(false); }}>
+          <Filter className="w-3.5 h-3.5" />
+          {dashboard.config?.contextField ? `${dashboard.config.contextField}: ${dashboard.config.contextValue}` : "Filter"}
+        </Button>
+        <Button variant={templatePanel ? "default" : "outline"} size="sm" className="h-8 text-xs gap-1.5"
+          onClick={() => { setTemplatePanel(p => !p); setPicker(false); setAccessPanel(false); setContextPanel(false); }}>
+          <LayoutTemplate className="w-3.5 h-3.5" /> Templates
+        </Button>
         {canManage && (
           <Button variant={accessPanel ? "default" : "outline"} size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setAccessPanel(p => !p); setPicker(false); setEditing(false); }}>
@@ -851,6 +1204,18 @@ export function DashboardBuilder() {
       {/* ── Panels ──────────────────────────────────────────────────────────── */}
       {picker && <AnalyticsPicker dashboardId={dashboard.id} onClose={() => setPicker(false)} currentWidgetKeys={currentWidgetKeys} />}
       {accessPanel && <AccessPanel dashboard={dashboard} onClose={() => setAccessPanel(false)} />}
+      {contextPanel && <ContextFilterPanel dashboard={dashboard} onClose={() => setContextPanel(false)} />}
+      {templatePanel && (
+        <TemplatePanel
+          dashboard={dashboard}
+          onClose={() => setTemplatePanel(false)}
+          onCreated={async (id) => {
+            setTemplatePanel(false);
+            await loadDashboards();
+            setActiveDashboard(id);
+          }}
+        />
+      )}
 
       <AnalysisPanel
         open={analyzeOpen}
@@ -877,13 +1242,14 @@ export function DashboardBuilder() {
           <div className="space-y-4">
             {allWidgets.map(widget => {
               if (widget.type === "section") return null;
-              const mobileH = widget.type === "kpi" ? 120
-                : widget.type === "target" ? 220
-                : widget.type === "table" ? 300
+              const chartType = (widget.config as any)?.chartType;
+              const mobileH = chartType === "kpi" ? 120
+                : chartType === "target" ? 220
+                : chartType === "table" ? 300
                 : 260;
               return (
                 <div key={widget.id} style={{ height: mobileH }}>
-                  <WidgetCard widget={widget} editing={false} dashboardId={dashboard.id} />
+                  <WidgetCard widget={widget} editing={false} dashboardId={dashboard.id} dashboardContext={dashboardContext} />
                 </div>
               );
             })}
@@ -920,7 +1286,7 @@ export function DashboardBuilder() {
               <div key={widget.id} style={{ cursor: editing && widget.type !== 'section' ? 'grab' : 'default' }}>
                 {widget.type === "section"
                   ? <SectionCard widget={widget} editing={editing} dashboardId={dashboard.id} />
-                  : <WidgetCard  widget={widget} editing={editing} dashboardId={dashboard.id} />}
+                  : <WidgetCard  widget={widget} editing={editing} dashboardId={dashboard.id} dashboardContext={dashboardContext} />}
               </div>
             ))}
           </ReactGridLayout>

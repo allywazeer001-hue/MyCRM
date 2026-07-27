@@ -103,3 +103,9 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
     _socket = null;
   },
 }));
+
+// Shared access to the underlying socket for other real-time listeners
+// (e.g. blueprint stage-change events) — sockets can't live in Zustand state.
+export function getSocket(): Socket | null {
+  return _socket;
+}

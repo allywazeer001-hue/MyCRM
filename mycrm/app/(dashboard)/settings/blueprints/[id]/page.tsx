@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -7,29 +7,33 @@ import {
   CheckCircle2, AlertCircle, Loader2, Zap,
   Settings, ChevronsRight,
   ArrowRight, Workflow, Layers, Shield, Bell,
-  ChevronDown, Check,
+  ChevronDown, Check, Lock, Clock,
   ZoomIn, ZoomOut, Maximize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TransitionPanel, MultiSelect, UserSearch } from "@/components/blueprints/transition-panel";
+import type { FlowTransition, OrgDepartment } from "@/components/blueprints/flow-types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel,
+  ReactFlow, ReactFlowProvider, Background, Controls, Panel,
   useNodesState, useEdgesState, useReactFlow,
-  Handle, Position, MarkerType, BackgroundVariant,
+  Handle, Position, MarkerType, BackgroundVariant, ConnectionLineType,
+  BaseEdge, EdgeLabelRenderer, getSmoothStepPath,
   type Node, type Edge, type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
-// ── uid ───────────────────────────────────────────────────────────────────────
+// â"€â"€ uid â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// â"€â"€ Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 interface Cond {
   id: string; fieldName: string; operator: string; value: string;
 }
@@ -52,16 +56,40 @@ interface TreeNode {
 }
 interface ModuleField {
   id: string; name: string; label: string; type: string;
-  options?: { value: string; label: string; color?: string }[];
+  options?: { id?: string; value: string; label: string; color?: string }[];
 }
 interface BpDetail {
   id: string; name: string; moduleId: string; statusFieldName: string;
   phases: any[]; transitions: any[]; treeData?: { nodes: TreeNode[] } | null; isActive: boolean;
+  fieldLocks?: Record<string, any>;
   module?: { id: string; name: string; slug: string; icon?: string; fields: ModuleField[] };
+}
+
+// Per-stage field lock config — a field name list plus who may override the
+// lock (beyond ADMIN/SUPER_ADMIN, who can always override).
+interface StageFieldLock {
+  fields: string[];
+  overrideRoles: string[];
+  overrideUserIds: string[];
+}
+function normalizeStageFieldLock(raw: any): StageFieldLock {
+  if (Array.isArray(raw)) return { fields: raw, overrideRoles: [], overrideUserIds: [] };
+  if (raw && typeof raw === "object") {
+    return {
+      fields: Array.isArray(raw.fields) ? raw.fields : [],
+      overrideRoles: Array.isArray(raw.overrideRoles) ? raw.overrideRoles : [],
+      overrideUserIds: Array.isArray(raw.overrideUserIds) ? raw.overrideUserIds : [],
+    };
+  }
+  return { fields: [], overrideRoles: [], overrideUserIds: [] };
 }
 type AddType = { type: "condition"; branchType: "if" | "else_if" | "else" } | { type: "action" };
 
-// ── Flow Designer Types ────────────────────────────────────────────────────────
+interface OrgUser {
+  id: string; firstName: string; lastName: string; email: string; role: string;
+}
+
+// â"€â"€ Flow Designer Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 interface FlowPhase {
   id: string;
   name: string;
@@ -70,34 +98,19 @@ interface FlowPhase {
   x: number;
   y: number;
 }
-interface FlowTransition {
-  id: string;
-  name: string;
-  fromPhaseId: string;
-  toPhaseId: string;
-  isCommon?: boolean; // true = available from any stage
-  description?: string;
-  buttonColor: string;
-  requiredFields: string[];
-  allowedRoles: string[];
-  allowedUsers: string[];
-  conditions: any[];
-  conditionsLogic: "AND" | "OR";
-  requiresApproval: boolean;
-  approvalRoles: string[];
-  notifyRoles: string[];
-  notifyUsers: string[];
-  confirmMessage?: string;
-}
+// FlowTransition is imported from @/components/blueprints/flow-types
 
-const ROLE_OPTIONS = ["ADMIN", "MANAGER", "STAFF", "VIEWER", "USER"];
+// ROLE_OPTIONS removed — roles now come from the Staff Roles global list
 const FLOW_COLORS  = ["#3b82f6","#22c55e","#f97316","#8b5cf6","#ef4444","#14b8a6","#eab308","#6b7280","#ec4899"];
 const DRAG_TYPE    = "application/x-blueprint-stage";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function initTransitionsFromBlueprint(blueprint: BpDetail): FlowTransition[] {
   return ((blueprint.transitions || []) as any[]).map((t: any) => ({
+    // Spread all stored fields first (preserves extended fields on reload)
+    ...t,
+    // Ensure required fields have defaults
     id: t.id || uid(), name: t.name || "Transition",
     fromPhaseId: t.fromPhaseId || "", toPhaseId: t.toPhaseId || "",
     isCommon: t.isCommon === true || t.fromPhaseId === "*",
@@ -107,84 +120,274 @@ function initTransitionsFromBlueprint(blueprint: BpDetail): FlowTransition[] {
     conditionsLogic: t.conditionsLogic || "AND", requiresApproval: t.requiresApproval || false,
     approvalRoles: t.approvalRoles || [], notifyRoles: t.notifyRoles || [],
     notifyUsers: t.notifyUsers || [], confirmMessage: t.confirmMessage || "",
+    fieldUpdates: t.fieldUpdates || [], tagUpdates: t.tagUpdates || [],
+    postAutomation: t.postAutomation || [], notifyChannels: t.notifyChannels || ["in_app"],
+    lockMode: t.lockMode || "none",
   }));
 }
 
-function buildEdges(transitions: FlowTransition[]): Edge[] {
-  return transitions
+const GLOBAL_NODE_ID = "__global__";
+
+// Per-transition-type colors — kept in sync with TRANSITION_TYPES in transition-panel.tsx
+const TRANSITION_TYPE_COLORS: Record<string, string> = {
+  manual:    "#374151",
+  approval:  "#f59e0b",
+  condition: "#8b5cf6",
+  workflow:  "#0ea5e9",
+  schedule:  "#10b981",
+  webhook:   "#9ca3af",
+  system_event: "#9ca3af",
+};
+
+const TRANSITION_TYPE_ICONS: Record<string, any> = {
+  approval:  CheckCircle2,
+  condition: GitBranch,
+  workflow:  Zap,
+  schedule:  Clock,
+};
+
+function buildEdges(transitions: FlowTransition[], onEdit?: (id: string) => void): Edge[] {
+  const arrowFor = (t: FlowTransition) => ({
+    type: MarkerType.ArrowClosed,
+    color: TRANSITION_TYPE_COLORS[t.transitionType ?? "manual"],
+    width: 10, height: 10,
+  } as const);
+
+  const regular: Edge[] = transitions
     .filter(t => !t.isCommon && t.fromPhaseId !== "*" && t.fromPhaseId && t.toPhaseId)
-    .map(t => {
-      const c = t.buttonColor || "#3b82f6";
-      return {
-        id: t.id, source: t.fromPhaseId, target: t.toPhaseId, label: t.name,
-        type: "smoothstep",
-        markerEnd: { type: MarkerType.ArrowClosed, color: c },
-        style: { stroke: c, strokeWidth: 2 },
-        labelStyle: { fill: c, fontWeight: 700, fontSize: 11 },
-        labelBgStyle: { fill: "#fff", fillOpacity: 0.9 },
-        labelBgPadding: [4, 6] as [number, number],
-        labelBgBorderRadius: 4,
-        data: { transition: t },
-      };
-    });
+    .map(t => ({
+      id: t.id, source: t.fromPhaseId, target: t.toPhaseId,
+      type: "transitionEdge",
+      markerEnd: arrowFor(t),
+      data: { transition: t, isCommon: false, onEdit },
+    }));
+
+  const common: Edge[] = transitions
+    .filter(t => (t.isCommon || t.fromPhaseId === "*") && t.toPhaseId)
+    .map(t => ({
+      id: t.id, source: GLOBAL_NODE_ID, target: t.toPhaseId,
+      type: "transitionEdge",
+      markerEnd: arrowFor(t),
+      data: { transition: t, isCommon: true, onEdit },
+    }));
+
+  return [...regular, ...common];
 }
 
-// ── Custom Phase Node ─────────────────────────────────────────────────────────
+// â"€â"€ Custom Transition Edge â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+function TransitionEdge({
+  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+  data, selected, markerEnd,
+}: any) {
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX, sourceY, sourcePosition,
+    targetX, targetY, targetPosition,
+    borderRadius: 10,
+  });
+  const isCommon: boolean = data?.isCommon ?? false;
+  const t: FlowTransition | undefined = data?.transition;
+  const hasRestrictions = (t?.allowedRoles?.length ?? 0) > 0 || (t?.allowedUsers?.length ?? 0) > 0 || (t?.allowedDepartments?.length ?? 0) > 0;
+  const typeColor = TRANSITION_TYPE_COLORS[t?.transitionType ?? "manual"];
+  const TypeIcon = TRANSITION_TYPE_ICONS[t?.transitionType ?? "manual"];
+  const strokeColor = selected ? "#3b82f6" : typeColor;
+  const labelBg     = selected ? "#3b82f6" : typeColor;
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd}
+        style={{
+          stroke: strokeColor,
+          strokeWidth: 1.5,
+          strokeDasharray: isCommon ? "8 5" : undefined,
+          opacity: selected ? 1 : 0.75,
+          transition: "stroke-width 0.1s, opacity 0.1s",
+        }}
+      />
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: "absolute",
+            transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: "all",
+            zIndex: 20,
+          }}
+          className="nodrag nopan"
+        >
+          {/* Transition name chip */}
+          <button
+            onClick={() => data?.onEdit?.(id)}
+            title="Configure transition"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "3px 9px",
+              borderRadius: 99,
+              background: selected ? labelBg : "#fff",
+              border: `1.5px solid ${selected ? labelBg : "#d1d5db"}`,
+              color: selected ? "#fff" : "#374151",
+              cursor: "pointer",
+              boxShadow: "0 1px 5px rgba(0,0,0,0.12)",
+              fontSize: 11, fontWeight: 600,
+              whiteSpace: "nowrap",
+              transition: "all 0.12s",
+            }}
+          >
+            {TypeIcon && (
+              <TypeIcon style={{ width: 9, height: 9, opacity: 0.85, flexShrink: 0, color: selected ? "#fff" : typeColor }} />
+            )}
+            {hasRestrictions && (
+              <Lock style={{ width: 9, height: 9, opacity: 0.7, flexShrink: 0 }} />
+            )}
+            {t?.name && t.name !== "Transition"
+              ? t.name
+              : <span style={{ opacity: 0.5, fontWeight: 400, fontSize: 10 }}>transition</span>
+            }
+          </button>
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+// â"€â"€ Custom Phase Node â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function PhaseNode({ data, selected }: { data: any; selected: boolean }) {
   const phase: FlowPhase = data.phase;
+  const hasRestrictions: boolean = data.hasRestrictions ?? false;
+  const c = phase.color || "#6366f1";
+
   return (
-    <div className={cn(
-      "rounded-xl border-2 bg-white shadow-sm w-52 select-none transition-all",
-      selected ? "border-blue-500 shadow-lg shadow-blue-100/60" : "border-gray-200 hover:border-gray-300 hover:shadow-md"
-    )}>
-      <Handle type="target" position={Position.Top}
-        className="!w-3.5 !h-3.5 !rounded-full !border-2 !border-white" style={{ backgroundColor: "#94a3b8" }} />
-      <div className="h-2 rounded-t-[10px] w-full" style={{ backgroundColor: phase.color }} />
-      <div className="px-3 py-2.5">
-        <p className="text-sm font-bold text-gray-900 leading-tight truncate">{phase.name}</p>
-        <p className="text-[10px] text-gray-400 mt-0.5 tabular-nums">
-          <span className="font-medium text-gray-500">{data.outCount ?? 0}</span> out
-          &middot; <span className="font-medium text-gray-500">{data.inCount ?? 0}</span> in
+    <div style={{
+      width: 148,
+      background: "#fff",
+      borderRadius: 8,
+      border: `1.5px solid ${selected ? c : "#e5e7eb"}`,
+      boxShadow: selected
+        ? `0 0 0 3px ${c}25, 0 4px 14px rgba(0,0,0,0.12)`
+        : "0 2px 6px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04)",
+      transition: "border-color 0.13s, box-shadow 0.13s",
+      userSelect: "none",
+      overflow: "hidden",
+    }}>
+      {/* Wide invisible target zone */}
+      <Handle type="target" position={Position.Top} style={{
+        opacity: 0, border: "none", background: "transparent",
+        top: 0, left: 0, transform: "none", width: "100%", height: 16,
+      }} />
+
+      {/* Color stripe */}
+      <div style={{ height: 4, background: c }} />
+
+      {/* Stage name — centered, no stats */}
+      <div style={{
+        padding: "9px 10px 10px",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      }}>
+        <div style={{ width: 6, height: 6, borderRadius: "50%", background: c, flexShrink: 0 }} />
+        <p style={{
+          margin: 0,
+          fontSize: 12.5, fontWeight: 600, color: "#111827",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          lineHeight: "18px",
+        }}>
+          {phase.name}
         </p>
+        {hasRestrictions && (
+          <Lock style={{ width: 10, height: 10, color: "#f59e0b", flexShrink: 0 }} />
+        )}
       </div>
-      <Handle type="source" position={Position.Bottom}
-        className="!w-4 !h-4 !rounded-full !border-2 !border-white" style={{ backgroundColor: "#3b82f6" }} />
+
+      {/* Source handle */}
+      <Handle type="source" position={Position.Bottom} style={{
+        width: 12, height: 12, background: c,
+        border: "2.5px solid #fff", borderRadius: "50%",
+        boxShadow: `0 0 0 2px ${c}40, 0 2px 5px rgba(0,0,0,0.15)`,
+        bottom: -6, cursor: "crosshair",
+      }} />
     </div>
   );
 }
 
-const PHASE_NODE_TYPES = { phaseNode: PhaseNode };
+// â"€â"€ Global Source Node ("Any Stage") â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
-// ── FlowDesigner — public wrapper (adds ReactFlowProvider) ────────────────────
+function GlobalSourceNode({ data, selected }: { data: any; selected: boolean }) {
+  const count: number = data.count ?? 0;
+  const c = "#7c3aed";
+
+  return (
+    <div style={{
+      width: 146,
+      background: "#faf5ff",
+      borderRadius: 8,
+      border: `1.5px solid ${selected ? c : "#ddd6fe"}`,
+      boxShadow: selected
+        ? `0 0 0 3px ${c}22, 0 4px 12px rgba(0,0,0,0.10)`
+        : "0 2px 6px rgba(124,58,237,0.09), 0 1px 2px rgba(0,0,0,0.04)",
+      transition: "border-color 0.13s, box-shadow 0.13s",
+      userSelect: "none",
+      cursor: "pointer",
+      overflow: "hidden",
+    }}>
+      <div style={{ height: 4, background: c }} />
+      <div style={{ padding: "9px 11px 10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+          <ChevronsRight style={{ width: 11, height: 11, color: c, flexShrink: 0 }} />
+          <p style={{
+            margin: 0, flex: 1,
+            fontSize: 12, fontWeight: 600, color: "#4c1d95",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>Any Stage</p>
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: "#fff",
+            background: c, borderRadius: 999,
+            padding: "1px 6px", lineHeight: "15px", flexShrink: 0,
+          }}>{count}</span>
+        </div>
+        <p style={{ margin: 0, fontSize: 10, color: "#a78bfa", lineHeight: 1 }}>global transitions</p>
+      </div>
+      <Handle type="source" position={Position.Bottom} style={{
+        width: 11, height: 11, background: c,
+        border: "2.5px solid #fff", borderRadius: "50%",
+        boxShadow: `0 0 0 2px ${c}40`, bottom: -5.5,
+      }} />
+    </div>
+  );
+}
+
+const PHASE_NODE_TYPES = { phaseNode: PhaseNode, globalSourceNode: GlobalSourceNode };
+const PHASE_EDGE_TYPES = { transitionEdge: TransitionEdge };
+
+// â"€â"€ FlowDesigner — public wrapper (adds ReactFlowProvider) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function FlowDesigner({
-  blueprint, onSave,
+  blueprint, onSave, staffRoles,
 }: {
   blueprint: BpDetail;
-  onSave: (phases: FlowPhase[], transitions: FlowTransition[]) => Promise<void>;
+  onSave: (phases: FlowPhase[], transitions: FlowTransition[], fieldLocks: Record<string, any>) => Promise<void>;
+  staffRoles?: { value: string; label: string }[];
 }) {
   return (
     <ReactFlowProvider>
-      <FlowDesignerInner blueprint={blueprint} onSave={onSave} />
+      <FlowDesignerInner blueprint={blueprint} onSave={onSave} staffRoles={staffRoles} />
     </ReactFlowProvider>
   );
 }
 
-// ── FlowDesignerInner — 3-panel editor ───────────────────────────────────────
+// â"€â"€ FlowDesignerInner — 3-panel editor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type RightMode = "none" | "stage" | "edge" | "common-list";
 
 function FlowDesignerInner({
-  blueprint, onSave,
+  blueprint, onSave, staffRoles = [],
 }: {
   blueprint: BpDetail;
-  onSave: (phases: FlowPhase[], transitions: FlowTransition[]) => Promise<void>;
+  onSave: (phases: FlowPhase[], transitions: FlowTransition[], fieldLocks: Record<string, any>) => Promise<void>;
+  staffRoles?: { value: string; label: string }[];
 }) {
   const { screenToFlowPosition } = useReactFlow();
   const allFields: ModuleField[] = blueprint.module?.fields || [];
 
-  // ── All stages from the status field (library source) ─────────────────────
+  // â"€â"€ All stages from the status field (library source) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const libraryStages = useMemo((): FlowPhase[] => {
     const statusField = blueprint.module?.fields.find(f => f.name === blueprint.statusFieldName);
     const opts = statusField?.options || [];
@@ -195,22 +398,30 @@ function FlowDesignerInner({
     }));
   }, [blueprint]);
 
-  // ── Canvas phases (previously saved blueprint.phases) ─────────────────────
+  // â"€â"€ Canvas phases (previously saved blueprint.phases) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const initCanvasPhases = (): FlowPhase[] => {
     const saved = (blueprint.phases || []) as any[];
-    if (!saved.length) return [];
-    return saved.map((p: any, i: number) => ({
-      id:    p.id ?? p.value ?? String(i),
-      name:  p.name ?? p.label ?? String(p.id),
-      color: p.color ?? FLOW_COLORS[i % FLOW_COLORS.length],
-      order: p.order ?? i,
-      x: p.x ?? (i % 4) * 260 + 80,
-      y: p.y ?? Math.floor(i / 4) * 160 + 80,
-    }));
+    // Only restore phases that were explicitly placed (have a saved x position).
+    // Auto-populated status-field entries have no x/y and must stay in the library.
+    return saved
+      .filter((p: any) => p.x != null)
+      .map((p: any, i: number) => ({
+        id:    p.id ?? p.value ?? String(i),
+        name:  p.name ?? p.label ?? String(p.id),
+        color: p.color ?? FLOW_COLORS[i % FLOW_COLORS.length],
+        order: p.order ?? i,
+        x: p.x,
+        y: p.y ?? 80,
+      }));
   };
 
   const [phases, setPhases]             = useState<FlowPhase[]>(initCanvasPhases);
   const [transitions, setTransitions]   = useState<FlowTransition[]>(() => initTransitionsFromBlueprint(blueprint));
+  // Snapshot of ids that were already persisted when this editor loaded — while the
+  // blueprint is active, only these are protected from removal; anything added in this
+  // same session (not yet saved) can still be freely deleted before it's ever persisted.
+  const persistedPhaseIdsRef = useRef(new Set(initCanvasPhases().map(p => p.id)));
+  const persistedTransitionIdsRef = useRef(new Set(initTransitionsFromBlueprint(blueprint).map(t => t.id)));
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [saving, setSaving]             = useState(false);
@@ -218,28 +429,100 @@ function FlowDesignerInner({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [rightMode,      setRightMode]       = useState<RightMode>("none");
+  const [users,          setUsers]           = useState<OrgUser[]>([]);
+  const [departments,    setDepartments]     = useState<OrgDepartment[]>([]);
+  const [fieldLocks,     setFieldLocks]      = useState<Record<string, any>>(() => blueprint.fieldLocks ?? {});
+  const globalNodePosRef = useRef({ x: -260, y: 60 });
+
+  const updateStageFieldLock = (stageId: string, patch: Partial<StageFieldLock>) => {
+    setFieldLocks(prev => {
+      const current = normalizeStageFieldLock(prev[stageId]);
+      return { ...prev, [stageId]: { ...current, ...patch } };
+    });
+    mark();
+  };
 
   const mark = () => setDirty(true);
 
-  // ── Sync graph ────────────────────────────────────────────────────────────
+  // Stable callback so edge "+" buttons can open the TransitionPanel
+  const editEdge = useCallback((id: string) => {
+    setSelectedEdgeId(id); setSelectedNodeId(null); setRightMode("edge");
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    api.get("/users").then(r => setUsers(r.data ?? [])).catch(() => {});
+    api.get("/departments").then(r => setDepartments(r.data ?? [])).catch(() => {});
+  }, []);
+
+  // â"€â"€ Sync graph â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const syncGraph = useCallback((ph: FlowPhase[], tr: FlowTransition[]) => {
     const outMap: Record<string, number> = {};
     const inMap:  Record<string, number> = {};
-    tr.filter(t => !t.isCommon).forEach(t => {
+    const restrictedFrom = new Set<string>(); // phases with â‰¥1 restricted outgoing transition
+    tr.filter(t => !t.isCommon && t.fromPhaseId !== "*").forEach(t => {
       outMap[t.fromPhaseId] = (outMap[t.fromPhaseId] || 0) + 1;
       inMap[t.toPhaseId]    = (inMap[t.toPhaseId]    || 0) + 1;
+      if ((t.allowedRoles?.length ?? 0) > 0 || (t.allowedUsers?.length ?? 0) > 0) {
+        restrictedFrom.add(t.fromPhaseId);
+      }
     });
-    setNodes(ph.map(p => ({
-      id: p.id, type: "phaseNode",
-      position: { x: p.x, y: p.y },
-      data: { phase: p, outCount: outMap[p.id] || 0, inCount: inMap[p.id] || 0 },
-    })));
-    setEdges(buildEdges(tr));
-  }, [setNodes, setEdges]);
+    const commonCount = tr.filter(t => t.isCommon || t.fromPhaseId === "*").length;
+    const globalNode: Node[] = commonCount > 0 ? [{
+      id: GLOBAL_NODE_ID, type: "globalSourceNode",
+      position: globalNodePosRef.current,
+      draggable: true, connectable: false, selectable: true,
+      data: { count: commonCount },
+    }] : [];
+    setNodes([
+      ...globalNode,
+      ...ph.map(p => ({
+        id: p.id, type: "phaseNode",
+        position: { x: p.x, y: p.y },
+        data: {
+          phase: p,
+          outCount: outMap[p.id] || 0,
+          inCount: inMap[p.id] || 0,
+          hasRestrictions: restrictedFrom.has(p.id),
+        },
+      })),
+    ]);
+    setEdges(buildEdges(tr, editEdge));
+  }, [setNodes, setEdges, editEdge]);
 
-  useEffect(() => { syncGraph(phases, transitions); }, []); // eslint-disable-line
+  // â"€â"€ Sync transitions only (in-place) — does NOT replace nodes so viewport is preserved â"€â"€
+  const syncTransitions = useCallback((tr: FlowTransition[]) => {
+    const outMap: Record<string, number> = {};
+    const inMap:  Record<string, number> = {};
+    const restrictedFrom = new Set<string>();
+    tr.filter(t => !t.isCommon && t.fromPhaseId !== "*").forEach(t => {
+      outMap[t.fromPhaseId] = (outMap[t.fromPhaseId] || 0) + 1;
+      inMap[t.toPhaseId]    = (inMap[t.toPhaseId]    || 0) + 1;
+      if ((t.allowedRoles?.length ?? 0) > 0 || (t.allowedUsers?.length ?? 0) > 0) {
+        restrictedFrom.add(t.fromPhaseId);
+      }
+    });
+    const commonCount = tr.filter(t => t.isCommon || t.fromPhaseId === "*").length;
+    setEdges(buildEdges(tr, editEdge));
+    setNodes(prev => {
+      const hasGlobal = prev.some(n => n.id === GLOBAL_NODE_ID);
+      const updated = prev
+        .filter(n => !(n.id === GLOBAL_NODE_ID && commonCount === 0))
+        .map(n => {
+          if (n.id === GLOBAL_NODE_ID) return { ...n, data: { count: commonCount } };
+          return { ...n, data: { ...n.data, outCount: outMap[n.id] || 0, inCount: inMap[n.id] || 0, hasRestrictions: restrictedFrom.has(n.id) } };
+        });
+      if (commonCount > 0 && !hasGlobal) {
+        updated.push({ id: GLOBAL_NODE_ID, type: "globalSourceNode", position: globalNodePosRef.current, draggable: true, connectable: false, selectable: true, data: { count: commonCount } });
+      }
+      return updated;
+    });
+  }, [setEdges, setNodes, editEdge]); // eslint-disable-line
 
-  // ── Library drag→canvas drop ──────────────────────────────────────────────
+  useEffect(() => {
+    syncGraph(phases, transitions);
+  }, []); // eslint-disable-line
+
+  // â"€â"€ Library dragâ†’canvas drop â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const placedIds = useMemo(() => new Set(phases.map(p => p.id)), [phases]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -248,8 +531,23 @@ function FlowDesignerInner({
     if (!raw) return;
     const stage: FlowPhase = JSON.parse(raw);
     if (placedIds.has(stage.id)) return;
-    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const newPhase: FlowPhase = { ...stage, x: pos.x, y: pos.y };
+    const base = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+
+    // Nudge until we find a spot that doesn't overlap any existing node
+    const W = 168, H = 72, GAP = 20;
+    let { x, y } = base;
+    let col = 0;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const overlaps = phases.some(p =>
+        Math.abs(p.x - x) < W + GAP && Math.abs(p.y - y) < H + GAP,
+      );
+      if (!overlaps) break;
+      col++;
+      x = base.x + col * (W + GAP);
+      if (col > 3) { col = 0; x = base.x; y += H + GAP; }
+    }
+
+    const newPhase: FlowPhase = { ...stage, x, y };
     const next = [...phases, newPhase];
     setPhases(next);
     syncGraph(next, transitions);
@@ -263,7 +561,7 @@ function FlowDesignerInner({
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
-  // ── Stage CRUD ────────────────────────────────────────────────────────────
+  // â"€â"€ Stage CRUD â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const addCustomStage = () => {
     const newP: FlowPhase = {
       id: uid(), name: "New Stage", color: "#6366f1", order: phases.length,
@@ -281,6 +579,10 @@ function FlowDesignerInner({
   };
 
   const deletePhase = (id: string) => {
+    if (blueprint.isActive && persistedPhaseIdsRef.current.has(id)) {
+      alert("Can't remove stages while this blueprint is switched on. Turn it off first, or add new stages instead.");
+      return;
+    }
     if (!confirm("Remove this stage from the canvas? It will return to the Stage Library. Its transitions will be removed.")) return;
     const nextPh = phases.filter(p => p.id !== id);
     const nextTr = transitions.filter(t => t.fromPhaseId !== id && t.toPhaseId !== id);
@@ -288,15 +590,19 @@ function FlowDesignerInner({
     setSelectedNodeId(null); setRightMode("none"); mark();
   };
 
-  // ── Transition CRUD ───────────────────────────────────────────────────────
+  // â"€â"€ Transition CRUD (uses syncTransitions — viewport-safe) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const updateTransition = (id: string, patch: Partial<FlowTransition>) => {
     const next = transitions.map(t => t.id === id ? { ...t, ...patch } : t);
-    setTransitions(next); syncGraph(phases, next); mark();
+    setTransitions(next); syncTransitions(next); mark();
   };
 
   const deleteTransition = (id: string) => {
+    if (blueprint.isActive && persistedTransitionIdsRef.current.has(id)) {
+      alert("Can't remove transitions while this blueprint is switched on. Turn it off first, or add new transitions instead.");
+      return;
+    }
     const next = transitions.filter(t => t.id !== id);
-    setTransitions(next); syncGraph(phases, next);
+    setTransitions(next); syncTransitions(next);
     setSelectedEdgeId(null); setRightMode("none"); mark();
   };
 
@@ -309,16 +615,18 @@ function FlowDesignerInner({
       requiredFields: [], allowedRoles: [], allowedUsers: [], conditions: [],
       conditionsLogic: "AND", requiresApproval: false, approvalRoles: [],
       notifyRoles: [], notifyUsers: [], confirmMessage: "",
+      fieldUpdates: [], tagUpdates: [], postAutomation: [],
+      notifyChannels: ["in_app"], lockMode: "none",
     };
     const next = [...transitions, newT];
-    setTransitions(next); syncGraph(phases, next);
+    setTransitions(next); syncTransitions(next);   // in-place: keeps viewport
     setSelectedEdgeId(newT.id); setSelectedNodeId(null);
     setRightMode("edge");
     mark();
     return newT;
   };
 
-  // ── React Flow callbacks ──────────────────────────────────────────────────
+  // â"€â"€ React Flow callbacks â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const onConnect = useCallback((conn: Connection) => {
     if (!conn.source || !conn.target || conn.source === conn.target) return;
     // Check if connection already exists
@@ -328,6 +636,10 @@ function FlowDesignerInner({
   }, [transitions]); // eslint-disable-line
 
   const onNodeClick = useCallback((_: any, node: Node) => {
+    if (node.id === GLOBAL_NODE_ID) {
+      setSelectedNodeId(null); setSelectedEdgeId(null); setRightMode("common-list");
+      return;
+    }
     setSelectedNodeId(node.id); setSelectedEdgeId(null); setRightMode("stage");
   }, []);
 
@@ -340,14 +652,18 @@ function FlowDesignerInner({
   }, []);
 
   const onNodeDragStop = useCallback((_: any, node: Node) => {
+    if (node.id === GLOBAL_NODE_ID) {
+      globalNodePosRef.current = { x: node.position.x, y: node.position.y };
+      return;
+    }
     setPhases(prev => prev.map(p => p.id === node.id ? { ...p, x: node.position.x, y: node.position.y } : p));
     mark();
   }, []); // eslint-disable-line
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // â"€â"€ Save â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const handleSave = async () => {
     setSaving(true);
-    try { await onSave(phases, transitions); setDirty(false); }
+    try { await onSave(phases, transitions, fieldLocks); setDirty(false); }
     finally { setSaving(false); }
   };
 
@@ -359,7 +675,7 @@ function FlowDesignerInner({
   return (
     <div className="flex flex-1 overflow-hidden">
 
-      {/* ── LEFT: Stage Library ── */}
+      {/* â"€â"€ LEFT: Stage Library â"€â"€ */}
       <div className="w-56 shrink-0 border-r border-gray-200 bg-gray-50 flex flex-col">
         <div className="px-4 pt-4 pb-3 border-b border-gray-200 bg-white">
           <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Stage Library</p>
@@ -367,31 +683,53 @@ function FlowDesignerInner({
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-          {/* Available stages — only unplaced ones */}
-          {(() => {
-            const available = libraryStages.filter(s => !placedIds.has(s.id));
-            if (available.length === 0 && libraryStages.length > 0) {
-              return (
-                <p className="text-[11px] text-gray-400 italic text-center py-4 px-2">
-                  All stages are on the canvas.<br />Delete a stage to return it here.
-                </p>
-              );
-            }
-            return available.map(stage => (
+          {/* All stages — draggable if not yet placed, badge if already on canvas */}
+          {libraryStages.length === 0 && (
+            <p className="text-[11px] text-gray-400 italic text-center py-4 px-2">
+              No stages defined for this entity type.
+            </p>
+          )}
+          {libraryStages.map(stage => {
+            const isPlaced = placedIds.has(stage.id);
+            const c = stage.color || "#6366f1";
+            return (
               <div key={stage.id}
-                draggable
-                onDragStart={e => {
+                draggable={!isPlaced}
+                onDragStart={isPlaced ? undefined : e => {
                   e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(stage));
                   e.dataTransfer.effectAllowed = "copy";
                 }}
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-800 cursor-grab hover:border-blue-300 hover:bg-blue-50/40 hover:shadow-sm active:scale-95 active:opacity-75 transition-all select-none"
+                title={isPlaced ? "Already on canvas" : "Drag onto canvas"}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: isPlaced ? "#f9fafb" : "#fff",
+                  borderRadius: 7, border: `1.5px solid ${isPlaced ? "#e5e7eb" : "#e5e7eb"}`,
+                  overflow: "hidden",
+                  cursor: isPlaced ? "default" : "grab",
+                  userSelect: "none",
+                  opacity: isPlaced ? 0.6 : 1,
+                  boxShadow: isPlaced ? "none" : "0 1px 3px rgba(0,0,0,0.06)",
+                  transition: "opacity 0.12s, box-shadow 0.12s",
+                }}
               >
-                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
-                <span className="flex-1 truncate">{stage.name}</span>
-                <ArrowRight className="w-3 h-3 text-gray-300 shrink-0" />
+                {/* Same stripe language as canvas node */}
+                <div style={{ width: 4, alignSelf: "stretch", flexShrink: 0, background: isPlaced ? "#34d399" : c }} />
+                <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 7, padding: "7px 8px 7px 6px", minWidth: 0 }}>
+                  <p style={{
+                    margin: 0, flex: 1, fontSize: 12, fontWeight: 500,
+                    color: isPlaced ? "#6b7280" : "#111827",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {stage.name}
+                  </p>
+                  {isPlaced
+                    ? <CheckCircle2 style={{ width: 12, height: 12, color: "#34d399", flexShrink: 0 }} />
+                    : <ArrowRight style={{ width: 11, height: 11, color: "#d1d5db", flexShrink: 0 }} />
+                  }
+                </div>
               </div>
-            ));
-          })()}
+            );
+          })}
 
           {/* Custom stage creator */}
           <div className="pt-3">
@@ -407,7 +745,7 @@ function FlowDesignerInner({
           <div className="pt-2">
             <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest px-1 mb-1.5">Global</p>
             <button
-              onClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setPendingConn(null); setRightMode("common-list"); }}
+              onClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setRightMode("common-list"); }}
               className={cn(
                 "w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors",
                 rightMode === "common-list"
@@ -431,13 +769,13 @@ function FlowDesignerInner({
         <div className="p-3 border-t border-gray-200 bg-white">
           <Button size="sm" className="w-full gap-1.5" onClick={handleSave} disabled={saving || !dirty}>
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            {saving ? "Saving…" : dirty ? "Save Flow" : "Saved"}
+            {saving ? "Savingâ€¦" : dirty ? "Save Flow" : "Saved"}
           </Button>
           {dirty && <p className="text-[10px] text-amber-500 text-center mt-1.5">Unsaved changes</p>}
         </div>
       </div>
 
-      {/* ── CENTER: Canvas ── */}
+      {/* â"€â"€ CENTER: Canvas â"€â"€ */}
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
         <ReactFlow
           nodes={nodes} edges={edges}
@@ -447,9 +785,18 @@ function FlowDesignerInner({
           onNodeDragStop={onNodeDragStop}
           onDrop={handleDrop} onDragOver={handleDragOver}
           nodeTypes={PHASE_NODE_TYPES}
+          edgeTypes={PHASE_EDGE_TYPES}
           deleteKeyCode="Delete"
-          fitView fitViewOptions={{ padding: 0.4 }}
+          fitView fitViewOptions={{ padding: 0.35, maxZoom: 1.2 }}
           defaultEdgeOptions={{ type: "smoothstep" }}
+          connectionLineType={ConnectionLineType.SmoothStep}
+          connectionLineStyle={{
+            stroke: "#374151",
+            strokeWidth: 2,
+            strokeDasharray: "6 4",
+            opacity: 0.75,
+          }}
+          connectionRadius={40}
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#e2e8f0" />
           <Controls
@@ -460,13 +807,25 @@ function FlowDesignerInner({
           {/* Empty canvas hint */}
           {phases.length === 0 && (
             <Panel position="top-center">
-              <div className="mt-20 bg-white border border-gray-200 rounded-2xl px-8 py-7 shadow-xl text-center max-w-xs">
-                <div className="w-14 h-14 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-4">
-                  <Workflow className="w-7 h-7 text-gray-300" />
+              <div style={{
+                marginTop: 80, background: "#fff",
+                border: "1px solid #e8ecf0", borderRadius: 14,
+                padding: "28px 32px", boxShadow: "0 4px 24px rgba(0,0,0,0.07)",
+                textAlign: "center", maxWidth: 300,
+              }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 12,
+                  background: "#f1f5f9", display: "flex",
+                  alignItems: "center", justifyContent: "center",
+                  margin: "0 auto 16px",
+                }}>
+                  <Layers style={{ width: 22, height: 22, color: "#94a3b8" }} />
                 </div>
-                <p className="text-sm font-semibold text-gray-700 mb-1">Canvas is empty</p>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Drag a stage from the <strong className="text-gray-600">Stage Library</strong> on the left onto here to get started.
+                <p style={{ margin: "0 0 6px", fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+                  Canvas is empty
+                </p>
+                <p style={{ margin: 0, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                  Drag a stage from the left panel onto the canvas, then drag the <span style={{ color: "#3b82f6", fontWeight: 600 }}>colored dot</span> at the bottom of each card to another card to draw a transition arrow.
                 </p>
               </div>
             </Panel>
@@ -474,7 +833,7 @@ function FlowDesignerInner({
         </ReactFlow>
       </div>
 
-      {/* ── RIGHT: Properties panel ── */}
+      {/* â"€â"€ RIGHT: Properties panel â"€â"€ */}
       <div className="w-96 shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-y-auto">
 
         {rightMode === "stage" && selPhase && (
@@ -485,12 +844,18 @@ function FlowDesignerInner({
             onUpdateTransition={updateTransition}
             onDeleteTransition={deleteTransition}
             onClose={() => { setSelectedNodeId(null); setRightMode("none"); }}
+            fieldLock={normalizeStageFieldLock(fieldLocks[selPhase.id])}
+            onUpdateFieldLock={patch => updateStageFieldLock(selPhase.id, patch)}
+            staffRoles={staffRoles}
+            users={users}
           />
         )}
 
         {rightMode === "edge" && selTrans && (
           <TransitionPanel
-            transition={selTrans} phases={phases} fields={allFields}
+            transition={selTrans} phases={phases} fields={allFields} users={users}
+            departments={departments} staffRoles={staffRoles}
+            blueprintId={blueprint?.id ?? ""} moduleId={blueprint?.moduleId ?? ""}
             onChange={patch => updateTransition(selTrans.id, patch)}
             onDelete={() => deleteTransition(selTrans.id)}
             onClose={() => { setSelectedEdgeId(null); setRightMode("none"); }}
@@ -507,26 +872,24 @@ function FlowDesignerInner({
         )}
 
         {rightMode === "none" && (
-          <div className="flex flex-col items-center justify-center gap-5 p-6 h-full text-center">
-            <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center">
-              <Workflow className="w-6 h-6 text-gray-300" />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, padding: 28, height: "100%", textAlign: "center" }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f8fafc", border: "1px solid #e8ecf0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Workflow style={{ width: 18, height: 18, color: "#cbd5e1" }} />
             </div>
-            <div className="space-y-3 w-full">
-              <p className="text-xs font-semibold text-gray-500">How to build your flow</p>
-              <div className="text-left space-y-2 text-[11px] text-gray-500">
-                <div className="flex items-start gap-2.5 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-gray-300 font-bold text-base leading-none mt-0.5">1</span>
-                  <span>Drag a stage from the <strong className="text-gray-700">Stage Library</strong> on the left onto the canvas</span>
+            <div style={{ width: "100%" }}>
+              <p style={{ margin: "0 0 14px", fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                How to build
+              </p>
+              {[
+                { n: 1, text: <>Drag a stage from the <b style={{ color: "#475569" }}>Stage Library</b> on the left</> },
+                { n: 2, text: <>Drag the <b style={{ color: "#3b82f6" }}>colored dot</b> at the bottom of a card to another card to create a transition</> },
+                { n: 3, text: <>Click any card or arrow to configure it here</> },
+              ].map(({ n, text }) => (
+                <div key={n} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 6, textAlign: "left" }}>
+                  <span style={{ width: 18, height: 18, borderRadius: "50%", background: "#e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#94a3b8", flexShrink: 0, marginTop: 1 }}>{n}</span>
+                  <p style={{ margin: 0, fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>{text}</p>
                 </div>
-                <div className="flex items-start gap-2.5 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-gray-300 font-bold text-base leading-none mt-0.5">2</span>
-                  <span>Drag the <strong className="text-blue-500">blue dot</strong> at the bottom of a stage to another stage to create a transition</span>
-                </div>
-                <div className="flex items-start gap-2.5 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-gray-300 font-bold text-base leading-none mt-0.5">3</span>
-                  <span>Click any stage or arrow to configure its settings here</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         )}
@@ -535,7 +898,7 @@ function FlowDesignerInner({
   );
 }
 
-// ── CommonTransitionsPanel ────────────────────────────────────────────────────
+// â"€â"€ CommonTransitionsPanel â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function CommonTransitionsPanel({
   commonTransitions, phases, fields, onAdd, onUpdate, onDelete, onClose,
@@ -586,7 +949,7 @@ function CommonTransitionsPanel({
                 onClick={() => setExpandedId(isOpen ? null : t.id)}>
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: t.buttonColor }} />
                 <span className="text-sm font-semibold text-violet-900 flex-1 truncate">{t.name}</span>
-                {target && <span className="text-[10px] text-violet-500 shrink-0">→ {target.name}</span>}
+                {target && <span className="text-[10px] text-violet-500 shrink-0">â†’ {target.name}</span>}
                 <ChevronDown className={cn("w-3.5 h-3.5 text-violet-400 shrink-0 transition-transform", isOpen && "rotate-180")} />
               </button>
               {isOpen && (
@@ -620,10 +983,11 @@ function CommonTransitionsPanel({
 }
 
 
-// ── Stage info panel ──────────────────────────────────────────────────────────
+// â"€â"€ Stage info panel â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function StagePanel({
   stage, transitions, phases, fields,
   onUpdatePhase, onDeletePhase, onUpdateTransition, onDeleteTransition, onClose,
+  fieldLock, onUpdateFieldLock, staffRoles, users,
 }: {
   stage: FlowPhase;
   transitions: FlowTransition[];
@@ -634,9 +998,14 @@ function StagePanel({
   onUpdateTransition: (id: string, patch: Partial<FlowTransition>) => void;
   onDeleteTransition: (id: string) => void;
   onClose: () => void;
+  fieldLock: StageFieldLock;
+  onUpdateFieldLock: (patch: Partial<StageFieldLock>) => void;
+  staffRoles: { value: string; label: string }[];
+  users: OrgUser[];
 }) {
   const outgoing = transitions.filter(t => !t.isCommon && t.fromPhaseId === stage.id);
   const incoming = transitions.filter(t => t.toPhaseId === stage.id);
+  const lockableFields = fields.filter(f => !["FORMULA", "AUTO_NUMBER", "INLINE_SUBFORM"].includes(f.type));
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -673,6 +1042,49 @@ function StagePanel({
                 style={{ backgroundColor: c }} />
             ))}
           </div>
+        </div>
+
+        {/* Field Locks */}
+        <div className="space-y-2.5 pt-1 border-t border-gray-100">
+          <div className="flex items-center gap-1.5 pt-2">
+            <Lock className="w-3.5 h-3.5 text-amber-500" />
+            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Field Locks</label>
+          </div>
+          <p className="text-[11px] text-gray-400 leading-relaxed">
+            Fields selected here become read-only once a record enters this stage — everywhere (forms, inline editing, mass update, imports, and automations).
+          </p>
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold text-gray-500">Locked Fields</label>
+            <MultiSelect
+              options={lockableFields.map(f => ({ value: f.name, label: f.label }))}
+              selected={fieldLock.fields}
+              onChange={v => onUpdateFieldLock({ fields: v })}
+              placeholder="Select fields to lock…"
+            />
+          </div>
+          {fieldLock.fields.length > 0 && (
+            <>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold text-gray-500">Override Roles</label>
+                <p className="text-[10px] text-gray-400">ADMIN and SUPER_ADMIN can always override — no need to add them here.</p>
+                <MultiSelect
+                  options={staffRoles}
+                  selected={fieldLock.overrideRoles}
+                  onChange={v => onUpdateFieldLock({ overrideRoles: v })}
+                  placeholder="Select roles that may override…"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold text-gray-500">Override Users</label>
+                <UserSearch
+                  users={users}
+                  selected={fieldLock.overrideUserIds}
+                  onChange={v => onUpdateFieldLock({ overrideUserIds: v })}
+                  placeholder="Add specific users who may override…"
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {/* Transitions summary */}
@@ -719,261 +1131,10 @@ function StagePanel({
   );
 }
 
-// ── Transition config panel ───────────────────────────────────────────────────
-const COLOR_PRESETS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#64748b"];
+// TransitionPanel is imported from @/components/blueprints/transition-panel
 
-function SectionHeader({
-  icon, label, badge, open, onToggle,
-}: {
-  icon: React.ReactNode; label: string; badge?: React.ReactNode; open: boolean; onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50/80 transition-colors"
-    >
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{label}</span>
-        {badge}
-      </div>
-      <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 transition-transform duration-200", open && "rotate-180")} />
-    </button>
-  );
-}
 
-function RolePills({
-  selected, onChange, color,
-}: {
-  selected: string[]; onChange: (v: string[]) => void; color: "blue" | "emerald" | "rose";
-}) {
-  const toggle = (r: string) =>
-    selected.includes(r) ? onChange(selected.filter(x => x !== r)) : onChange([...selected, r]);
-  const cls = {
-    blue:    { on: "bg-blue-600 text-white border-blue-600", off: "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50" },
-    emerald: { on: "bg-emerald-600 text-white border-emerald-600", off: "bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50" },
-    rose:    { on: "bg-rose-500 text-white border-rose-500", off: "bg-white text-gray-600 border-gray-200 hover:border-rose-300 hover:bg-rose-50" },
-  }[color];
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {ROLE_OPTIONS.map(role => (
-        <button key={role} type="button" onClick={() => toggle(role)}
-          className={cn("px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all", selected.includes(role) ? cls.on : cls.off)}>
-          {selected.includes(role) && "✓ "}{role}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function TransitionPanel({
-  transition, phases, fields, onChange, onDelete, onClose,
-}: {
-  transition: FlowTransition;
-  phases: FlowPhase[];
-  fields: ModuleField[];
-  onChange: (patch: Partial<FlowTransition>) => void;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  const from = phases.find(p => p.id === transition.fromPhaseId);
-  const to   = phases.find(p => p.id === transition.toPhaseId);
-  const isCommon = !!transition.isCommon;
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const color = transition.buttonColor || "#3b82f6";
-  const nonTextFields = fields.filter(f => !["FORMULA", "AUTO_NUMBER", "INLINE_SUBFORM"].includes(f.type));
-  const toggleArr = (arr: string[], val: string) => arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
-
-  const hasAdvanced =
-    transition.requiredFields.length > 0 ||
-    transition.allowedRoles.length > 0 ||
-    transition.requiresApproval ||
-    transition.notifyRoles.length > 0;
-
-  return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Color bar */}
-      <div className="h-1 w-full shrink-0" style={{ backgroundColor: color }} />
-
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">
-            {isCommon ? "Global Transition" : "Transition"}
-          </p>
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            {isCommon
-              ? <span className="font-medium text-violet-600">Any stage</span>
-              : <span className="font-medium truncate" style={{ color: from?.color }}>{from?.name || "?"}</span>}
-            <ArrowRight className="w-3 h-3 text-gray-300 shrink-0" />
-            <span className="font-medium truncate" style={{ color: to?.color }}>{to?.name || "?"}</span>
-          </div>
-        </div>
-        <button onClick={onDelete} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="Delete">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={onClose} className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" aria-label="Close">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-        {/* Button label */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-gray-500">Button Label</label>
-          <Input
-            value={transition.name}
-            onChange={e => onChange({ name: e.target.value })}
-            placeholder="e.g. Submit, Approve, Reject"
-            className="h-9 text-sm"
-          />
-        </div>
-
-        {/* Color */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-gray-500">Button Color</label>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {COLOR_PRESETS.map(c => (
-              <button key={c} type="button" onClick={() => onChange({ buttonColor: c })}
-                className={cn(
-                  "w-7 h-7 rounded-full border-2 transition-all hover:scale-110",
-                  color === c ? "border-gray-700 scale-110 shadow" : "border-white shadow-sm"
-                )}
-                style={{ backgroundColor: c }}
-              />
-            ))}
-            <label className="cursor-pointer" title="Custom color">
-              <div className="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center hover:border-gray-400 transition-colors relative">
-                <input type="color" value={color} onChange={e => onChange({ buttonColor: e.target.value })}
-                  className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
-                <Plus className="w-3 h-3 text-gray-400 pointer-events-none" />
-              </div>
-            </label>
-          </div>
-          {/* Preview */}
-          <div className="flex items-center gap-2 mt-1">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-semibold shadow-sm" style={{ backgroundColor: color }}>
-              <ArrowRight className="w-3 h-3" />
-              {transition.name || "Button Preview"}
-            </span>
-          </div>
-        </div>
-
-        {/* Confirm message */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-gray-500">Confirmation Message <span className="font-normal text-gray-400">(optional)</span></label>
-          <Input
-            value={transition.confirmMessage || ""}
-            onChange={e => onChange({ confirmMessage: e.target.value })}
-            placeholder="Are you sure?"
-            className="h-9 text-sm"
-          />
-          <p className="text-[10px] text-gray-400">Shown as a popup before the transition runs.</p>
-        </div>
-
-        {/* ── Advanced toggle ── */}
-        <div className="border-t border-gray-100 pt-3">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(v => !v)}
-            className="w-full flex items-center justify-between text-[11px] font-semibold text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            <span className="flex items-center gap-1.5">
-              Advanced Settings
-              {hasAdvanced && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />}
-            </span>
-            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showAdvanced && "rotate-180")} />
-          </button>
-        </div>
-
-        {showAdvanced && (
-          <div className="space-y-5">
-
-            {/* Required Fields */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Zap className="w-3 h-3 text-amber-500" />
-                <label className="text-[11px] font-semibold text-gray-600">Required Fields</label>
-                {transition.requiredFields.length > 0 && (
-                  <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">{transition.requiredFields.length}</span>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-400">Must be filled before this transition runs.</p>
-              {nonTextFields.length === 0
-                ? <p className="text-[11px] text-gray-400 italic">No fields available</p>
-                : <div className="flex flex-wrap gap-1.5">
-                    {nonTextFields.map(f => {
-                      const on = transition.requiredFields.includes(f.name);
-                      return (
-                        <button key={f.id} type="button"
-                          onClick={() => onChange({ requiredFields: toggleArr(transition.requiredFields, f.name) })}
-                          className={cn(
-                            "flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11px] font-medium transition-all",
-                            on ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-white border-gray-200 text-gray-500 hover:border-amber-200"
-                          )}>
-                          {on && <Check className="w-3 h-3 text-amber-500 shrink-0" />}
-                          {f.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-              }
-            </div>
-
-            {/* Who can trigger */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Shield className="w-3 h-3 text-blue-500" />
-                <label className="text-[11px] font-semibold text-gray-600">Who Can Trigger</label>
-                {transition.allowedRoles.length === 0
-                  ? <span className="text-[10px] bg-green-50 text-green-600 font-medium px-1.5 py-0.5 rounded-full border border-green-200">All roles</span>
-                  : null}
-              </div>
-              <RolePills selected={transition.allowedRoles} onChange={v => onChange({ allowedRoles: v })} color="blue" />
-              {transition.allowedRoles.length > 0 && (
-                <button type="button" onClick={() => onChange({ allowedRoles: [] })}
-                  className="text-[10px] text-gray-400 hover:text-red-500 underline transition-colors">
-                  Clear selection (allow all)
-                </button>
-              )}
-            </div>
-
-            {/* Approval */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                  <label className="text-[11px] font-semibold text-gray-600">Requires Approval</label>
-                </div>
-                <Switch checked={transition.requiresApproval} onCheckedChange={v => onChange({ requiresApproval: v })} />
-              </div>
-              {transition.requiresApproval && (
-                <div className="pl-4 space-y-1.5 border-l-2 border-emerald-200">
-                  <p className="text-[10px] text-gray-400">Approver roles</p>
-                  <RolePills selected={transition.approvalRoles || []} onChange={v => onChange({ approvalRoles: v })} color="emerald" />
-                </div>
-              )}
-            </div>
-
-            {/* Notify */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Bell className="w-3 h-3 text-rose-500" />
-                <label className="text-[11px] font-semibold text-gray-600">Notify on Execute</label>
-              </div>
-              <RolePills selected={transition.notifyRoles || []} onChange={v => onChange({ notifyRoles: v })} color="rose" />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
+// â"€â"€ Constants â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 const NODE_W    = 248;
 const PHASE_H   = 84;
 const COND_BH   = 98;   // base condition height
@@ -986,9 +1147,9 @@ const PAD       = 100;
 
 const OPTION_BEARING = ["STATUS", "DROPDOWN", "RADIO", "MULTI_SELECT"];
 const OPS = [
-  { v: "equals",    l: "equals" }, { v: "not_equals", l: "≠" },
+  { v: "equals",    l: "equals" }, { v: "not_equals", l: "â‰ " },
   { v: "contains",  l: "contains" }, { v: "gt", l: ">" },
-  { v: "lt",        l: "<" }, { v: "gte", l: "≥" }, { v: "lte", l: "≤" },
+  { v: "lt",        l: "<" }, { v: "gte", l: "â‰¥" }, { v: "lte", l: "â‰¤" },
   { v: "is_empty",  l: "is empty" }, { v: "not_empty", l: "not empty" },
 ];
 const NO_VAL = ["is_empty", "not_empty"];
@@ -999,7 +1160,7 @@ const BR = {
   else:    { label: "ELSE",    cls: "bg-slate-500", line: "#64748b", light: "bg-slate-50 border-slate-200 text-slate-600" },
 } as const;
 
-// ── Layout engine ─────────────────────────────────────────────────────────────
+// â"€â"€ Layout engine â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function nodeH(n: TreeNode): number {
   if (n.type === "phase") return PHASE_H;
   if (n.type === "condition") {
@@ -1038,7 +1199,7 @@ function computeLayout(nodes: TreeNode[]): Record<string, { x: number; y: number
   return pos;
 }
 
-// ── SVG Edges ─────────────────────────────────────────────────────────────────
+// â"€â"€ SVG Edges â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function TreeEdges({ nodes, pos }: { nodes: TreeNode[]; pos: Record<string, { x: number; y: number }> }) {
   const byId = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
   return (
@@ -1063,7 +1224,7 @@ function TreeEdges({ nodes, pos }: { nodes: TreeNode[]; pos: Record<string, { x:
   );
 }
 
-// ── Condition Row ─────────────────────────────────────────────────────────────
+// â"€â"€ Condition Row â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function CondRow({ cond, fields, onChange, onRemove }: {
   cond: Cond; fields: ModuleField[];
   onChange: (c: Cond) => void; onRemove: () => void;
@@ -1074,8 +1235,8 @@ function CondRow({ cond, fields, onChange, onRemove }: {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       <Select value={cond.fieldName || ""} onValueChange={v => onChange({ ...cond, fieldName: v, value: "" })}>
-        <SelectTrigger className="h-7 text-xs w-36 shrink-0"><SelectValue placeholder="Field…" /></SelectTrigger>
-        <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
+        <SelectTrigger className="h-7 text-xs w-36 shrink-0"><SelectValue placeholder="Fieldâ€¦" /></SelectTrigger>
+        <SelectContent>{fields.map(f => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
       </Select>
       <Select value={cond.operator || "equals"} onValueChange={v => onChange({ ...cond, operator: v, value: "" })}>
         <SelectTrigger className="h-7 text-xs w-28 shrink-0"><SelectValue /></SelectTrigger>
@@ -1083,17 +1244,17 @@ function CondRow({ cond, fields, onChange, onRemove }: {
       </Select>
       {showV && (isOB && (sf?.options?.length ?? 0) > 0
         ? <Select value={cond.value || ""} onValueChange={v => onChange({ ...cond, value: v })}>
-            <SelectTrigger className="h-7 text-xs w-28 shrink-0"><SelectValue placeholder="Value…" /></SelectTrigger>
-            <SelectContent>{(sf?.options ?? []).map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+            <SelectTrigger className="h-7 text-xs w-28 shrink-0"><SelectValue placeholder="Valueâ€¦" /></SelectTrigger>
+            <SelectContent>{(sf?.options ?? []).map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
           </Select>
-        : <Input value={cond.value || ""} onChange={e => onChange({ ...cond, value: e.target.value })} placeholder="Value…" className="h-7 text-xs w-24 shrink-0" />
+        : <Input value={cond.value || ""} onChange={e => onChange({ ...cond, value: e.target.value })} placeholder="Valueâ€¦" className="h-7 text-xs w-24 shrink-0" />
       )}
       <button onClick={onRemove} className="text-gray-300 hover:text-red-400 ml-auto shrink-0 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
     </div>
   );
 }
 
-// ── Add-child menu ─────────────────────────────────────────────────────────────
+// â"€â"€ Add-child menu â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function AddMenu({ onAdd }: { onAdd: (t: AddType) => void }) {
   return (
     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-white border border-gray-200 rounded-xl shadow-2xl py-1.5 min-w-[200px]"
@@ -1117,7 +1278,7 @@ function AddMenu({ onAdd }: { onAdd: (t: AddType) => void }) {
   );
 }
 
-// ── Preview helpers ────────────────────────────────────────────────────────────
+// â"€â"€ Preview helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function condText(c: Cond) {
   if (!c.fieldName) return "—";
   const op = OPS.find(o => o.v === c.operator)?.l ?? c.operator;
@@ -1130,7 +1291,7 @@ function actText(a: BpAction) {
   return `Notify: ${(a.message || "—").slice(0, 22)}`;
 }
 
-// ── Phase Node Card ────────────────────────────────────────────────────────────
+// â"€â"€ Phase Node Card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function PhaseCard({ node, selected, onSelect, menuOpen, onToggleMenu, onAdd }: {
   node: TreeNode; selected: boolean; onSelect: () => void;
   menuOpen: boolean; onToggleMenu: () => void; onAdd: (t: AddType) => void;
@@ -1154,7 +1315,7 @@ function PhaseCard({ node, selected, onSelect, menuOpen, onToggleMenu, onAdd }: 
           {selected && <Settings className="w-3.5 h-3.5 opacity-50" style={{ color }} />}
         </div>
         <p className="text-sm font-bold text-gray-900 truncate">{node.phaseLabel || "Phase"}</p>
-        <p className="text-[10px] text-gray-400 mt-0.5">Entry point · Click to configure</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">Entry point Â· Click to configure</p>
       </div>
       {/* Add button */}
       <div className="relative flex justify-center py-2 border-t border-gray-100 bg-white rounded-b-2xl">
@@ -1168,7 +1329,7 @@ function PhaseCard({ node, selected, onSelect, menuOpen, onToggleMenu, onAdd }: 
   );
 }
 
-// ── Condition Node Card ────────────────────────────────────────────────────────
+// â"€â"€ Condition Node Card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function CondCard({ node, selected, onSelect, onDelete, menuOpen, onToggleMenu, onAdd }: {
   node: TreeNode; selected: boolean; onSelect: () => void; onDelete: () => void;
   menuOpen: boolean; onToggleMenu: () => void; onAdd: (t: AddType) => void;
@@ -1204,7 +1365,7 @@ function CondCard({ node, selected, onSelect, onDelete, menuOpen, onToggleMenu, 
                     {condText(c)}
                   </p>
                 ))}
-                {conds.length > 2 && <p className="text-[10px] text-gray-400">+{conds.length - 2} more…</p>}
+                {conds.length > 2 && <p className="text-[10px] text-gray-400">+{conds.length - 2} moreâ€¦</p>}
               </>
         }
       </div>
@@ -1220,7 +1381,7 @@ function CondCard({ node, selected, onSelect, onDelete, menuOpen, onToggleMenu, 
   );
 }
 
-// ── Action Node Card ───────────────────────────────────────────────────────────
+// â"€â"€ Action Node Card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function ActCard({ node, selected, onSelect, onDelete }: {
   node: TreeNode; selected: boolean; onSelect: () => void; onDelete: () => void;
 }) {
@@ -1249,10 +1410,10 @@ function ActCard({ node, selected, onSelect, onDelete }: {
           : <>
               {acts.slice(0, 3).map(a => (
                 <p key={a.id} className="text-xs text-gray-700 truncate">
-                  <span className="text-indigo-400 mr-1">→</span>{actText(a)}
+                  <span className="text-indigo-400 mr-1">â†’</span>{actText(a)}
                 </p>
               ))}
-              {acts.length > 3 && <p className="text-[10px] text-gray-400">+{acts.length - 3} more…</p>}
+              {acts.length > 3 && <p className="text-[10px] text-gray-400">+{acts.length - 3} moreâ€¦</p>}
             </>
         }
       </div>
@@ -1260,7 +1421,7 @@ function ActCard({ node, selected, onSelect, onDelete }: {
   );
 }
 
-// ── Node Editor Panel ──────────────────────────────────────────────────────────
+// â"€â"€ Node Editor Panel â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
   node: TreeNode; fields: ModuleField[];
   onChange: (c: Partial<TreeNode>) => void;
@@ -1279,12 +1440,12 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
     if (tf && OPTION_BEARING.includes(tf.type) && (tf.options?.length ?? 0) > 0) {
       return (
         <Select value={a.value || ""} onValueChange={v => updAct(i, { ...a, value: v })}>
-          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Value…" /></SelectTrigger>
-          <SelectContent>{(tf.options ?? []).map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
+          <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Valueâ€¦" /></SelectTrigger>
+          <SelectContent>{(tf.options ?? []).map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
         </Select>
       );
     }
-    return <Input value={a.value || ""} onChange={e => updAct(i, { ...a, value: e.target.value })} placeholder="Value…" className="h-7 text-xs flex-1" />;
+    return <Input value={a.value || ""} onChange={e => updAct(i, { ...a, value: e.target.value })} placeholder="Valueâ€¦" className="h-7 text-xs flex-1" />;
   }
 
   return (
@@ -1303,7 +1464,7 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
-        {/* ── Phase node ── */}
+        {/* â"€â"€ Phase node â"€â"€ */}
         {node.type === "phase" && (
           <div className="space-y-3">
             <div className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
@@ -1319,7 +1480,7 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
           </div>
         )}
 
-        {/* ── Condition node ── */}
+        {/* â"€â"€ Condition node â"€â"€ */}
         {node.type === "condition" && (
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -1370,7 +1531,7 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
           </div>
         )}
 
-        {/* ── Action node ── */}
+        {/* â"€â"€ Action node â"€â"€ */}
         {node.type === "action" && (
           <div className="space-y-3">
             <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Actions</Label>
@@ -1389,8 +1550,8 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
                   {a.type === "set_field" && (
                     <div className="flex items-center gap-1.5">
                       <Select value={a.fieldName || ""} onValueChange={v => updAct(i, { ...a, fieldName: v, value: "" })}>
-                        <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Field…" /></SelectTrigger>
-                        <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
+                        <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Fieldâ€¦" /></SelectTrigger>
+                        <SelectContent>{fields.map(f => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
                       </Select>
                       <span className="text-xs text-gray-400 shrink-0">=</span>
                       {valInput(a, i)}
@@ -1398,13 +1559,13 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
                   )}
                   {(a.type === "lock_field" || a.type === "unlock_field") && (
                     <Select value={a.fieldName || ""} onValueChange={v => updAct(i, { ...a, fieldName: v })}>
-                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select field…" /></SelectTrigger>
-                      <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select fieldâ€¦" /></SelectTrigger>
+                      <SelectContent>{fields.map(f => <SelectItem key={f.id ?? f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
                     </Select>
                   )}
                   {a.type === "notify" && (
                     <Input value={a.message || ""} onChange={e => updAct(i, { ...a, message: e.target.value })}
-                      placeholder="Notification message…" className="h-7 text-xs" />
+                      placeholder="Notification messageâ€¦" className="h-7 text-xs" />
                   )}
                   <button onClick={() => remAct(i)} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
                     <Trash2 className="w-3 h-3" /> Remove
@@ -1431,7 +1592,7 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
   );
 }
 
-// ── Toast ──────────────────────────────────────────────────────────────────────
+// â"€â"€ Toast â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
   return (
     <div className={cn(
@@ -1444,17 +1605,14 @@ function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────────
+// â"€â"€ Main Page â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 export default function BlueprintBuilderPage() {
   const params = useParams();
   const id = params.id as string;
 
-  // "flow" | "groups" | "tree"
-  const [activeTab, setActiveTab] = useState<"flow" | "groups" | "tree">("flow");
-
-  // Phase groups state
-  const [phaseGroups, setPhaseGroups] = useState<{ id: string; name: string; color: string; order: number }[]>([]);
-  const [phaseAssignments, setPhaseAssignments] = useState<Record<string, string>>({}); // phaseId → groupId
+  // "flow" | "tree"
+  const [activeTab, setActiveTab] = useState<"flow" | "tree">("flow");
+  const [staffRoles, setStaffRoles] = useState<{ value: string; label: string }[]>([]);
 
   const [blueprint, setBlueprint] = useState<BpDetail | null>(null);
   const [name, setName]           = useState("");
@@ -1483,13 +1641,11 @@ export default function BlueprintBuilderPage() {
       const { data } = await api.get(`/blueprints/${id}`);
       setBlueprint(data);
       setName(data.name || "");
-      // Load phase groups from treeData
-      if (data.treeData?.phaseGroups) {
-        setPhaseGroups(data.treeData.phaseGroups);
-        const assignments: Record<string, string> = {};
-        ((data.phases || []) as any[]).forEach((p: any) => { if (p.groupId) assignments[p.id] = p.groupId; });
-        setPhaseAssignments(assignments);
-      }
+      // Load staff roles from Global Lists
+      api.get("/global-lists/staff-roles").then(r => {
+        const items = r?.data?.items ?? [];
+        setStaffRoles(items.map((it: any) => ({ value: it.value, label: it.label })));
+      }).catch(() => {});
       if (data.treeData?.nodes?.length) {
         setNodes(data.treeData.nodes);
       } else {
@@ -1606,41 +1762,23 @@ export default function BlueprintBuilderPage() {
   );
 
   // Save process flow
-  const handleSaveFlow = async (newPhases: FlowPhase[], newTransitions: FlowTransition[]) => {
-    const phasesWithGroups = newPhases.map(p => ({ ...p, groupId: phaseAssignments[p.id] || undefined }));
+  const handleSaveFlow = async (newPhases: FlowPhase[], newTransitions: FlowTransition[], newFieldLocks: Record<string, any>) => {
     const prevTreeData = blueprint?.treeData as any;
     await api.patch(`/blueprints/${id}`, {
       name: name.trim() || blueprint!.name,
-      phases: phasesWithGroups,
+      phases: newPhases,
       transitions: newTransitions,
-      treeData: { ...(prevTreeData ?? {}), phaseGroups },
+      fieldLocks: newFieldLocks,
+      treeData: { ...(prevTreeData ?? {}) },
     });
     showToast("Process flow saved");
-  };
-
-  // Save phase groups
-  const handleSaveGroups = async () => {
-    if (!blueprint) return;
-    setSaving(true);
-    try {
-      const phases = ((blueprint.phases || []) as any[]).map((p: any) => ({
-        ...p, groupId: phaseAssignments[p.id] || undefined,
-      }));
-      const prevTreeData = blueprint.treeData as any;
-      await api.patch(`/blueprints/${id}`, {
-        phases,
-        treeData: { ...(prevTreeData ?? {}), phaseGroups },
-      });
-      showToast("Phase groups saved");
-    } catch { showToast("Failed to save", "error"); }
-    finally { setSaving(false); }
   };
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-white overflow-hidden">
       {toast && <Toast msg={toast.msg} type={toast.type} />}
 
-      {/* ── Header ── */}
+      {/* â"€â"€ Header â"€â"€ */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white shrink-0 z-10">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/settings/blueprints">
@@ -1649,8 +1787,8 @@ export default function BlueprintBuilderPage() {
           <GitBranch className="w-4 h-4 text-indigo-600 shrink-0" />
           <input value={name} onChange={e => setName(e.target.value)}
             className="text-base font-bold text-gray-900 bg-transparent border-none outline-none min-w-0 max-w-xs" />
-          <span className="text-xs text-gray-400 shrink-0 hidden lg:block">
-            {blueprint.module?.icon || "📋"} {blueprint.module?.name}
+          <span className="text-xs text-gray-400 shrink-0 hidden lg:flex items-center gap-1">
+            <ModuleIcon icon={blueprint.module?.icon} slug={blueprint.module?.slug} className="w-3.5 h-3.5" /> {blueprint.module?.name}
           </span>
         </div>
 
@@ -1668,17 +1806,6 @@ export default function BlueprintBuilderPage() {
             <Workflow className="w-3.5 h-3.5" /> Process Flow
           </button>
           <button
-            onClick={() => setActiveTab("groups")}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium transition-colors",
-              activeTab === "groups"
-                ? "bg-white text-blue-600 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            )}
-          >
-            <Layers className="w-3.5 h-3.5" /> Phase Groups
-          </button>
-          <button
             onClick={() => setActiveTab("tree")}
             className={cn(
               "flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium transition-colors",
@@ -1692,12 +1819,6 @@ export default function BlueprintBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {activeTab === "groups" && (
-            <Button onClick={handleSaveGroups} disabled={saving} className="gap-2 h-8">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save Groups
-            </Button>
-          )}
           {activeTab === "tree" && (
             <>
               <div className="hidden sm:flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1">
@@ -1721,148 +1842,15 @@ export default function BlueprintBuilderPage() {
         </div>
       </div>
 
-      {/* ── Process Flow tab ── */}
+      {/* â"€â"€ Process Flow tab â"€â"€ */}
       {activeTab === "flow" && (
-        <FlowDesigner blueprint={blueprint} onSave={handleSaveFlow} />
+        <FlowDesigner blueprint={blueprint} onSave={handleSaveFlow} staffRoles={staffRoles} />
       )}
 
-      {/* ── Phase Groups tab ── */}
-      {activeTab === "groups" && (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Group list */}
-          <div className="w-80 shrink-0 border-r border-gray-100 bg-gray-50/40 overflow-y-auto p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Phase Groups</p>
-              <button
-                onClick={() => setPhaseGroups(prev => [...prev, { id: uid(), name: "New Phase", color: "#3b82f6", order: prev.length }])}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                <Plus className="w-3 h-3" /> Add Group
-              </button>
-            </div>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Groups help visually organize stages in the process flow shown on records (e.g. Application → Review → Admission). Groups appear as labelled columns above the stage timeline.
-            </p>
-            {phaseGroups.length === 0 && (
-              <div className="text-center py-8 text-xs text-gray-400 italic">No groups yet. Click "Add Group" to create one.</div>
-            )}
-            {[...phaseGroups].sort((a, b) => a.order - b.order).map((group, gi) => (
-              <div key={group.id} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2.5 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
-                  <Input value={group.name} className="h-7 text-sm flex-1 font-semibold"
-                    onChange={e => setPhaseGroups(prev => prev.map(g => g.id === group.id ? { ...g, name: e.target.value } : g))} />
-                  <button onClick={() => {
-                    setPhaseGroups(prev => prev.filter(g => g.id !== group.id));
-                    setPhaseAssignments(prev => {
-                      const next = { ...prev };
-                      Object.keys(next).forEach(k => { if (next[k] === group.id) delete next[k]; });
-                      return next;
-                    });
-                  }} className="text-gray-300 hover:text-red-500 shrink-0 p-0.5 transition-colors">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {/* Color picker */}
-                <div className="flex gap-1.5 flex-wrap">
-                  {["#3b82f6","#22c55e","#f97316","#8b5cf6","#ef4444","#14b8a6","#eab308","#6b7280"].map(c => (
-                    <button key={c} onClick={() => setPhaseGroups(prev => prev.map(g => g.id === group.id ? { ...g, color: c } : g))}
-                      className={cn("w-5 h-5 rounded-full border-2 transition-all", group.color === c ? "border-gray-700 scale-110" : "border-white shadow-sm hover:scale-105")}
-                      style={{ backgroundColor: c }} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
 
-          {/* Stage assignment */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Assign Stages to Groups</p>
-              <p className="text-[10px] text-gray-400">Choose which group each stage belongs to. Stages without a group are shown ungrouped.</p>
-            </div>
-            {((blueprint.phases || []) as any[]).length === 0 ? (
-              <div className="text-center py-10 text-xs text-gray-400 italic">No stages found. Add stages in the Process Flow tab first.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {[...((blueprint.phases || []) as any[])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((phase: any) => {
-                  const assignedGroup = phaseGroups.find(g => g.id === phaseAssignments[phase.id]);
-                  return (
-                    <div key={phase.id} className="bg-white rounded-xl border border-gray-200 p-3 space-y-2 shadow-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: phase.color || "#6366f1" }} />
-                        <p className="text-sm font-semibold text-gray-800 truncate flex-1">{phase.name}</p>
-                      </div>
-                      <select
-                        value={phaseAssignments[phase.id] || ""}
-                        onChange={e => setPhaseAssignments(prev => {
-                          const next = { ...prev };
-                          if (e.target.value) next[phase.id] = e.target.value;
-                          else delete next[phase.id];
-                          return next;
-                        })}
-                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      >
-                        <option value="">— No group —</option>
-                        {[...phaseGroups].sort((a, b) => a.order - b.order).map(g => (
-                          <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                      </select>
-                      {assignedGroup && (
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-semibold"
-                          style={{ backgroundColor: assignedGroup.color + "15", color: assignedGroup.color }}>
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: assignedGroup.color }} />
-                          {assignedGroup.name}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Preview */}
-            {phaseGroups.length > 0 && (blueprint.phases as any[])?.length > 0 && (
-              <div className="mt-6">
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Preview</p>
-                <div className="bg-white rounded-xl border border-gray-200 p-4 overflow-x-auto">
-                  <div className="flex items-start gap-6 min-w-max">
-                    {[...phaseGroups].sort((a, b) => a.order - b.order).map((group, gi) => {
-                      const groupStages = ((blueprint.phases || []) as any[])
-                        .filter((p: any) => phaseAssignments[p.id] === group.id)
-                        .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-                      if (!groupStages.length) return null;
-                      return (
-                        <div key={group.id} className="flex flex-col items-center gap-2 shrink-0">
-                          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: group.color }}>{group.name}</p>
-                          <div className="h-[3px] w-full rounded-full" style={{ backgroundColor: group.color + "30" }} />
-                          <div className="flex items-start gap-0">
-                            {groupStages.map((stage: any, si: number) => (
-                              <div key={stage.id} className="flex items-center">
-                                <div className="flex flex-col items-center gap-1 w-24">
-                                  <div className="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center bg-white">
-                                    <div className="w-2 h-2 rounded-full bg-gray-300" />
-                                  </div>
-                                  <p className="text-[10px] text-gray-500 text-center leading-tight px-1">{stage.name}</p>
-                                </div>
-                                {si < groupStages.length - 1 && <div className="w-4 h-[2px] bg-gray-200 -mt-4" />}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Automation Tree tab ── */}
+      {/* â"€â"€ Automation Tree tab â"€â"€ */}
       {activeTab === "tree" && <>
-      {/* ── Legend ── */}
+      {/* â"€â"€ Legend â"€â"€ */}
       <div className="flex items-center gap-4 px-5 py-2 bg-white border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Legend:</span>
@@ -1881,11 +1869,11 @@ export default function BlueprintBuilderPage() {
           </div>
         </div>
         <div className="ml-auto text-[10px] text-gray-400 hidden md:block">
-          Scroll to zoom · Drag canvas to pan · Click node to edit
+          Scroll to zoom Â· Drag canvas to pan Â· Click node to edit
         </div>
       </div>
 
-      {/* ── Body ── */}
+      {/* â"€â"€ Body â"€â"€ */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas */}
         <div

@@ -11,6 +11,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { portalApi } from "@/lib/portal-api";
+import { ModuleIcon } from "@/components/ui/module-icon";
 import {
   GripVertical, Plus, Trash2, Check, X, Loader2, ChevronLeft,
   Type, AlignLeft, Hash, Calendar, List, Upload, Minus,
@@ -583,7 +584,7 @@ function CrmFieldMapper({
                 : modules.map(mod => (
                   <button key={mod.id} onClick={() => pickModule(mod)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition-all text-left">
-                    <span className="text-xl shrink-0">{mod.icon ?? "📋"}</span>
+                    <span className="shrink-0"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-5 h-5" /></span>
                     <div>
                       <p className="text-sm font-medium text-gray-800">{mod.name}</p>
                       <p className="text-xs text-gray-400 font-mono">{mod.slug}</p>
@@ -724,7 +725,7 @@ function CrmSectionModal({ pageId, onCreated, onClose }: {
                 : modules.map(mod => (
                   <button key={mod.id} onClick={() => pickModule(mod)}
                     className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-200 transition-all text-left">
-                    <span className="text-xl shrink-0">{mod.icon ?? "📋"}</span>
+                    <span className="shrink-0"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-5 h-5" /></span>
                     <div>
                       <p className="text-sm font-medium text-gray-800">{mod.name}</p>
                       <p className="text-xs text-gray-400 font-mono">{mod.slug}</p>

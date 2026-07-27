@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth.store";
 import { cn } from "@/lib/utils";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -360,7 +361,7 @@ export default function TaskPanelsPage() {
                       <td className="px-4 py-3 text-gray-600">
                         {panel.module ? (
                           <span className="flex items-center gap-1.5 text-xs">
-                            <span>{panel.module.icon ?? "📋"}</span>{panel.module.name}
+                            <ModuleIcon icon={panel.module.icon} slug={panel.module.slug} className="w-3.5 h-3.5" />{panel.module.name}
                           </span>
                         ) : <span className="text-xs text-gray-400">—</span>}
                       </td>

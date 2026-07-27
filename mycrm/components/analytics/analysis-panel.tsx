@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X, Maximize2, Minimize2, Download, Send, Loader2,
-  BrainCircuit, Copy, Check, RefreshCw, FileText,
+  BrainCircuit, Copy, Check, RefreshCw, FileText, Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,84 @@ export interface AnalysisContext {
 interface Message {
   role: "user" | "assistant";
   content: string;
+  attachmentName?: string;
+}
+
+interface DocAttachment {
+  name: string;
+  base64: string;
+  mediaType: string;
+}
+
+// ── Inline bar/line chart renderer ───────────────────────────────────────────
+function InlineChart({ type, json }: { type: "bar" | "line"; json: string }) {
+  let data: { title?: string; labels?: string[]; values?: number[] } = {};
+  try { data = JSON.parse(json); } catch { return null; }
+  const { title, labels = [], values = [] } = data;
+  if (!labels.length || !values.length) return null;
+
+  const max = Math.max(...values, 1);
+  const W = 260, H = 120, PAD = 32, BAR_GAP = 4;
+  const n = labels.length;
+  const barW = Math.max(4, Math.floor((W - PAD * 2 - BAR_GAP * (n - 1)) / n));
+  const chartH = H - 28;
+  const COLORS = ["#6366f1","#8b5cf6","#3b82f6","#06b6d4","#10b981","#f59e0b","#ef4444","#ec4899"];
+
+  if (type === "bar") {
+    return (
+      <div className="my-3 p-3 bg-white border border-gray-100 rounded-xl">
+        {title && <p className="text-[11px] font-semibold text-gray-600 mb-2">{title}</p>}
+        <svg width={W} height={H} className="overflow-visible">
+          {values.map((v, i) => {
+            const bh = Math.max(2, (v / max) * chartH);
+            const x = PAD + i * (barW + BAR_GAP);
+            const y = chartH - bh + 4;
+            return (
+              <g key={i}>
+                <rect x={x} y={y} width={barW} height={bh} rx={2} fill={COLORS[i % COLORS.length]} opacity={0.85} />
+                <text x={x + barW / 2} y={y - 3} textAnchor="middle" fontSize={9} fill="#6b7280">{v}</text>
+                <text x={x + barW / 2} y={H - 2} textAnchor="middle" fontSize={8} fill="#9ca3af"
+                  style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {labels[i]?.slice(0, 6)}
+                </text>
+              </g>
+            );
+          })}
+          <line x1={PAD - 2} y1={4} x2={PAD - 2} y2={chartH + 4} stroke="#e5e7eb" strokeWidth={1} />
+          <line x1={PAD - 2} y1={chartH + 4} x2={W - PAD + 8} y2={chartH + 4} stroke="#e5e7eb" strokeWidth={1} />
+        </svg>
+      </div>
+    );
+  }
+
+  // Line chart
+  const pts = values.map((v, i) => {
+    const x = PAD + (i / Math.max(n - 1, 1)) * (W - PAD * 2);
+    const y = 4 + chartH - (v / max) * chartH;
+    return `${x},${y}`;
+  }).join(" ");
+
+  return (
+    <div className="my-3 p-3 bg-white border border-gray-100 rounded-xl">
+      {title && <p className="text-[11px] font-semibold text-gray-600 mb-2">{title}</p>}
+      <svg width={W} height={H} className="overflow-visible">
+        <polyline points={pts} fill="none" stroke="#6366f1" strokeWidth={2} strokeLinejoin="round" />
+        {values.map((v, i) => {
+          const x = PAD + (i / Math.max(n - 1, 1)) * (W - PAD * 2);
+          const y = 4 + chartH - (v / max) * chartH;
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r={3} fill="#6366f1" />
+              <text x={x} y={y - 5} textAnchor="middle" fontSize={9} fill="#6b7280">{v}</text>
+              <text x={x} y={H - 2} textAnchor="middle" fontSize={8} fill="#9ca3af">{labels[i]?.slice(0, 6)}</text>
+            </g>
+          );
+        })}
+        <line x1={PAD - 2} y1={4} x2={PAD - 2} y2={chartH + 4} stroke="#e5e7eb" strokeWidth={1} />
+        <line x1={PAD - 2} y1={chartH + 4} x2={W - PAD + 8} y2={chartH + 4} stroke="#e5e7eb" strokeWidth={1} />
+      </svg>
+    </div>
+  );
 }
 
 // ── Lightweight markdown renderer ─────────────────────────────────────────────
@@ -24,18 +102,37 @@ function MarkdownContent({ content }: { content: string }) {
   let i = 0;
 
   const inlineFormat = (text: string) => {
-    // Bold **text** and __text__
     text = text.replace(/\*\*(.+?)\*\*/g, (_, t) => `<strong>${t}</strong>`);
     text = text.replace(/__(.+?)__/g, (_, t) => `<strong>${t}</strong>`);
-    // Italic *text*
     text = text.replace(/\*(.+?)\*/g, (_, t) => `<em>${t}</em>`);
-    // Inline code `text`
     text = text.replace(/`([^`]+)`/g, (_, t) => `<code class="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">${t}</code>`);
     return text;
   };
 
   while (i < lines.length) {
     const line = lines[i];
+
+    // Chart code blocks
+    if (line.startsWith("```chart-bar") || line.startsWith("```chart-line")) {
+      const chartType = line.startsWith("```chart-bar") ? "bar" : "line";
+      const jsonLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i] !== "```") {
+        jsonLines.push(lines[i]);
+        i++;
+      }
+      elements.push(<InlineChart key={`chart-${i}`} type={chartType} json={jsonLines.join("")} />);
+      i++; // skip closing ```
+      continue;
+    }
+
+    // Generic code blocks — skip gracefully
+    if (line.startsWith("```")) {
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) i++;
+      i++;
+      continue;
+    }
 
     if (line.startsWith("## ")) {
       elements.push(
@@ -56,7 +153,6 @@ function MarkdownContent({ content }: { content: string }) {
         </h1>
       );
     } else if (line.match(/^[\*\-] /)) {
-      // Collect list items
       const items: string[] = [];
       while (i < lines.length && lines[i].match(/^[\*\-] /)) {
         items.push(lines[i].slice(2));
@@ -74,7 +170,6 @@ function MarkdownContent({ content }: { content: string }) {
       );
       continue;
     } else if (line.match(/^\d+\. /)) {
-      // Numbered list
       const items: string[] = [];
       while (i < lines.length && lines[i].match(/^\d+\. /)) {
         items.push(lines[i].replace(/^\d+\. /, ""));
@@ -121,35 +216,47 @@ export function AnalysisPanel({
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [attachment, setAttachment] = useState<DocAttachment | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }, []);
 
   const runAnalysis = useCallback(
-    async (msgs: Message[]) => {
+    async (msgs: Message[], doc?: DocAttachment | null) => {
       if (!context) return;
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       setStreaming(true);
       setError(null);
 
-      // Append empty assistant message that we stream into
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       try {
+        // Convert Message[] to Anthropic-compatible format (strip attachmentName)
+        const apiMessages = msgs.map(m => ({ role: m.role, content: m.content }));
+
+        const body: any = {
+          title: context.title,
+          type: context.type,
+          contextSummary: context.contextSummary,
+          messages: apiMessages,
+        };
+
+        if (doc) {
+          body.documentBase64 = doc.base64;
+          body.documentMediaType = doc.mediaType;
+          body.documentName = doc.name;
+        }
+
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: context.title,
-            type: context.type,
-            contextSummary: context.contextSummary,
-            messages: msgs,
-          }),
+          body: JSON.stringify(body),
           signal: abortRef.current.signal,
         });
 
@@ -180,7 +287,6 @@ export function AnalysisPanel({
           setMessages((prev) => prev.slice(0, -1));
         }
       } finally {
-        // If stream ended with no content, remove the empty placeholder
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant" && !last.content) return prev.slice(0, -1);
@@ -193,14 +299,12 @@ export function AnalysisPanel({
     [context, scrollToBottom]
   );
 
-  // Auto-start when panel opens
   useEffect(() => {
     if (open && context && messages.length === 0) {
       runAnalysis([]);
     }
   }, [open, context]); // eslint-disable-line
 
-  // Reset on close
   useEffect(() => {
     if (!open) {
       abortRef.current?.abort();
@@ -208,18 +312,38 @@ export function AnalysisPanel({
       setInput("");
       setError(null);
       setFullscreen(false);
+      setAttachment(null);
     }
   }, [open]);
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || streaming) return;
-    const userMsg: Message = { role: "user", content: text };
+    const userMsg: Message = {
+      role: "user",
+      content: text,
+      attachmentName: attachment?.name,
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInput("");
+    const doc = attachment;
+    setAttachment(null);
     scrollToBottom();
-    await runAnalysis(updated);
+    await runAnalysis(updated, doc);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1];
+      setAttachment({ name: file.name, base64, mediaType: file.type });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleDownload = () => {
@@ -262,7 +386,6 @@ export function AnalysisPanel({
 
   return (
     <>
-      {/* Backdrop (non-fullscreen only) */}
       {!fullscreen && (
         <div
           className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
@@ -339,7 +462,6 @@ export function AnalysisPanel({
 
         {/* ── Messages area ────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* Initial loading state */}
           {messages.length === 0 && streaming && (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center">
@@ -352,7 +474,6 @@ export function AnalysisPanel({
             </div>
           )}
 
-          {/* Error state */}
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 flex items-start gap-2">
               <span className="shrink-0 mt-0.5">⚠️</span>
@@ -369,12 +490,17 @@ export function AnalysisPanel({
             </div>
           )}
 
-          {/* Message list */}
           {messages.map((msg, idx) => (
             <div key={idx}>
               {msg.role === "user" ? (
                 <div className="flex justify-end">
                   <div className="max-w-[85%] bg-blue-600 text-white rounded-2xl rounded-tr-md px-3.5 py-2.5 text-xs leading-relaxed shadow-sm">
+                    {msg.attachmentName && (
+                      <div className="flex items-center gap-1.5 mb-1.5 opacity-80">
+                        <Paperclip className="w-3 h-3" />
+                        <span className="text-[10px] truncate max-w-[160px]">{msg.attachmentName}</span>
+                      </div>
+                    )}
                     {msg.content}
                   </div>
                 </div>
@@ -388,7 +514,6 @@ export function AnalysisPanel({
                       <span className="text-xs">Thinking...</span>
                     </div>
                   )}
-                  {/* streaming cursor */}
                   {streaming && idx === messages.length - 1 && msg.content && (
                     <span className="inline-block w-0.5 h-3.5 bg-purple-400 animate-pulse ml-0.5 align-text-bottom rounded-full" />
                   )}
@@ -399,9 +524,40 @@ export function AnalysisPanel({
           <div ref={bottomRef} />
         </div>
 
+        {/* ── Attachment preview ───────────────────────────────────────── */}
+        {attachment && (
+          <div className="px-3 pb-1 shrink-0">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg">
+              <Paperclip className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+              <span className="text-xs text-purple-700 flex-1 truncate">{attachment.name}</span>
+              <button
+                onClick={() => setAttachment(null)}
+                className="text-purple-400 hover:text-purple-600"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Chat input ───────────────────────────────────────────────── */}
         <div className="border-t border-gray-100 px-3 py-3 shrink-0 bg-white">
           <div className="flex gap-2 items-center">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={streaming}
+              title="Attach document or image for context"
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-purple-600 hover:bg-purple-50 border border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+            </button>
             <input
               ref={inputRef}
               type="text"
@@ -413,7 +569,7 @@ export function AnalysisPanel({
                   handleSend();
                 }
               }}
-              placeholder={streaming ? "Analyzing…" : "Ask a follow-up question…"}
+              placeholder={streaming ? "Analyzing…" : "Ask a question, request a chart…"}
               disabled={streaming}
               className="flex-1 px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white disabled:opacity-50 transition-colors"
             />
@@ -430,7 +586,7 @@ export function AnalysisPanel({
             </button>
           </div>
           <p className="text-[10px] text-gray-300 text-center mt-1.5">
-            Powered by Claude AI · Cloudbox Analytics
+            Powered by Claude AI · Attach documents or ask for charts
           </p>
         </div>
       </div>

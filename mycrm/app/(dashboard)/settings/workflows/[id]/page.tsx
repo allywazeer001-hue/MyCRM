@@ -1,10 +1,9 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Save, Loader2, Plus, X, CheckCircle2, AlertCircle,
-  Zap, Edit2, Settings2, Trash2, Play, ChevronDown, Workflow,
+  ArrowLeft, Save, Loader2, CheckCircle2, AlertCircle, Workflow, RefreshCw, Lock, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,10 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api } from "@/lib/api";
 import { useModulesStore } from "@/store/modules.store";
 import { cn } from "@/lib/utils";
+import {
+  ConditionGroup, ensureIds, normalizeConditionTree, uid,
+} from "@/lib/condition-tree";
+import { RuleGroup, RuleGroupsEditor, emptyRuleGroup } from "@/components/workflows/RuleGroupsEditor";
+import { findBlueprintLinksForWorkflows } from "@/lib/blueprint-links";
+import { ModuleIcon } from "@/components/ui/module-icon";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
   return (
@@ -39,163 +42,271 @@ const TRIGGER_OPTIONS = [
   { value: "FIELD_CHANGED",  label: "Field Changed",   icon: "🔀", description: "Fires when a specific field changes" },
   { value: "RECORD_DELETED", label: "Record Deleted",  icon: "🗑️", description: "Fires when a record is removed" },
   { value: "MANUAL",         label: "Manual",          icon: "▶️", description: "Triggered manually by a user" },
+  { value: "SCHEDULED",      label: "Scheduled",       icon: "🕐", description: "Fires on a recurring schedule or date field" },
 ];
 
-const CONDITION_OPERATORS = [
-  { value: "is",           label: "is" },
-  { value: "is_not",       label: "is not" },
-  { value: "contains",     label: "contains" },
-  { value: "not_contains", label: "does not contain" },
-  { value: "empty",        label: "is empty" },
-  { value: "not_empty",    label: "is not empty" },
-  { value: "gt",           label: "greater than" },
-  { value: "lt",           label: "less than" },
-];
+// Condition operators, action types, and action config editing now live in the
+// shared components/workflows/* modules (condition-operators.ts,
+// action-config-editor.tsx), used below via RuleGroupsEditor — kept in sync across
+// this page and app/(dashboard)/workflows/page.tsx instead of drifting per-page.
 
-const WF_ACTION_TYPES = [
-  { value: "SET_FIELD",         label: "Set Field Value",        icon: "✏️", description: "Update a single field to a fixed value" },
-  { value: "UPDATE_RECORD",     label: "Update Multiple Fields", icon: "📝", description: "Set values on several fields at once" },
-  { value: "SEND_NOTIFICATION", label: "Send Notification",      icon: "🔔", description: "Push an in-app notification to users" },
-  { value: "ASSIGN_USER",       label: "Assign User",            icon: "👤", description: "Set the assigned user on the record" },
-  { value: "CREATE_RECORD",     label: "Create Record",          icon: "➕", description: "Automatically create a linked record" },
-];
+// ── Scheduled trigger config ──────────────────────────────────────────────────
 
-// ── Extended action type picker ───────────────────────────────────────────────
-
-function ActionTypePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const selected = WF_ACTION_TYPES.find(t => t.value === value) || WF_ACTION_TYPES[0];
+function ScheduledTriggerConfig({ config, moduleId, modules, onChange }: {
+  config: any;
+  moduleId: string;
+  modules: any[];
+  onChange: (c: any) => void;
+}) {
+  const [dateFields, setDateFields] = useState<any[]>([]);
+  const scheduleType: string = config.scheduleType || "RECURRING";
+  const upd = (k: string, v: any) => onChange({ ...config, [k]: v });
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    if (scheduleType !== "DATE_FIELD" || !moduleId) { setDateFields([]); return; }
+    api.get(`/modules/${moduleId}/fields`)
+      .then(({ data }) =>
+        setDateFields((data ?? []).filter((f: any) => ["DATE", "DATETIME"].includes(f.type)))
+      )
+      .catch(() => {});
+  }, [scheduleType, moduleId]);
 
   return (
-    <div ref={ref} className="relative flex-1">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-sm hover:border-violet-300 transition-colors text-left"
-      >
-        <span className="text-lg leading-none">{selected.icon}</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-800">{selected.label}</p>
-          <p className="text-xs text-gray-400">{selected.description}</p>
-        </div>
-        <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform shrink-0", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-96 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
-          {WF_ACTION_TYPES.map(t => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => { onChange(t.value); setOpen(false); }}
-              className={cn(
-                "flex items-start gap-3 p-3.5 w-full text-left hover:bg-violet-50 transition-colors border-b border-gray-50 last:border-0",
-                value === t.value && "bg-violet-50"
-              )}
-            >
-              <span className="text-xl mt-0.5 shrink-0 leading-none">{t.icon}</span>
-              <div className="flex-1 min-w-0">
-                <p className={cn("text-sm font-medium", value === t.value ? "text-violet-700" : "text-gray-900")}>{t.label}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{t.description}</p>
+    <div className="mt-3 border border-violet-200 rounded-xl bg-violet-50/30 p-4 space-y-4">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-violet-500">Schedule Configuration</p>
+
+      {/* Schedule type */}
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          { v: "RECURRING",  l: "Recurring",   d: "Run on a fixed schedule" },
+          { v: "DATE_FIELD", l: "Date Field",   d: "Trigger based on a record date" },
+        ].map(o => (
+          <button
+            key={o.v}
+            type="button"
+            onClick={() => upd("scheduleType", o.v)}
+            className={cn(
+              "p-3 rounded-xl border text-left text-xs transition-all",
+              scheduleType === o.v
+                ? "border-violet-400 bg-violet-50 shadow-sm"
+                : "border-gray-200 bg-white hover:border-gray-300"
+            )}
+          >
+            <p className={cn("font-semibold", scheduleType === o.v ? "text-violet-700" : "text-gray-700")}>{o.l}</p>
+            <p className="text-gray-400 mt-0.5 leading-snug">{o.d}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* RECURRING options */}
+      {scheduleType === "RECURRING" && (
+        <>
+          <div>
+            <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Frequency</Label>
+            <Select value={config.frequency || "DAILY"} onValueChange={v => upd("frequency", v)}>
+              <SelectTrigger className="h-9 text-sm bg-white"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DAILY">Daily</SelectItem>
+                <SelectItem value="WEEKDAYS">Weekdays only (Mon–Fri)</SelectItem>
+                <SelectItem value="WEEKLY">Weekly</SelectItem>
+                <SelectItem value="MONTHLY">Monthly</SelectItem>
+                <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                <SelectItem value="YEARLY">Yearly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {config.frequency === "WEEKLY" && (
+            <div>
+              <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Day of Week</Label>
+              <Select value={String(config.dayOfWeek ?? 1)} onValueChange={v => upd("dayOfWeek", Number(v))}>
+                <SelectTrigger className="h-9 text-sm bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map((d, i) => (
+                    <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {["MONTHLY","QUARTERLY","YEARLY"].includes(config.frequency || "DAILY") && (
+            <div>
+              <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Day of Month</Label>
+              <Input
+                type="number" min={1} max={28}
+                value={config.dayOfMonth ?? 1}
+                onChange={e => upd("dayOfMonth", Number(e.target.value))}
+                className="h-9 text-sm w-24 bg-white"
+              />
+            </div>
+          )}
+
+          <div>
+            <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Run Time (server time)</Label>
+            <Input
+              type="time"
+              value={config.time || "08:00"}
+              onChange={e => upd("time", e.target.value)}
+              className="h-9 text-sm w-36 bg-white"
+            />
+          </div>
+        </>
+      )}
+
+      {/* DATE_FIELD options */}
+      {scheduleType === "DATE_FIELD" && (
+        <>
+          {!moduleId && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+              Select a module above to configure date field triggers.
+            </p>
+          )}
+          {moduleId && dateFields.length === 0 && (
+            <p className="text-xs text-gray-400 italic">No date or datetime fields found in this module.</p>
+          )}
+          {moduleId && dateFields.length > 0 && (
+            <>
+              <div>
+                <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Date Field</Label>
+                <Select value={config.fieldName || ""} onValueChange={v => upd("fieldName", v)}>
+                  <SelectTrigger className="h-9 text-sm bg-white"><SelectValue placeholder="Select date field" /></SelectTrigger>
+                  <SelectContent>
+                    {dateFields.map(f => <SelectItem key={f.id ?? f.name} value={f.name}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              {value === t.value && <CheckCircle2 className="w-4 h-4 text-violet-500 ml-auto shrink-0 mt-1" />}
-            </button>
-          ))}
-        </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Days Offset</Label>
+                  <Input
+                    type="number"
+                    value={config.offset ?? 0}
+                    onChange={e => upd("offset", Number(e.target.value))}
+                    className="h-9 text-sm bg-white"
+                    placeholder="0"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Negative = before, positive = after</p>
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-gray-500 mb-1.5 block">Run Time</Label>
+                  <Input
+                    type="time"
+                    value={config.time || "09:00"}
+                    onChange={e => upd("time", e.target.value)}
+                    className="h-9 text-sm bg-white"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-// ── Action config ─────────────────────────────────────────────────────────────
+// ── Field Changed trigger config ────────────────────────────────────────────────
+// FIELD_CHANGED needs to know WHICH field to watch — without this, the backend
+// never matches it (a workflow with no fieldName configured simply never fires,
+// see WorkflowsService.executeForRecord), rather than silently firing on every
+// edit the way Record Updated does.
 
-function ActionConfigEditor({ action, fields, onChange }: {
-  action: any; fields: any[]; onChange: (cfg: any) => void;
+function FieldChangedTriggerConfig({ config, moduleId, onChange }: {
+  config: any;
+  moduleId: string;
+  onChange: (c: any) => void;
 }) {
-  const cfg = action.config;
-  switch (action.type) {
-    case "SET_FIELD":
-      return (
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <div>
-            <Label className="text-xs text-gray-500 mb-1.5 block">Field</Label>
-            <Select value={cfg.field || ""} onValueChange={v => onChange({ ...cfg, field: v })}>
-              <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select field" /></SelectTrigger>
-              <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs text-gray-500 mb-1.5 block">Value</Label>
-            <Input className="h-9 text-sm" value={cfg.value || ""} onChange={e => onChange({ ...cfg, value: e.target.value })} placeholder="Value" />
-          </div>
-        </div>
-      );
-    case "UPDATE_RECORD": {
-      const updates: any[] = cfg.updates || [{ field: "", value: "" }];
-      return (
-        <div className="mt-3 space-y-2">
-          {updates.map((u: any, i: number) => (
-            <div key={i} className="grid grid-cols-2 gap-2">
-              <Select value={u.field} onValueChange={v => { const n = [...updates]; n[i] = { ...u, field: v }; onChange({ ...cfg, updates: n }); }}>
-                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Field" /></SelectTrigger>
-                <SelectContent>{fields.map(f => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-              </Select>
-              <div className="flex gap-2">
-                <Input className="h-9 text-sm" value={u.value} placeholder="Value"
-                  onChange={e => { const n = [...updates]; n[i] = { ...u, value: e.target.value }; onChange({ ...cfg, updates: n }); }} />
-                {updates.length > 1 && (
-                  <button onClick={() => onChange({ ...cfg, updates: updates.filter((_: any, j: number) => j !== i) })}
-                    className="text-gray-400 hover:text-red-500 shrink-0">
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-          <button className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-1 mt-1"
-            onClick={() => onChange({ ...cfg, updates: [...updates, { field: "", value: "" }] })}>
-            <Plus className="w-3 h-3" /> Add field
-          </button>
-        </div>
-      );
-    }
-    case "SEND_NOTIFICATION":
-      return (
-        <div className="mt-3 space-y-2">
-          <Input className="h-9 text-sm" value={cfg.title || ""} placeholder="Notification title" onChange={e => onChange({ ...cfg, title: e.target.value })} />
-          <Textarea className="text-sm min-h-[72px] resize-none" value={cfg.message || ""} placeholder="Notification message" onChange={e => onChange({ ...cfg, message: e.target.value })} />
-        </div>
-      );
-    default:
-      return null;
+  const [fields, setFields] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!moduleId) { setFields([]); return; }
+    api.get(`/modules/${moduleId}/fields`)
+      .then(({ data }) => setFields(data ?? []))
+      .catch(() => setFields([]));
+  }, [moduleId]);
+
+  if (!moduleId) {
+    return (
+      <div className="mt-3 border border-violet-200 rounded-xl bg-violet-50/30 p-4">
+        <p className="text-xs text-gray-500">Pick a module above first, then choose which field to watch.</p>
+      </div>
+    );
   }
+
+  return (
+    <div className="mt-3 border border-violet-200 rounded-xl bg-violet-50/30 p-4 space-y-2">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-violet-500">Field to Watch</p>
+      <Select value={config.fieldName || ""} onValueChange={v => onChange({ ...config, fieldName: v })}>
+        <SelectTrigger className="h-9 text-sm bg-white"><SelectValue placeholder="Select a field…" /></SelectTrigger>
+        <SelectContent>
+          {fields.map(f => <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <p className="text-[11px] text-gray-400 leading-snug">
+        {config.fieldName
+          ? `Fires only when "${fields.find(f => f.name === config.fieldName)?.label ?? config.fieldName}" changes — not on edits to any other field.`
+          : "This workflow won't run until you pick a field."}
+      </p>
+    </div>
+  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const EMPTY_DRAFT = {
-  name: "", description: "", trigger: "RECORD_CREATED", moduleId: "", conditions: [], actions: [],
+  name: "", description: "", trigger: "RECORD_CREATED", triggerConfig: {}, moduleId: "", tags: [], isRepeatable: true,
+  ruleGroups: [emptyRuleGroup(0)] as RuleGroup[],
 };
 
-export default function WorkflowBuilderPage() {
+function WorkflowBuilderPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { modules, fetchModules } = useModulesStore();
 
   const isNew = id === "new";
-  const [draft, setDraft] = useState<any>(EMPTY_DRAFT);
+  // Present when this page was opened from a Blueprint transition's "Create new
+  // workflow" action — preselects the module and, on save, links the new
+  // workflow back to that specific transition (see handleSave below).
+  const linkModuleId = searchParams.get("moduleId") || "";
+  const linkBlueprintId = searchParams.get("blueprintId") || "";
+  const linkTransitionId = searchParams.get("transitionId") || "";
+  const isLinkFlow = isNew && !!linkBlueprintId && !!linkTransitionId;
+
+  const [draft, setDraft] = useState<any>(() =>
+    isNew && linkModuleId ? { ...EMPTY_DRAFT, moduleId: linkModuleId } : EMPTY_DRAFT
+  );
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [orgUsers, setOrgUsers] = useState<any[]>([]);
+  const [orgDepts, setOrgDepts] = useState<any[]>([]);
+  const [allWorkflows, setAllWorkflows] = useState<any[]>([]);
+  const [linkInfo, setLinkInfo] = useState<{ blueprintName: string; transitionName: string } | null>(null);
+  const [linkedDone, setLinkedDone] = useState(false);
+
+  useEffect(() => {
+    if (!isLinkFlow) return;
+    api.get(`/blueprints/${linkBlueprintId}`).then(({ data }) => {
+      const transitions = (data?.transitions ?? []) as any[];
+      const transition = transitions.find(t => t.id === linkTransitionId);
+      setLinkInfo({ blueprintName: data?.name ?? "Blueprint", transitionName: transition?.name ?? "Transition" });
+    }).catch(() => {});
+  }, [isLinkFlow, linkBlueprintId, linkTransitionId]);
+
+  // For an existing workflow opened directly (not via the "create for this
+  // transition" flow above) — discover whether some blueprint transition already
+  // links to it, so the "locked to blueprint" banner still shows.
+  useEffect(() => {
+    if (isNew || isLinkFlow) return;
+    findBlueprintLinksForWorkflows().then(map => {
+      const link = map.get(id as string);
+      if (link) setLinkInfo({ blueprintName: link.blueprintName, transitionName: link.transitionName });
+    });
+  }, [isNew, isLinkFlow, id]);
 
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
@@ -204,16 +315,63 @@ export default function WorkflowBuilderPage() {
   useEffect(() => { fetchModules(); }, [fetchModules]);
 
   useEffect(() => {
+    Promise.all([
+      api.get("/users").catch(() => ({ data: [] })),
+      api.get("/departments").catch(() => ({ data: [] })),
+      api.get("/workflows").catch(() => ({ data: [] })),
+    ]).then(([u, d, w]) => {
+      setOrgUsers(Array.isArray(u.data) ? u.data : (u.data?.users ?? []));
+      setOrgDepts(Array.isArray(d.data) ? d.data : (d.data?.departments ?? []));
+      setAllWorkflows(Array.isArray(w.data) ? w.data : []);
+    });
+  }, []);
+
+  useEffect(() => {
     if (isNew) return;
+    const mapAction = (a: any) => ({
+      ...a,
+      id: a.id || uid(),
+      recipientUsers: a.recipientUsers || [],
+      recipientDepts: a.recipientDepts || [],
+    });
+
     api.get(`/workflows/${id}`)
-      .then(({ data }) => setDraft({
-        name: data.name || "",
-        description: data.description || "",
-        trigger: data.trigger || "RECORD_CREATED",
-        moduleId: data.moduleId || "",
-        conditions: (data.conditions || []).map((c: any) => ({ ...c, id: c.id || uid() })),
-        actions: (data.actions || []).map((a: any) => ({ ...a, id: a.id || uid() })),
-      }))
+      .then(({ data }) => {
+        let ruleGroups: RuleGroup[];
+        if (Array.isArray(data.ruleGroups) && data.ruleGroups.length > 0) {
+          ruleGroups = data.ruleGroups.map((rg: any, i: number) => ({
+            id: rg.id || uid(),
+            name: rg.name || `Rule ${i + 1}`,
+            order: rg.order ?? i,
+            isActive: rg.isActive !== false,
+            conditions: ensureIds(normalizeConditionTree(rg.conditions)) as ConditionGroup,
+            actions: (rg.actions || []).map(mapAction),
+          }));
+        } else {
+          // Legacy workflow with zero WorkflowRuleGroup rows — synthesize a single
+          // "Rule 1" from the old flat conditions[] + actions[], editable through
+          // the same rule-group UI, without migrating anything server-side.
+          ruleGroups = [{
+            id: uid(),
+            name: "Rule 1",
+            order: 0,
+            isActive: true,
+            conditions: ensureIds(normalizeConditionTree(data.conditions)) as ConditionGroup,
+            actions: (data.actions || []).map(mapAction),
+          }];
+        }
+
+        setDraft({
+          name: data.name || "",
+          description: data.description || "",
+          trigger: data.trigger || "RECORD_CREATED",
+          triggerConfig: data.triggerConfig || {},
+          moduleId: data.moduleId || "",
+          tags: Array.isArray(data.tags) ? data.tags : [],
+          isRepeatable: data.isRepeatable !== false,
+          ruleGroups,
+        });
+      })
       .catch(() => showToast("Failed to load workflow", "error"))
       .finally(() => setLoading(false));
   }, [id, isNew]);
@@ -223,16 +381,54 @@ export default function WorkflowBuilderPage() {
 
   const set = (k: string, v: any) => { setDraft((d: any) => ({ ...d, [k]: v })); setDirty(true); };
 
+  const isScheduledRecurring = draft.trigger === "SCHEDULED" && (draft.triggerConfig?.scheduleType || "RECURRING") === "RECURRING";
+
   const handleSave = async () => {
-    if (!draft.name.trim() || !draft.moduleId) return;
+    if (!draft.name.trim() || (!draft.moduleId && !isScheduledRecurring)) return;
     setSaving(true);
     try {
+      // No top-level `conditions`/`actions` keys — rule groups replace both.
+      // Omitting `actions` (rather than sending `actions: []`) leaves any legacy
+      // WorkflowAction rows alone; the execution engine ignores them once
+      // ruleGroups exist.
+      const payload = {
+        name: draft.name,
+        description: draft.description,
+        trigger: draft.trigger,
+        triggerConfig: draft.triggerConfig,
+        moduleId: draft.moduleId,
+        tags: draft.tags,
+        isRepeatable: draft.isRepeatable,
+        ruleGroups: draft.ruleGroups.map((rg: RuleGroup) => ({
+          id: rg.id,
+          name: rg.name,
+          order: rg.order,
+          isActive: rg.isActive,
+          conditions: rg.conditions,
+          actions: rg.actions.map(a => ({
+            id: a.id, type: a.type, config: a.config, order: a.order,
+            recipientUsers: a.recipientUsers, recipientDepts: a.recipientDepts,
+          })),
+        })),
+      };
       if (isNew) {
-        const { data } = await api.post("/workflows", draft);
-        showToast("Workflow created");
-        router.replace(`/settings/workflows/${data.id}`);
+        const { data } = await api.post("/workflows", payload);
+        if (isLinkFlow) {
+          await api.patch(`/blueprints/${linkBlueprintId}/transitions/${linkTransitionId}/link-workflow`, { workflowId: data.id });
+          // Notify the blueprint tab (if this page was window.open()'d from it) so
+          // it can refresh the linked-workflow display without a manual reload.
+          try {
+            window.opener?.postMessage({ type: "workflow-linked", transitionId: linkTransitionId, workflowId: data.id, workflowName: data.name }, "*");
+          } catch {}
+          showToast("Workflow created and linked to blueprint");
+          setLinkedDone(true);
+          router.replace(`/settings/workflows/${data.id}`);
+        } else {
+          showToast("Workflow created");
+          router.replace(`/settings/workflows/${data.id}`);
+        }
       } else {
-        await api.patch(`/workflows/${id}`, draft);
+        await api.patch(`/workflows/${id}`, payload);
         showToast("Workflow saved");
         setDirty(false);
       }
@@ -243,7 +439,24 @@ export default function WorkflowBuilderPage() {
     }
   };
 
-  const canSave = draft.name.trim() && draft.moduleId && draft.actions.length > 0;
+  const groupsMissingActions = draft.ruleGroups.filter((rg: RuleGroup) => rg.actions.length === 0);
+  const allGroupsHaveActions = draft.ruleGroups.length > 0 && groupsMissingActions.length === 0;
+  const needsFieldChangedTarget = draft.trigger === "FIELD_CHANGED" && !draft.triggerConfig?.fieldName;
+  const canSave = draft.name.trim() && (draft.moduleId || isScheduledRecurring) && allGroupsHaveActions && !needsFieldChangedTarget;
+
+  // Surfaced next to the Save button so a disabled button never fails silently —
+  // this is the #1 cause of "I set up a condition and nothing happens" reports.
+  const cantSaveReason = !draft.name.trim()
+    ? "Enter a workflow name"
+    : (!draft.moduleId && !isScheduledRecurring)
+      ? "Select a module"
+      : needsFieldChangedTarget
+        ? "Pick which field this workflow should watch"
+        : draft.ruleGroups.length === 0
+          ? "Add at least one rule group"
+          : groupsMissingActions.length > 0
+            ? `"${groupsMissingActions[0].name}" needs at least one action before you can save`
+            : "";
 
   if (loading) {
     return (
@@ -284,11 +497,47 @@ export default function WorkflowBuilderPage() {
           </span>
         )}
 
-        <Button onClick={handleSave} disabled={saving || !canSave} className="gap-2 shrink-0">
+        <Button onClick={handleSave} disabled={saving || !canSave} className="gap-2 shrink-0" title={cantSaveReason || undefined}>
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {isNew ? "Create Workflow" : "Save"}
         </Button>
       </div>
+
+      {!canSave && !saving && cantSaveReason && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>Can&apos;t save yet — {cantSaveReason}.</span>
+        </div>
+      )}
+
+      {isLinkFlow && !linkedDone && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-700">
+          <Link2 className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Creating a workflow for blueprint <strong>{linkInfo?.blueprintName ?? "…"}</strong>
+            {" → "}transition <strong>{linkInfo?.transitionName ?? "…"}</strong>.
+            It will be linked automatically once saved — no need to open Workflows separately.
+          </span>
+        </div>
+      )}
+      {linkedDone && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-100 text-xs text-green-700">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Linked to blueprint <strong>{linkInfo?.blueprintName ?? "this blueprint"}</strong>
+            {" → "}transition <strong>{linkInfo?.transitionName ?? ""}</strong>. You can close this tab and return to the blueprint.
+          </span>
+        </div>
+      )}
+      {!isLinkFlow && !linkedDone && linkInfo && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-700">
+          <Lock className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Locked to blueprint <strong>{linkInfo.blueprintName}</strong>
+            {" → "}transition <strong>{linkInfo.transitionName}</strong>. Its conditions gate whether this transition fires, in addition to this workflow's own rule groups.
+          </span>
+        </div>
+      )}
 
       {/* ── Body ──────────────────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
@@ -317,9 +566,53 @@ export default function WorkflowBuilderPage() {
                   <SelectValue placeholder="Select module" />
                 </SelectTrigger>
                 <SelectContent>
-                  {modules.map(m => <SelectItem key={m.id} value={m.id}>{m.icon} {m.name}</SelectItem>)}
+                  {modules.map(m => <SelectItem key={m.id} value={m.id}><ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1 -mt-0.5" /> {m.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Repeat behaviour */}
+            <div>
+              <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Behaviour</Label>
+              <button
+                type="button"
+                onClick={() => set("isRepeatable", !draft.isRepeatable)}
+                className={cn(
+                  "flex items-center gap-3 p-3.5 rounded-xl border w-full text-left transition-all",
+                  draft.isRepeatable
+                    ? "border-violet-300 bg-violet-50"
+                    : "border-amber-300 bg-amber-50"
+                )}
+              >
+                <div className={cn(
+                  "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                  draft.isRepeatable ? "bg-violet-100" : "bg-amber-100"
+                )}>
+                  {draft.isRepeatable
+                    ? <RefreshCw className="w-4 h-4 text-violet-600" />
+                    : <Lock className="w-4 h-4 text-amber-600" />
+                  }
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={cn("text-xs font-semibold", draft.isRepeatable ? "text-violet-700" : "text-amber-700")}>
+                    {draft.isRepeatable ? "Repeatable" : "Run once per record"}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">
+                    {draft.isRepeatable
+                      ? "Fires every time the trigger condition is met"
+                      : "Only fires once per record — skipped if already ran"}
+                  </p>
+                </div>
+                <div className={cn(
+                  "w-9 h-5 rounded-full relative shrink-0 transition-colors",
+                  draft.isRepeatable ? "bg-violet-500" : "bg-amber-500"
+                )}>
+                  <div className={cn(
+                    "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+                    draft.isRepeatable ? "left-4" : "left-0.5"
+                  )} />
+                </div>
+              </button>
             </div>
 
             {/* Trigger */}
@@ -351,122 +644,60 @@ export default function WorkflowBuilderPage() {
                   </button>
                 ))}
               </div>
+
+              {draft.trigger === "SCHEDULED" && (
+                <ScheduledTriggerConfig
+                  config={draft.triggerConfig || {}}
+                  moduleId={draft.moduleId}
+                  modules={modules}
+                  onChange={tc => set("triggerConfig", tc)}
+                />
+              )}
+
+              {draft.trigger === "FIELD_CHANGED" && (
+                <FieldChangedTriggerConfig
+                  config={draft.triggerConfig || {}}
+                  moduleId={draft.moduleId}
+                  onChange={tc => set("triggerConfig", tc)}
+                />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Right panel — conditions + actions */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-10 bg-white">
-
-          {/* Conditions */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-amber-500 text-white text-[11px] flex items-center justify-center font-bold">2</span>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Only if</p>
-                  <p className="text-xs text-gray-400">Conditions — optional, runs on every trigger if empty</p>
-                </div>
-              </div>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5" disabled={!draft.moduleId}
-                onClick={() => set("conditions", [...draft.conditions, { id: uid(), field: fields[0]?.name || "", operator: "is", value: "", logic: "AND" }])}>
-                <Plus className="w-3.5 h-3.5" /> Add Condition
-              </Button>
-            </div>
-
-            {draft.conditions.length === 0 ? (
-              <div className="border-2 border-dashed border-gray-100 rounded-xl px-6 py-8 text-center">
-                <p className="text-sm text-gray-400">No conditions — workflow runs on every trigger event</p>
-                {!draft.moduleId && <p className="text-xs text-gray-300 mt-1">Select a module first to add conditions</p>}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {draft.conditions.map((cond: any, idx: number) => (
-                  <div key={cond.id} className="flex items-center gap-2 flex-wrap bg-amber-50/60 border border-amber-100 p-3 rounded-xl">
-                    {idx > 0 && (
-                      <Select value={cond.logic || "AND"} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, logic: v } : c))}>
-                        <SelectTrigger className="h-8 w-16 text-xs font-bold"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="AND" className="text-xs font-medium">AND</SelectItem>
-                          <SelectItem value="OR" className="text-xs font-medium">OR</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <Select value={cond.field} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, field: v } : c))}>
-                      <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="Field" /></SelectTrigger>
-                      <SelectContent>{fields.map((f: any) => <SelectItem key={f.name} value={f.name} className="text-xs">{f.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Select value={cond.operator} onValueChange={v => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, operator: v } : c))}>
-                      <SelectTrigger className="h-8 text-xs w-44"><SelectValue /></SelectTrigger>
-                      <SelectContent>{CONDITION_OPERATORS.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    {!["empty", "not_empty"].includes(cond.operator) && (
-                      <Input className="h-8 text-xs w-32" value={cond.value} placeholder="Value"
-                        onChange={e => set("conditions", draft.conditions.map((c: any) => c.id === cond.id ? { ...c, value: e.target.value } : c))} />
-                    )}
-                    <button onClick={() => set("conditions", draft.conditions.filter((c: any) => c.id !== cond.id))}
-                      className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-green-600 text-white text-[11px] flex items-center justify-center font-bold">3</span>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Then do this</p>
-                  <p className="text-xs text-gray-400">Actions — executed in order</p>
-                </div>
-              </div>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5" disabled={!draft.moduleId}
-                onClick={() => set("actions", [...draft.actions, { id: uid(), type: "SET_FIELD", config: {}, order: draft.actions.length }])}>
-                <Plus className="w-3.5 h-3.5" /> Add Action
-              </Button>
-            </div>
-
-            {draft.actions.length === 0 ? (
-              <div className="border-2 border-dashed border-gray-100 rounded-xl px-6 py-8 text-center">
-                <p className="text-sm text-gray-400">
-                  {draft.moduleId ? "Add at least one action to execute" : "Select a module first"}
+        {/* Right panel — rule groups (nested conditions + actions) */}
+        <div className="flex-1 overflow-y-auto p-8 bg-white">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center gap-2.5 mb-4">
+              <span className="w-6 h-6 rounded-full bg-amber-500 text-white text-[11px] flex items-center justify-center font-bold">2</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Rules</p>
+                <p className="text-xs text-gray-400">
+                  Each rule group evaluates its own conditions independently, then runs its own actions.
+                  {!draft.moduleId && !isScheduledRecurring && " Select a module first."}
                 </p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {draft.actions.map((action: any, idx: number) => (
-                  <div key={action.id} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">{idx + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <ActionTypePicker
-                          value={action.type}
-                          onChange={v => set("actions", draft.actions.map((a: any) => a.id === action.id ? { ...a, type: v, config: {} } : a))}
-                        />
-                        <ActionConfigEditor
-                          action={action}
-                          fields={fields}
-                          onChange={cfg => set("actions", draft.actions.map((a: any) => a.id === action.id ? { ...a, config: cfg } : a))}
-                        />
-                      </div>
-                      <button
-                        onClick={() => set("actions", draft.actions.filter((a: any) => a.id !== action.id))}
-                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 shrink-0 mt-0.5"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            </div>
+            <RuleGroupsEditor
+              ruleGroups={draft.ruleGroups}
+              onChange={(v: RuleGroup[]) => set("ruleGroups", v)}
+              fields={fields}
+              modules={modules}
+              allWorkflows={allWorkflows}
+              orgUsers={orgUsers}
+              orgDepts={orgDepts}
+            />
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function WorkflowBuilderPage() {
+  return (
+    <Suspense fallback={<div className="fixed inset-0 z-40 bg-white flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-violet-500" /></div>}>
+      <WorkflowBuilderPageInner />
+    </Suspense>
   );
 }

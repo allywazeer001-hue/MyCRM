@@ -7,7 +7,7 @@ import {
   Plus, ChevronLeft, ChevronRight, Loader2, X, Trash2,
   Pin, Edit2, Check, CalendarDays, Users, ArrowRight,
   MoreHorizontal, CheckCheck, Building2, BellRing,
-  Inbox, ArrowUpRight,
+  ChevronDown, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth.store";
 import { getDisplayName } from "@/lib/user";
+import RequestsPanel from "./my-requests/page";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ interface Summary {
   todayTasks: number; pendingTasks: number;
   overdueTasks: number; assignedToMe: number; notes: number;
 }
-type TaskFilter = "pending" | "today" | "scheduled" | "overdue";
+type TaskFilter = "pending" | "today" | "scheduled" | "overdue" | "assigned_to_me" | "completed";
 
 // ── Static config ──────────────────────────────────────────────────────────────
 
@@ -58,10 +59,10 @@ const NOTE_COLORS = [
 ];
 const noteStyle = (c: string) => NOTE_COLORS.find(n => n.key === c) ?? NOTE_COLORS[0];
 
-const FILTERS: { key: TaskFilter; label: string; badgeKey?: "pendingTasks" | "todayTasks" | "overdueTasks" }[] = [
-  { key: "pending",   label: "Pending Tasks", badgeKey: "pendingTasks"  },
-  { key: "today",     label: "Today Tasks",   badgeKey: "todayTasks"    },
-  { key: "scheduled", label: "Scheduled"                                 },
+const FILTERS: { key: TaskFilter; label: string; badgeKey?: "pendingTasks" | "overdueTasks" }[] = [
+  { key: "pending",   label: "Pending",   badgeKey: "pendingTasks" },
+  { key: "scheduled", label: "Scheduled" },
+  { key: "completed", label: "Completed" },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -973,91 +974,6 @@ function StatCard({ label, value, icon: Icon, accent, onClick, active, alert }: 
   );
 }
 
-// ── Requests Queue Strip ───────────────────────────────────────────────────────
-
-const REQ_STATUS: Record<string, { label: string; color: string }> = {
-  OPEN:        { label: "Open",        color: "#3b82f6" },
-  IN_PROGRESS: { label: "In Progress", color: "#f97316" },
-  ON_HOLD:     { label: "On Hold",     color: "#eab308" },
-  COMPLETED:   { label: "Completed",   color: "#22c55e" },
-  REJECTED:    { label: "Rejected",    color: "#ef4444" },
-};
-
-function RequestsQueueStrip() {
-  const [queue, setQueue] = useState<{ myRequests: any[]; assignedToMe: any[]; teamQueue: any[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get("/requests/queue").then(r => setQueue(r.data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return null;
-  if (!queue) return null;
-
-  const total = queue.myRequests.length + queue.assignedToMe.length + queue.teamQueue.length;
-  if (total === 0) return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 flex items-center gap-3">
-      <Inbox className="w-4 h-4 text-slate-300 shrink-0" />
-      <span className="text-sm text-slate-400">No active requests. </span>
-      <Link href="/workspace/requests/new" className="text-sm text-blue-600 hover:underline font-medium">Submit one →</Link>
-    </div>
-  );
-
-  const sections = [
-    { label: "My Requests",   items: queue.myRequests,   color: "#3b82f6" },
-    { label: "Assigned to Me",items: queue.assignedToMe, color: "#f97316" },
-    { label: "Team Queue",    items: queue.teamQueue,     color: "#8b5cf6" },
-  ].filter(s => s.items.length > 0);
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-        <div className="flex items-center gap-2">
-          <Inbox className="w-4 h-4 text-blue-500" />
-          <span className="text-xs font-semibold text-slate-700">Requests Queue</span>
-          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-px rounded-full font-bold">{total}</span>
-        </div>
-        <Link href="/workspace/requests" className="text-xs text-blue-600 hover:underline flex items-center gap-0.5 font-medium">
-          View all <ArrowUpRight className="w-3 h-3" />
-        </Link>
-      </div>
-      <div className="flex divide-x divide-slate-100">
-        {sections.map(sec => (
-          <div key={sec.label} className="flex-1 min-w-0 p-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: sec.color }} />
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{sec.label}</span>
-              <span className="text-[10px] text-slate-400 ml-auto">{sec.items.length}</span>
-            </div>
-            <div className="space-y-1.5">
-              {sec.items.slice(0, 3).map((r: any) => {
-                const sm = REQ_STATUS[r.status] ?? REQ_STATUS.OPEN;
-                return (
-                  <Link key={r.id} href={`/workspace/requests/${r.id}`} className="block group">
-                    <div className="flex items-start gap-2">
-                      <div className="w-1 h-1 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: sm.color }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-slate-700 truncate group-hover:text-blue-600 transition-colors">{r.title}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[10px] font-mono text-slate-300">{r.requestNumber}</span>
-                          {r.type && <span className="text-[10px] px-1 rounded-full font-medium" style={{ backgroundColor: r.type.color + '18', color: r.type.color }}>{r.type.name}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-              {sec.items.length > 3 && (
-                <Link href="/workspace/requests" className="text-[10px] text-blue-500 hover:underline pl-3">+{sec.items.length - 3} more</Link>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function WorkspacePage() {
@@ -1066,8 +982,6 @@ export default function WorkspacePage() {
 
   const [summary, setSummary]           = useState<Summary>();
   const [tasks, setTasks]               = useState<Task[]>([]);
-  const [assignedTasks, setAssigned]    = useState<Task[]>([]);
-  const [loadingAssigned, setLdAssigned]= useState(false);
   const [notes, setNotes]               = useState<Note[]>([]);
   const [users, setUsers]               = useState<WUser[]>([]);
   const [departments, setDepts]         = useState<WDept[]>([]);
@@ -1135,16 +1049,7 @@ export default function WorkspacePage() {
     } catch {}
   }, []);
 
-  const loadAssigned = useCallback(async () => {
-    setLdAssigned(true);
-    try {
-      const { data } = await api.get("/workspace/tasks", { params: { filter: "assigned_to_me" } });
-      setAssigned(data);
-    } catch {}
-    finally { setLdAssigned(false); }
-  }, []);
-
-  useEffect(() => { loadSummary(); loadNotes(); loadUsers(); loadDepts(); loadAssigned(); }, []);
+  useEffect(() => { loadSummary(); loadNotes(); loadUsers(); loadDepts(); }, []);
   useEffect(() => { loadTasks(filter, dateFilter); }, [filter, dateFilter]);
   useEffect(() => { loadCalendar(selectedDate.getFullYear(), selectedDate.getMonth() + 1); }, [selectedDate.getFullYear(), selectedDate.getMonth()]);
 
@@ -1156,7 +1061,6 @@ export default function WorkspacePage() {
       setTasks(prev => [data, ...prev]);
       setShowNewTask(false);
       loadSummary();
-      loadAssigned();
       loadCalendar(selectedDate.getFullYear(), selectedDate.getMonth() + 1);
       toast.success("Task added");
     } catch { toast.error("Failed to add task"); }
@@ -1167,7 +1071,6 @@ export default function WorkspacePage() {
     try {
       const { data } = await api.patch(`/workspace/tasks/${task.id}`, { status: newStatus });
       setTasks(prev => prev.map(t => t.id === task.id ? data : t));
-      setAssigned(prev => prev.map(t => t.id === task.id ? data : t));
       loadSummary();
     } catch { toast.error("Failed to update task"); }
   };
@@ -1179,7 +1082,6 @@ export default function WorkspacePage() {
         const updated = prev.map(t => t.id === task.id ? data : t);
         return [...updated.filter(t => t.pinned), ...updated.filter(t => !t.pinned)];
       });
-      setAssigned(prev => prev.map(t => t.id === task.id ? data : t));
     } catch { toast.error("Failed to pin task"); }
   };
 
@@ -1187,7 +1089,6 @@ export default function WorkspacePage() {
     try {
       await api.delete(`/workspace/tasks/${id}`);
       setTasks(prev => prev.filter(t => t.id !== id));
-      setAssigned(prev => prev.filter(t => t.id !== id));
       loadSummary();
     } catch { toast.error("Failed to delete task"); }
   };
@@ -1258,22 +1159,18 @@ export default function WorkspacePage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="Due today"      value={summary?.todayTasks}   icon={Clock}         accent="bg-blue-100 text-blue-600"
-          onClick={() => { setDateFilter(null); setFilter("today"); }}
-          active={!dateFilter && filter === "today"} />
-        <StatCard label="Pending"        value={summary?.pendingTasks}  icon={Circle}        accent="bg-gray-100 text-gray-500"
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label="Pending"  value={summary?.pendingTasks} icon={Circle}        accent="bg-gray-100 text-gray-500"
           onClick={() => { setDateFilter(null); setFilter("pending"); }}
           active={!dateFilter && filter === "pending"} />
-        <StatCard label="Overdue"        value={summary?.overdueTasks}  icon={AlertTriangle} accent="bg-red-100 text-red-600" alert
+        <StatCard label="Overdue"  value={summary?.overdueTasks} icon={AlertTriangle} accent="bg-red-100 text-red-600" alert
           onClick={() => { setDateFilter(null); setFilter("overdue"); }}
           active={!dateFilter && filter === "overdue"} />
-        <StatCard label="Assigned to me" value={summary?.assignedToMe} icon={Users}         accent="bg-violet-100 text-violet-600" />
-        <StatCard label="Notes"          value={summary?.notes}         icon={StickyNote}    accent="bg-amber-100 text-amber-600" />
+        <StatCard label="Scheduled" value={undefined}            icon={Clock}         accent="bg-blue-100 text-blue-600"
+          onClick={() => { setDateFilter(null); setFilter("scheduled"); }}
+          active={!dateFilter && filter === "scheduled"} />
+        <StatCard label="Notes"    value={summary?.notes}        icon={StickyNote}    accent="bg-amber-100 text-amber-600" />
       </div>
-
-      {/* Requests queue */}
-      <RequestsQueueStrip />
 
       {/* ── Pinned Board ──────────────────────────────────────────────────────── */}
       {(pinnedTasks.length > 0 || pinnedNotes.length > 0) && (
@@ -1406,12 +1303,6 @@ export default function WorkspacePage() {
                 );
               })}
 
-              {!dateFilter && filter === "overdue" && (
-                <span className="flex items-center gap-1 ml-2 px-2.5 py-1 text-[10px] bg-red-50 text-red-600 border border-red-200 rounded-full font-semibold">
-                  <AlertTriangle className="w-2.5 h-2.5" /> Overdue
-                </span>
-              )}
-
               {dateFilter && (
                 <span className="ml-auto flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-50 text-blue-600 rounded-lg border border-blue-200 mr-1 shrink-0">
                   <CalendarDays className="w-3 h-3" />
@@ -1450,7 +1341,7 @@ export default function WorkspacePage() {
                   <p className="text-xs text-gray-400 mt-1">No tasks for this view</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-2 max-w-xl">
                   {tasks.map(t => (
                     <TaskCard key={t.id} task={t} currentUserId={currentUser?.id ?? ""}
                       onClick={() => setSelectedTask(t)}
@@ -1463,58 +1354,9 @@ export default function WorkspacePage() {
           </div>
         </div>
 
-        {/* RIGHT: assigned to me */}
-        <div className="lg:w-72 shrink-0 flex flex-col min-h-0">
-          <div className="bg-white border border-blue-100 rounded-xl flex flex-col flex-1 min-h-0 overflow-hidden">
-            {/* Header */}
-            <div className="px-3.5 py-3 border-b border-blue-100 shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
-                <span className="text-xs font-semibold text-gray-700">Assigned to me</span>
-                {assignedTasks.length > 0 && (
-                  <span className="ml-auto text-[10px] bg-blue-600 text-white rounded-full px-1.5 py-px font-bold leading-none">
-                    {assignedTasks.filter(t => t.status !== "done").length}
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-400 mt-0.5 ml-4">Tasks & dept tasks visible to you</p>
-            </div>
-
-            {/* Assigned task list */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-              {loadingAssigned ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="w-5 h-5 animate-spin text-blue-300" />
-                </div>
-              ) : assignedTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-14 text-center">
-                  <CheckCheck className="w-8 h-8 text-blue-100 mb-2" />
-                  <p className="text-xs font-medium text-gray-400">Nothing assigned to you</p>
-                  <p className="text-[10px] text-gray-300 mt-0.5">You're all caught up!</p>
-                </div>
-              ) : (
-                <>
-                  {/* Active */}
-                  {assignedTasks.filter(t => t.status !== "done").map(t => (
-                    <AssignedItem key={t.id} task={t} onToggleDone={() => toggleDone(t)} />
-                  ))}
-                  {/* Done separator */}
-                  {assignedTasks.some(t => t.status === "done") && (
-                    <>
-                      <div className="flex items-center gap-2 py-1">
-                        <div className="flex-1 border-t border-gray-100" />
-                        <span className="text-[10px] text-gray-400 font-medium">Completed</span>
-                        <div className="flex-1 border-t border-gray-100" />
-                      </div>
-                      {assignedTasks.filter(t => t.status === "done").map(t => (
-                        <AssignedItem key={t.id} task={t} onToggleDone={() => toggleDone(t)} />
-                      ))}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+        {/* RIGHT: requests panel */}
+        <div className="lg:w-80 shrink-0 flex flex-col min-h-0 overflow-hidden bg-white border border-gray-200 rounded-xl">
+          <RequestsPanel />
         </div>
 
       </div>

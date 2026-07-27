@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LayoutConfig, LayoutSection } from "@/lib/layout-templates";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -236,27 +237,58 @@ export function FormSectionRenderer({
   const assignedIds = new Set(sections.flatMap(s => s.fieldIds));
   const unassigned  = fields.filter(f => !assignedIds.has(f.id));
 
+  // Sections with no tabId render inline, as before. Sections that name a tab get
+  // pulled out and grouped under it instead — a tab with no sections (or whose
+  // sections all resolved to zero visible fields) is dropped rather than shown empty.
+  const untabbedSections = sections.filter(s => !s.tabId);
+  const tabs = (layout.tabs ?? []).slice().sort((a, b) => a.order - b.order);
+  const sectionsByTab = new Map<string, LayoutSection[]>();
+  for (const s of sections) {
+    if (!s.tabId) continue;
+    const list = sectionsByTab.get(s.tabId) ?? [];
+    list.push(s);
+    sectionsByTab.set(s.tabId, list);
+  }
+  const visibleTabs = tabs.filter(t => (sectionsByTab.get(t.id) ?? []).some(s =>
+    !hiddenSectionIds?.has(s.id) && s.fieldIds.some(fid => fields.some(f => f.id === fid))
+  ));
+
+  const renderSectionBlock = (section: LayoutSection) => {
+    if (hiddenSectionIds?.has(section.id)) return null;
+    const sectionFields = section.fieldIds
+      .map(fid => fields.find(f => f.id === fid))
+      .filter(Boolean);
+    if (sectionFields.length === 0) return null;
+    return (
+      <SectionBlock
+        key={section.id}
+        section={section}
+        fields={sectionFields}
+        renderField={renderField}
+        fullWidthTypes={fullWidthTypes}
+        layoutColumns={cols}
+        formData={formData}
+        showCompletion={trackCompletion}
+      />
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {sections.map((section) => {
-        if (hiddenSectionIds?.has(section.id)) return null;
-        const sectionFields = section.fieldIds
-          .map(fid => fields.find(f => f.id === fid))
-          .filter(Boolean);
-        if (sectionFields.length === 0) return null;
-        return (
-          <SectionBlock
-            key={section.id}
-            section={section}
-            fields={sectionFields}
-            renderField={renderField}
-            fullWidthTypes={fullWidthTypes}
-            layoutColumns={cols}
-            formData={formData}
-            showCompletion={trackCompletion}
-          />
-        );
-      })}
+      {untabbedSections.map(renderSectionBlock)}
+
+      {visibleTabs.length > 0 && (
+        <Tabs defaultValue={visibleTabs[0].id}>
+          <TabsList>
+            {visibleTabs.map(t => <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>)}
+          </TabsList>
+          {visibleTabs.map(t => (
+            <TabsContent key={t.id} value={t.id} className="space-y-6 pt-4">
+              {(sectionsByTab.get(t.id) ?? []).map(renderSectionBlock)}
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
 
       {/* Unassigned fields — no section header */}
       {unassigned.length > 0 && (() => {
