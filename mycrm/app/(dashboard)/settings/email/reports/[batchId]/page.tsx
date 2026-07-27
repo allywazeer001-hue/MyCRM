@@ -241,11 +241,11 @@ export default function CampaignReportPage() {
               <p className="text-sm font-bold text-slate-800">Sent Email Statistics</p>
               <p className="text-sm text-slate-500">Total emails sent: <span className="text-base font-bold text-slate-800">{s.total}</span></p>
             </div>
-            <div ref={wrapRef} style={{ width: "100%", height: box.height, overflow: "hidden" }}>
+            <div ref={wrapRef} style={{ width: "100%", height: box.height, overflow: "hidden", display: "flex", justifyContent: "center" }}>
               <div
                 ref={innerRef}
-                className="flex flex-col items-center py-2 mx-auto"
-                style={{ width: "fit-content", transform: `scale(${box.scale})`, transformOrigin: "top center" }}
+                className="flex flex-col items-center py-2"
+                style={{ transform: `scale(${box.scale})`, transformOrigin: "top center" }}
               >
                 <Node label="Sent Email" count={s.total} pct={100} color="slate" active={stage === "all"} onClick={() => selectStage("all")} />
 

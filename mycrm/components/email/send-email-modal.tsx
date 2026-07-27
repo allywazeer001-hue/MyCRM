@@ -151,8 +151,12 @@ export function SendEmailModal({ open, onClose, defaultEmail = "", defaultName =
         await api.post("/emails/schedule", { ...payload, sendAt: new Date(scheduleAt).toISOString() });
         setScheduled(true);
       } else {
-        await api.post("/emails/send", payload);
-        setSent(true);
+        const { data } = await api.post("/emails/send", payload);
+        if (!data || data.sent < 1) {
+          setError(data?.failed > 0 ? "The email could not be delivered — check the Emails tab or report for the reason." : "Failed to send email.");
+        } else {
+          setSent(true);
+        }
       }
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.message ?? "Failed to send email.");

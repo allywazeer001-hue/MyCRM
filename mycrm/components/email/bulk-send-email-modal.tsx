@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { renderEmailToHtml, type EmailDesign } from "./email-canvas";
 import { buildVarMap } from "./send-email-modal";
-import { Send, X, ChevronDown, Users, RefreshCcw, CheckCircle2, Reply, Clock, CalendarClock, Building2, User, Check } from "lucide-react";
+import { Send, X, ChevronDown, Users, RefreshCcw, CheckCircle2, XCircle, Reply, Clock, CalendarClock, Building2, User, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Template {
@@ -41,7 +41,7 @@ export function BulkSendEmailModal({ open, onClose, recipients = [], mode = "rec
   const [subject, setSubject] = useState("");
   const [customBody, setCustomBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ sent: number } | null>(null);
+  const [result, setResult] = useState<{ sent: number; bounced: number; failed: number } | null>(null);
   const [scheduled, setScheduled] = useState(false);
   const [error, setError] = useState("");
   const [replyTo, setReplyTo] = useState("");
@@ -121,8 +121,8 @@ export function BulkSendEmailModal({ open, onClose, recipients = [], mode = "rec
         await api.post("/emails/schedule", { ...payload, sendAt: new Date(scheduleAt).toISOString() });
         setScheduled(true);
       } else {
-        await api.post("/emails/send", payload);
-        setResult({ sent: activeRecipients.length });
+        const { data } = await api.post("/emails/send", payload);
+        setResult({ sent: data?.sent ?? 0, bounced: data?.bounced ?? 0, failed: data?.failed ?? 0 });
       }
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.message ?? "Failed to send emails.");
@@ -154,14 +154,28 @@ export function BulkSendEmailModal({ open, onClose, recipients = [], mode = "rec
 
         {result || scheduled ? (
           <div className="flex flex-col items-center justify-center py-16 px-8 gap-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-              {scheduled ? <CalendarClock className="w-7 h-7 text-emerald-600" /> : <CheckCircle2 className="w-7 h-7 text-emerald-600" />}
+            <div className={cn("w-14 h-14 rounded-full flex items-center justify-center",
+              scheduled || (result && result.sent > 0) ? "bg-emerald-100" : "bg-red-100")}>
+              {scheduled
+                ? <CalendarClock className="w-7 h-7 text-emerald-600" />
+                : result && result.sent > 0
+                  ? <CheckCircle2 className="w-7 h-7 text-emerald-600" />
+                  : <XCircle className="w-7 h-7 text-red-600" />}
             </div>
-            <p className="text-lg font-semibold text-slate-800">{scheduled ? "Emails scheduled!" : "Emails sent!"}</p>
+            <p className="text-lg font-semibold text-slate-800">
+              {scheduled ? "Emails scheduled!" : result && result.sent > 0 ? "Emails sent!" : "Sending failed"}
+            </p>
             <p className="text-sm text-slate-500 text-center">
               {scheduled
                 ? <>Will be sent to {activeRecipients.length} recipient{activeRecipients.length === 1 ? "" : "s"} on {new Date(scheduleAt).toLocaleString()}.</>
-                : <>Sent to {result?.sent} recipient{result?.sent === 1 ? "" : "s"}.</>}
+                : result && result.failed + result.bounced === 0
+                  ? <>Sent to {result.sent} recipient{result.sent === 1 ? "" : "s"}.</>
+                  : <>
+                      {result?.sent ?? 0} sent
+                      {(result?.bounced ?? 0) > 0 && <>, {result?.bounced} bounced</>}
+                      {(result?.failed ?? 0) > 0 && <>, {result?.failed} failed</>}
+                      {" — check the Emails tab or report for details."}
+                    </>}
             </p>
             <button onClick={onClose} className="mt-2 px-6 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors">Done</button>
           </div>
