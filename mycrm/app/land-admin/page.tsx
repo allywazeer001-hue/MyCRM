@@ -362,6 +362,25 @@ function LivePreview({ config }: { config: LandingConfig }) {
 // ── Auth states ───────────────────────────────────────────────────────────────
 type AuthStatus = "loading" | "need-login" | "forbidden" | "ok";
 
+// The daily start/end time picker shows this admin's own local wall-clock
+// time, but the backend (and every viewer, regardless of their own
+// timezone) compares against the server's clock in UTC — so the value must
+// be converted at the boundary, not stored/compared as a bare "HH:MM".
+function localTimeToUtc(hhmm: string): string {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+function utcTimeToLocal(hhmm: string): string {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date();
+  d.setUTCHours(h, m, 0, 0);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LandAdminPage() {
   const [config, setConfig] = useState<LandingConfig>({ ...DEFAULTS });
@@ -377,6 +396,7 @@ export default function LandAdminPage() {
     message: "", isActive: false,
     startDate: "", endDate: "", dailyStartTime: "", dailyEndTime: "",
   });
+  const [schedulingEnabled, setSchedulingEnabled] = useState(false);
   const [announcementLoading, setAnnouncementLoading] = useState(true);
   const [announcementSaving, setAnnouncementSaving] = useState(false);
   const [announcementSaved, setAnnouncementSaved] = useState(false);
@@ -395,14 +415,17 @@ export default function LandAdminPage() {
     setConfig(loadConfig());
     setAuthStatus("ok");
     api.get("/announcements")
-      .then(({ data }) => setAnnouncement({
-        message: data.message ?? "",
-        isActive: !!data.isActive,
-        startDate: data.startDate ? String(data.startDate).slice(0, 10) : "",
-        endDate: data.endDate ? String(data.endDate).slice(0, 10) : "",
-        dailyStartTime: data.dailyStartTime ?? "",
-        dailyEndTime: data.dailyEndTime ?? "",
-      }))
+      .then(({ data }) => {
+        setAnnouncement({
+          message: data.message ?? "",
+          isActive: !!data.isActive,
+          startDate: data.startDate ? String(data.startDate).slice(0, 10) : "",
+          endDate: data.endDate ? String(data.endDate).slice(0, 10) : "",
+          dailyStartTime: utcTimeToLocal(data.dailyStartTime ?? ""),
+          dailyEndTime: utcTimeToLocal(data.dailyEndTime ?? ""),
+        });
+        setSchedulingEnabled(!!(data.startDate || data.endDate || data.dailyStartTime || data.dailyEndTime));
+      })
       .catch(() => {})
       .finally(() => setAnnouncementLoading(false));
   }, []); // eslint-disable-line
@@ -410,7 +433,14 @@ export default function LandAdminPage() {
   const saveAnnouncement = async () => {
     setAnnouncementSaving(true);
     try {
-      await api.patch("/announcements", announcement);
+      await api.patch("/announcements", schedulingEnabled ? {
+        ...announcement,
+        dailyStartTime: localTimeToUtc(announcement.dailyStartTime),
+        dailyEndTime: localTimeToUtc(announcement.dailyEndTime),
+      } : {
+        ...announcement,
+        startDate: "", endDate: "", dailyStartTime: "", dailyEndTime: "",
+      });
       setAnnouncementSaved(true);
       setTimeout(() => setAnnouncementSaved(false), 2500);
     } catch { /* noop */ } finally { setAnnouncementSaving(false); }
@@ -776,26 +806,35 @@ export default function LandAdminPage() {
                         onChange={(e) => setAnnouncement((p) => ({ ...p, message: e.target.value }))}
                         className={TEXTAREA} placeholder="We're rolling out a new Analytics dashboard this week." />
                     </Field>
-                    <Field label="Active date range" hint="Leave either side blank for no limit on that side.">
-                      <div className="grid grid-cols-2 gap-3">
-                        <input type="date" value={announcement.startDate}
-                          onChange={(e) => setAnnouncement((p) => ({ ...p, startDate: e.target.value }))}
-                          className={INPUT} />
-                        <input type="date" value={announcement.endDate}
-                          onChange={(e) => setAnnouncement((p) => ({ ...p, endDate: e.target.value }))}
-                          className={INPUT} />
-                      </div>
-                    </Field>
-                    <Field label="Daily time window" hint="The banner only shows during this time of day, every day within the date range above. Leave both blank to show all day.">
-                      <div className="grid grid-cols-2 gap-3">
-                        <input type="time" value={announcement.dailyStartTime}
-                          onChange={(e) => setAnnouncement((p) => ({ ...p, dailyStartTime: e.target.value }))}
-                          className={INPUT} />
-                        <input type="time" value={announcement.dailyEndTime}
-                          onChange={(e) => setAnnouncement((p) => ({ ...p, dailyEndTime: e.target.value }))}
-                          className={INPUT} />
-                      </div>
-                    </Field>
+                    <Toggle
+                      checked={schedulingEnabled}
+                      onChange={setSchedulingEnabled}
+                      label="Limit to a schedule (off = shown at all times once published)"
+                    />
+                    {schedulingEnabled && (
+                      <>
+                        <Field label="Active date range" hint="Leave either side blank for no limit on that side.">
+                          <div className="grid grid-cols-2 gap-3">
+                            <input type="date" value={announcement.startDate}
+                              onChange={(e) => setAnnouncement((p) => ({ ...p, startDate: e.target.value }))}
+                              className={INPUT} />
+                            <input type="date" value={announcement.endDate}
+                              onChange={(e) => setAnnouncement((p) => ({ ...p, endDate: e.target.value }))}
+                              className={INPUT} />
+                          </div>
+                        </Field>
+                        <Field label="Daily time window" hint="The banner only shows during this time of day (your own local time), every day within the date range above. Leave both blank to show all day.">
+                          <div className="grid grid-cols-2 gap-3">
+                            <input type="time" value={announcement.dailyStartTime}
+                              onChange={(e) => setAnnouncement((p) => ({ ...p, dailyStartTime: e.target.value }))}
+                              className={INPUT} />
+                            <input type="time" value={announcement.dailyEndTime}
+                              onChange={(e) => setAnnouncement((p) => ({ ...p, dailyEndTime: e.target.value }))}
+                              className={INPUT} />
+                          </div>
+                        </Field>
+                      </>
+                    )}
                     <Toggle
                       checked={announcement.isActive}
                       onChange={(v) => setAnnouncement((p) => ({ ...p, isActive: v }))}
