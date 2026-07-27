@@ -172,23 +172,30 @@ export class EmailsService {
           this.logger.warn(`Resend not configured — skipped sending to ${r.email}`);
         }
 
-        return this.prisma.emailLog.create({
-          data: {
-            id: logId,
-            organizationId,
-            sentById,
-            recordId: r.recordId ?? dto.recordId ?? null,
-            batchId,
-            templateId: dto.templateId ?? null,
-            toEmail: r.email,
-            toName: r.name ?? null,
-            subject: resolvedSubject,
-            body: bodyWithPixel,
-            replyTo: replyTo ?? null,
-            status,
-            errorMsg: errorMsg ?? null,
-          },
-        });
+        try {
+          return await this.prisma.emailLog.create({
+            data: {
+              id: logId,
+              organizationId,
+              sentById,
+              recordId: r.recordId ?? dto.recordId ?? null,
+              batchId,
+              templateId: dto.templateId ?? null,
+              toEmail: r.email,
+              toName: r.name ?? null,
+              subject: resolvedSubject,
+              body: bodyWithPixel,
+              replyTo: replyTo ?? null,
+              status,
+              errorMsg: errorMsg ?? null,
+            },
+          });
+        } catch (dbErr: any) {
+          // A failed send-time error must never be lost silently — if the log
+          // row itself can't be written, at least surface why in the logs.
+          this.logger.error(`Failed to record EmailLog for ${r.email} (status was '${status}'): ${dbErr?.message}`);
+          throw dbErr;
+        }
       }),
     );
 
