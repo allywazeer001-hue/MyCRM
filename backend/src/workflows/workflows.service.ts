@@ -637,32 +637,28 @@ export class WorkflowsService {
       });
   }
 
+  // Uses Resend's HTTPS API, not SMTP — Railway blocks outbound SMTP below its
+  // Pro plan, which silently times out nodemailer/Gmail sends in production
+  // even though they work fine on localhost. See emails.service.ts for the
+  // same fix applied to direct/mass email sending.
   private async sendEmail(to: string, subject: string, html: string): Promise<void> {
-    const smtpHost = process.env.SMTP_HOST;
-    if (!smtpHost) {
-      this.logger.warn('[Workflow] SMTP_HOST not configured — SEND_EMAIL skipped');
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      this.logger.warn('[Workflow] RESEND_API_KEY not configured — SEND_EMAIL skipped');
       return;
     }
     try {
-      // Dynamic require so nodemailer is optional at startup
-      const nodemailer = require('nodemailer'); // eslint-disable-line
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: process.env.SMTP_USER
-          ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
-          : undefined,
-      });
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@app.com',
-        to,
-        subject,
-        html,
-      });
+      const { Resend } = require('resend'); // eslint-disable-line
+      const resend = new Resend(apiKey);
+      const from = process.env.EMAIL_FROM || process.env.SMTP_FROM || 'noreply@app.com';
+      const { error } = await resend.emails.send({ from, to, subject, html });
+      if (error) {
+        this.logger.warn(`[Workflow] SEND_EMAIL failed: ${error.message}`);
+        return;
+      }
       this.logger.log(`[Workflow] Email sent → ${to}: ${subject}`);
     } catch (err: any) {
-      this.logger.warn(`[Workflow] SEND_EMAIL failed: ${err?.message}. Install nodemailer: npm install nodemailer`);
+      this.logger.warn(`[Workflow] SEND_EMAIL failed: ${err?.message}`);
     }
   }
 

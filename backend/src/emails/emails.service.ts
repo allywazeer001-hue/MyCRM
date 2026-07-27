@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailTemplatesService } from '../email-templates/email-templates.service';
 
@@ -52,18 +53,14 @@ export class EmailsService {
     return text.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? `{{${key}}}`);
   }
 
-  // ── send via nodemailer ───────────────────────────────────────────────────
-  private async transport() {
-    const nodemailer = await import('nodemailer');
-    return nodemailer.createTransport({
-      host:   this.config.get('SMTP_HOST'),
-      port:   Number(this.config.get('SMTP_PORT') ?? 587),
-      secure: this.config.get('SMTP_SECURE') === 'true',
-      auth: {
-        user: this.config.get('SMTP_USER'),
-        pass: this.config.get('SMTP_PASS'),
-      },
-    });
+  // ── send via Resend's HTTPS API ──────────────────────────────────────────
+  // Not SMTP: Railway blocks outbound SMTP entirely below its Pro plan (a
+  // documented anti-spam restriction), which made direct nodemailer/Gmail
+  // sends time out in production despite working fine on localhost. Resend
+  // talks HTTPS, so it works on any hosting plan.
+  private resendClient(): Resend | null {
+    const apiKey = this.config.get('RESEND_API_KEY');
+    return apiKey ? new Resend(apiKey) : null;
   }
 
   // Public base URL the open-tracking pixel must be reachable at — reuses
@@ -103,10 +100,10 @@ export class EmailsService {
     });
   }
 
-  // Best-effort bounce detection. Plain SMTP (no provider webhooks) only tells us
-  // about *hard* bounces the relay rejects immediately (bad mailbox, 5xx code) —
-  // soft bounces that come back later as a bounce-back email aren't visible here.
-  // Anything else that fails to send (auth, network, rate limit) stays 'failed'.
+  // Best-effort bounce detection from Resend's synchronous send-time error only —
+  // real bounces (mailbox full, etc.) happen asynchronously and would need Resend's
+  // webhook events to classify properly; out of scope here. Anything that fails
+  // immediately (bad address format, auth, rate limit) stays 'failed'.
   private classifySendError(err: any): { status: string; message: string } {
     const message = String(err?.response ?? err?.message ?? err ?? 'Unknown error');
     const code = Number(err?.responseCode ?? err?.code);
@@ -126,9 +123,12 @@ export class EmailsService {
       subjectTemplate = dto.subject || tpl.subject;
     }
 
-    const smtpConfigured = !!this.config.get('SMTP_HOST');
-    const transporter = smtpConfigured ? await this.transport() : null;
-    const from = this.config.get('SMTP_FROM') ?? 'noreply@example.com';
+    const client = this.resendClient();
+    const from = this.config.get('EMAIL_FROM') ?? this.config.get('SMTP_FROM') ?? 'noreply@example.com';
+    // Falls back to a real inbox even when the sender ("from") is a shared
+    // testing address (e.g. Resend's onboarding@resend.dev) that can't itself
+    // receive replies — so replies always land somewhere read, by default.
+    const replyTo = dto.replyTo || this.config.get('DEFAULT_REPLY_TO') || this.config.get('SMTP_USER') || undefined;
     const batchId = randomUUID();
 
     const results = await Promise.allSettled(
@@ -147,12 +147,18 @@ export class EmailsService {
         let status = 'sent';
         let errorMsg: string | undefined;
 
-        if (transporter) {
+        if (client) {
           try {
-            await transporter.sendMail({
+            const { error } = await client.emails.send({
               from, to: r.email, subject: resolvedSubject, html: bodyWithPixel,
-              ...(dto.replyTo ? { replyTo: dto.replyTo } : {}),
+              ...(replyTo ? { replyTo } : {}),
             });
+            if (error) {
+              const classified = this.classifySendError(error);
+              status = classified.status;
+              errorMsg = classified.message;
+              this.logger.error(`Failed to send to ${r.email}: ${errorMsg}`);
+            }
           } catch (err) {
             const classified = this.classifySendError(err);
             status = classified.status;
@@ -160,10 +166,10 @@ export class EmailsService {
             this.logger.error(`Failed to send to ${r.email}: ${errorMsg}`);
           }
         } else {
-          // No SMTP_HOST configured — nothing was actually sent, so this must not be recorded as 'sent'.
+          // No RESEND_API_KEY configured — nothing was actually sent, so this must not be recorded as 'sent'.
           status = 'failed';
-          errorMsg = 'SMTP is not configured on this server — email was not sent.';
-          this.logger.warn(`SMTP not configured — skipped sending to ${r.email}`);
+          errorMsg = 'Email sending is not configured on this server — email was not sent.';
+          this.logger.warn(`Resend not configured — skipped sending to ${r.email}`);
         }
 
         return this.prisma.emailLog.create({
@@ -178,7 +184,7 @@ export class EmailsService {
             toName: r.name ?? null,
             subject: resolvedSubject,
             body: bodyWithPixel,
-            replyTo: dto.replyTo ?? null,
+            replyTo: replyTo ?? null,
             status,
             errorMsg: errorMsg ?? null,
           },

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { HealthController } from './health.controller';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
@@ -100,5 +101,6 @@ import { ScheduledConfigurationsModule } from './scheduled-configurations/schedu
     DataQualityModule,
     ScheduledConfigurationsModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
