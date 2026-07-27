@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Children } from "react";
+import { useState, useEffect, useRef, useLayoutEffect, Children } from "react";
 import type { ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -86,6 +86,35 @@ function pct(count: number, of: number) {
   return of > 0 ? Math.round((count / of) * 100) : 0;
 }
 
+// Shrinks the tree just enough to fit the available width — never scrolls,
+// never grows past 100%. Re-measures on resize and whenever the tree's own
+// shape changes (e.g. a "Failed" branch appearing/disappearing).
+function useScaleToFit<T>(dep: T) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ scale: 1, height: undefined as number | undefined });
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current, inner = innerRef.current;
+    if (!wrap || !inner) return;
+    const recompute = () => {
+      const naturalWidth = inner.scrollWidth;
+      const naturalHeight = inner.scrollHeight;
+      const availableWidth = wrap.clientWidth;
+      if (!naturalWidth || !availableWidth) return;
+      const scale = Math.min(1, availableWidth / naturalWidth);
+      setBox({ scale, height: naturalHeight * scale });
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(wrap);
+    window.addEventListener("resize", recompute);
+    return () => { ro.disconnect(); window.removeEventListener("resize", recompute); };
+  }, [dep]);
+
+  return { wrapRef, innerRef, box };
+}
+
 export default function CampaignReportPage() {
   const { batchId } = useParams<{ batchId: string }>();
   const router = useRouter();
@@ -103,6 +132,8 @@ export default function CampaignReportPage() {
   const [remarkSaved, setRemarkSaved] = useState(false);
 
   const [previewLog, setPreviewLog] = useState<EmailLog | null>(null);
+
+  const { wrapRef, innerRef, box } = useScaleToFit((summary?.batchId ?? "") + (summary?.failed ?? 0));
 
   useEffect(() => {
     api.get(`/emails/reports/${batchId}/summary`)
@@ -204,13 +235,18 @@ export default function CampaignReportPage() {
             </dl>
           </div>
 
-          {/* Sent Email Statistics — hierarchical funnel */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 overflow-x-auto">
+          {/* Sent Email Statistics — hierarchical funnel, auto-scaled to always fit without scrolling */}
+          <div className="bg-white border border-slate-200 rounded-xl p-6">
             <div className="flex items-baseline justify-between flex-wrap gap-2 mb-6">
               <p className="text-sm font-bold text-slate-800">Sent Email Statistics</p>
               <p className="text-sm text-slate-500">Total emails sent: <span className="text-base font-bold text-slate-800">{s.total}</span></p>
             </div>
-            <div className="flex flex-col items-center min-w-max py-2 mx-auto" style={{ width: "fit-content" }}>
+            <div ref={wrapRef} style={{ width: "100%", height: box.height, overflow: "hidden" }}>
+              <div
+                ref={innerRef}
+                className="flex flex-col items-center py-2 mx-auto"
+                style={{ width: "fit-content", transform: `scale(${box.scale})`, transformOrigin: "top center" }}
+              >
                 <Node label="Sent Email" count={s.total} pct={100} color="slate" active={stage === "all"} onClick={() => selectStage("all")} />
 
                 <TreeChildren>
@@ -246,8 +282,9 @@ export default function CampaignReportPage() {
                 </TreeChildren>
               </div>
             </div>
+          </div>
 
-            {/* Recipients for the selected stage */}
+          {/* Recipients for the selected stage */}
             {stage && (
               <div className="max-w-2xl mx-auto bg-white border border-slate-200 rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
