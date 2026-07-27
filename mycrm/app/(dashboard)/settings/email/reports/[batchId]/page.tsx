@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Eye, ChevronRight, Loader2, X, MessageSquarePlus, Check } from "lucide-react";
+import { ArrowLeft, Eye, ChevronRight, Loader2, X, MessageSquarePlus, Check, RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CampaignSummary {
@@ -133,6 +133,9 @@ export default function CampaignReportPage() {
 
   const [previewLog, setPreviewLog] = useState<EmailLog | null>(null);
 
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resentIds, setResentIds] = useState<Set<string>>(new Set());
+
   const { wrapRef, innerRef, box } = useScaleToFit((summary?.batchId ?? "") + (summary?.failed ?? 0));
 
   useEffect(() => {
@@ -169,6 +172,15 @@ export default function CampaignReportPage() {
   const handlePreview = async (id: string) => {
     const { data } = await api.get(`/emails/${id}`);
     setPreviewLog(data);
+  };
+
+  const handleResend = async (id: string) => {
+    setResendingId(id);
+    try {
+      await api.post(`/emails/${id}/resend`);
+      setResentIds(prev => new Set(prev).add(id));
+    } catch { /* the row itself doesn't reflect failure here — resend result isn't in this list until refreshed */ }
+    finally { setResendingId(null); }
   };
 
   if (loading) {
@@ -330,6 +342,22 @@ export default function CampaignReportPage() {
                       </button>
                       {rec.clickedAt && <span className="text-[11px] text-purple-500 shrink-0">clicked</span>}
                       {rec.openedAt && <span className="text-[11px] text-blue-500 flex items-center gap-1 shrink-0"><Eye className="w-3 h-3" /> opened</span>}
+                      {(rec.status === "failed" || rec.status === "bounced") && (
+                        resentIds.has(rec.id) ? (
+                          <span className="text-[11px] text-emerald-600 flex items-center gap-1 shrink-0"><Check className="w-3 h-3" /> Resent</span>
+                        ) : (
+                          <button
+                            onClick={() => handleResend(rec.id)}
+                            disabled={resendingId === rec.id}
+                            className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1 shrink-0 disabled:opacity-40"
+                          >
+                            {resendingId === rec.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <RefreshCcw className="w-3 h-3" />}
+                            Resend
+                          </button>
+                        )
+                      )}
                       <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
                     </div>
                   ))}

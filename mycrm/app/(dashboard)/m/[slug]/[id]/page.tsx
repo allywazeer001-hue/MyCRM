@@ -733,10 +733,20 @@ const ACTION_LABEL: Record<string, string> = {
 function EmailLogList({ recordId }: { recordId: string }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resentIds, setResentIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api.get(`/emails/by-record/${recordId}`).then(r => setLogs(r.data || [])).catch(() => {}).finally(() => setLoading(false));
   }, [recordId]);
+
+  const handleResend = async (id: string) => {
+    setResendingId(id);
+    try {
+      await api.post(`/emails/${id}/resend`);
+      setResentIds(prev => new Set(prev).add(id));
+    } catch { /* noop */ } finally { setResendingId(null); }
+  };
 
   if (loading) return (
     <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
@@ -774,6 +784,22 @@ function EmailLogList({ recordId }: { recordId: string }) {
                   : <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100">Not opened yet</span>
               )}
               {log.clickedAt && <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-100">Clicked</span>}
+              {log.status !== "sent" && (
+                resentIds.has(log.id) ? (
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Resent
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleResend(log.id)}
+                    disabled={resendingId === log.id}
+                    className="text-[11px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors flex items-center gap-1 disabled:opacity-40"
+                  >
+                    {resendingId === log.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    Resend
+                  </button>
+                )
+              )}
             </div>
             {log.remark && (
               <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-2">📝 {log.remark}</p>

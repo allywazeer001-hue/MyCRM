@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Resend } from 'resend';
@@ -203,6 +203,64 @@ export class EmailsService {
     const bounced = results.filter(r => r.status === 'fulfilled' && (r.value as any).status === 'bounced').length;
     const failed  = results.length - sent - bounced;
     return { batchId, sent, bounced, failed };
+  }
+
+  // ── resend a single failed/bounced email ──────────────────────────────────
+  // Reuses the exact subject/body already stored (including the tracking pixel
+  // and rewritten links from the original send) so a resend is a true retry,
+  // not a re-render — records a new EmailLog row rather than mutating the old
+  // one, so the original attempt stays visible in history.
+  async resend(logId: string, organizationId: string) {
+    const original = await this.prisma.emailLog.findFirst({ where: { id: logId, organizationId } });
+    if (!original) throw new NotFoundException('Email not found');
+
+    const client = this.resendClient();
+    const from = this.config.get('EMAIL_FROM') ?? this.config.get('SMTP_FROM') ?? 'noreply@example.com';
+
+    let status = 'sent';
+    let errorMsg: string | undefined;
+
+    if (client) {
+      try {
+        const { error } = await client.emails.send({
+          from, to: original.toEmail, subject: original.subject, html: original.body,
+          ...(original.replyTo ? { replyTo: original.replyTo } : {}),
+        });
+        if (error) {
+          const classified = this.classifySendError(error);
+          status = classified.status;
+          errorMsg = classified.message;
+        }
+      } catch (err) {
+        const classified = this.classifySendError(err);
+        status = classified.status;
+        errorMsg = classified.message;
+      }
+    } else {
+      status = 'failed';
+      errorMsg = 'Email sending is not configured on this server — email was not sent.';
+    }
+
+    if (status === 'sent') this.logger.log(`Resent to ${original.toEmail}`);
+    else this.logger.error(`Resend failed for ${original.toEmail}: ${errorMsg}`);
+
+    return this.prisma.emailLog.create({
+      data: {
+        id: randomUUID(),
+        organizationId,
+        sentById: original.sentById,
+        recordId: original.recordId,
+        batchId: original.batchId,
+        templateId: original.templateId,
+        toEmail: original.toEmail,
+        toName: original.toName,
+        subject: original.subject,
+        body: original.body,
+        replyTo: original.replyTo,
+        status,
+        errorMsg: errorMsg ?? null,
+      },
+    });
   }
 
   // ── history ───────────────────────────────────────────────────────────────

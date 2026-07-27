@@ -102,6 +102,11 @@ export class EmailsController {
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.svc.findOne(id, user.organizationId);
   }
+
+  @Post(':id/resend')
+  resend(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.svc.resend(id, user.organizationId);
+  }
 }
 
 // ── Public — no auth. Email clients load this pixel with no session/headers. ─
