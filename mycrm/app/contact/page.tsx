@@ -3,10 +3,11 @@ import { ArrowLeft, Mail, Phone, Building2 } from "lucide-react";
 import { Footer } from "@/components/marketing/footer";
 import { CONTACT_INFO } from "@/lib/contact-info";
 import { ContactSocials } from "@/components/marketing/contact-socials";
+import { BRAND } from "@/lib/core-brand";
 
 export const metadata = {
-  title: "Contact us — Cloudbox",
-  description: "Get in touch with the Cloudbox team.",
+  title: `Contact us — ${BRAND.name}`,
+  description: `Get in touch with the ${BRAND.name} team.`,
 };
 
 function LogoMark({ size = 20 }: { size?: number }) {
@@ -33,7 +34,7 @@ export default function ContactPage() {
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-900/60">
             <LogoMark size={18} />
           </div>
-          <span className="font-bold text-lg tracking-tight">Cloudbox</span>
+          <span className="font-bold text-lg tracking-tight">{BRAND.name}</span>
         </Link>
         <Link href="/" className="text-sm text-white/50 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all flex items-center gap-1.5">
           <ArrowLeft className="w-3.5 h-3.5" /> Back home
@@ -51,7 +52,7 @@ export default function ContactPage() {
           Get in touch
         </h1>
         <p className="text-lg text-white/45 max-w-xl mx-auto leading-relaxed">
-          Questions, feedback, or want a walkthrough of Cloudbox for your organization? Reach out directly — we read every message.
+          Questions, feedback, or want a walkthrough of {BRAND.name} for your organization? Reach out directly — we read every message.
         </p>
       </section>
 
@@ -65,7 +66,7 @@ export default function ContactPage() {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">{CONTACT_INFO.ceoName}</h2>
-                <p className="text-sm text-white/40">{CONTACT_INFO.ceoTitle}, Cloudbox</p>
+                <p className="text-sm text-white/40">{CONTACT_INFO.ceoTitle}, {BRAND.name}</p>
               </div>
             </div>
 

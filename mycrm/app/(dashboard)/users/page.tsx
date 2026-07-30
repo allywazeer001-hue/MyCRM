@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { generateWelcomePDF } from "@/lib/pdf-templates";
+import { BRAND } from "@/lib/core-brand";
 import { DomainEmailInput } from "@/components/ui/domain-email-input";
 import {
   Users, Plus, Mail, Shield, MoreHorizontal, Search,
@@ -882,7 +883,7 @@ export default function UsersPage() {
   const toast = useToast();
   const router = useRouter();
   const { user: me } = useAuthStore();
-  const orgName = (me as any)?.organization?.name || "CORE";
+  const orgName = (me as any)?.organization?.name || BRAND.name;
 
   const isSuperAdmin = me?.role === "SUPER_ADMIN";
 

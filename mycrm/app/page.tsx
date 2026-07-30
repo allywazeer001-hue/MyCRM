@@ -9,6 +9,7 @@ import {
   Settings2, Layers, ShieldCheck, ListChecks, Table2,
 } from "lucide-react";
 import { Footer } from "@/components/marketing/footer";
+import { BRAND } from "@/lib/core-brand";
 
 // ── Landing config (editable via /land-admin) ────────────────────────────────
 
@@ -108,7 +109,7 @@ function DashboardMockup() {
         </div>
         <div className="flex-1 mx-3">
           <div className="h-4 rounded bg-white/8 text-[10px] text-white/30 flex items-center px-2">
-            Cloudbox · Analytics Dashboard
+            {BRAND.name} · Analytics Dashboard
           </div>
         </div>
         <div className="w-4 h-4 rounded bg-white/5" />
@@ -208,7 +209,7 @@ function WorkflowMockup() {
             <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />
           ))}
         </div>
-        <span className="text-[10px] text-white/30 ml-3">Cloudbox · Module Studio</span>
+        <span className="text-[10px] text-white/30 ml-3">{BRAND.name} · Module Studio</span>
       </div>
 
       <div className="p-4">
@@ -318,7 +319,7 @@ export default function LandingPage() {
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-900/60">
             <LogoMark size={18} className="text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight">Cloudbox</span>
+          <span className="font-bold text-lg tracking-tight">{BRAND.name}</span>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/contact" className="hidden sm:inline-block text-sm text-white/50 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all">

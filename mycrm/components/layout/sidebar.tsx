@@ -14,6 +14,7 @@ import { useAuthStore } from "@/store/auth.store";
 import { usePermissionsStore } from "@/store/permissions.store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModuleIcon } from "@/components/ui/module-icon";
+import { BRAND } from "@/lib/core-brand";
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
@@ -253,7 +254,7 @@ function SidebarContent({
               <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shrink-0 text-white shadow-sm">
                 <LogoMark size={14} />
               </div>
-              <span className="font-bold text-slate-900 text-sm tracking-tight">Cloudbox</span>
+              <span className="font-bold text-slate-900 text-sm tracking-tight">{BRAND.name}</span>
             </Link>
             {isSuperAdmin && (
               <span className="ml-9 text-[10px] font-bold text-purple-600 uppercase tracking-wider">

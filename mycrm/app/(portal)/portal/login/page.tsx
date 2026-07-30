@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { usePortalAuthStore } from "@/store/portal-auth.store";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { BRAND } from "@/lib/core-brand";
 
 function PortalLoginForm() {
   const router = useRouter();
@@ -42,7 +43,7 @@ function PortalLoginForm() {
       <div className="relative w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center mb-4">
-            <span className="text-xl font-black text-white tracking-tight">CORE</span>
+            <span className="text-xl font-black text-white tracking-tight">{BRAND.name}</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="text-indigo-300 text-sm mt-1">Sign in to your portal account</p>

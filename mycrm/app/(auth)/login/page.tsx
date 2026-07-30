@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
+import { BRAND } from "@/lib/core-brand";
 
 // ── Validation (unchanged) ────────────────────────────────────────────────────
 const loginSchema = z.object({
@@ -236,7 +237,7 @@ function LoginPageInner() {
               <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
                 <LogoMark size={20} className="text-white" />
               </div>
-              <span className="text-white font-bold text-lg tracking-tight">Cloudbox</span>
+              <span className="text-white font-bold text-lg tracking-tight">{BRAND.name}</span>
             </div>
 
             {/* Main headline — "Manage your business" is static; last word cycles */}
@@ -279,7 +280,7 @@ function LoginPageInner() {
 
             {/* Footer */}
             <p className="text-white/20 text-xs cb-fade-in cb-d400">
-              © 2025 Cloudbox · Enterprise Platform
+              © 2025 {BRAND.name} · Enterprise Platform
             </p>
           </div>
         </div>
@@ -295,7 +296,7 @@ function LoginPageInner() {
               <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
                 <LogoMark size={18} className="text-white" />
               </div>
-              <span className="font-bold text-gray-900 text-lg">Cloudbox</span>
+              <span className="font-bold text-gray-900 text-lg">{BRAND.name}</span>
             </div>
 
             {/* Heading */}

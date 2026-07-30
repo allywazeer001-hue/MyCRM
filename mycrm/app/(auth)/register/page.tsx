@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from "@/store/auth.store";
 import { api } from "@/lib/api";
 import { slugify, cn } from "@/lib/utils";
+import { BRAND } from "@/lib/core-brand";
 import { DomainEmailInput } from "@/components/ui/domain-email-input";
 
 // ── Logo mark ─────────────────────────────────────────────────────────────────
@@ -411,7 +412,7 @@ export default function RegisterPage() {
               <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
                 <LogoMark size={18} className="text-white" />
               </div>
-              <span className="text-white font-bold text-lg tracking-tight">Cloudbox</span>
+              <span className="text-white font-bold text-lg tracking-tight">{BRAND.name}</span>
             </Link>
 
             <div className="my-auto">
@@ -474,7 +475,7 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            <p className="text-white/12 text-xs">© 2026 Cloudbox · Enterprise Platform</p>
+            <p className="text-white/12 text-xs">© 2026 {BRAND.name} · Enterprise Platform</p>
           </div>
         </div>
 
@@ -502,7 +503,7 @@ export default function RegisterPage() {
                 <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center">
                   <LogoMark size={16} className="text-white" />
                 </div>
-                <span className="font-bold text-gray-900">Cloudbox</span>
+                <span className="font-bold text-gray-900">{BRAND.name}</span>
               </div>
 
               {/* Step dots */}
@@ -540,7 +541,7 @@ export default function RegisterPage() {
                     {step === 2 && "Select your sector, then choose how to set up your workspace."}
                     {step === 3 && "Your logo, website, and email domain — all optional."}
                     {step === 4 && "Your email is your permanent login — it cannot be changed."}
-                    {step === 5 && "Select the Cloudbox apps to activate. CRM is always included."}
+                    {step === 5 && `Select the ${BRAND.name} apps to activate. CRM is always included.`}
                   </p>
                 </div>
 
@@ -994,7 +995,7 @@ export default function RegisterPage() {
                         <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                         {submitting
                           ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating platform…</>
-                          : <>Launch Cloudbox <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" /></>}
+                          : <>Launch {BRAND.name} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" /></>}
                       </button>
                     )}
                   </div>

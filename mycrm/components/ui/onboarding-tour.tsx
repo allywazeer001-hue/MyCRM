@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, ArrowRight, ArrowLeft, Lightbulb } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
+import { BRAND } from "@/lib/core-brand";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ const STEPS: TourStep[] = [
     selector: 'a[href="/settings"]',
     title: "Settings & Admin",
     description:
-      "Manage your team, configure roles, set up units, and customize your Cloudbox workspace.",
+      `Manage your team, configure roles, set up units, and customize your ${BRAND.name} workspace.`,
   },
 ];
 

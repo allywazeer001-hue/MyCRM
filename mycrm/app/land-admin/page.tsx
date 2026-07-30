@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { SOCIAL_PLATFORMS } from "@/lib/social-platforms";
+import { BRAND } from "@/lib/core-brand";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface LandingConfig {
@@ -271,7 +272,7 @@ function LivePreview({ config }: { config: LandingConfig }) {
             <div className="w-5 h-5 rounded-md flex items-center justify-center text-white" style={{ background: accent }}>
               <LogoMark size={10} />
             </div>
-            <span className="text-white font-bold text-[11px]">Cloudbox</span>
+            <span className="text-white font-bold text-[11px]">{BRAND.name}</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="px-2 py-0.5 rounded text-[9px] text-white/40 border border-white/10">Sign in</div>
@@ -542,7 +543,7 @@ export default function LandAdminPage() {
             <LogoMark size={14} />
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors">Cloudbox</Link>
+            <Link href="/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors">{BRAND.name}</Link>
             <span className="text-white/15 text-sm">/</span>
             <span className="text-white/70 text-sm font-semibold">Landing Page</span>
           </div>

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { BRAND } from "@/lib/core-brand";
 
 export const runtime = "nodejs";
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const anthropic = new Anthropic({ apiKey });
 
-    const system = `You are an expert data analyst embedded in Cloudbox, an enterprise CRM/ERP platform.
+    const system = `You are an expert data analyst embedded in ${BRAND.name}, an enterprise CRM/ERP platform.
 Analyze the business data provided and give clear, actionable insights in a professional tone.
 Use markdown formatting: ## headings, **bold**, bullet lists where helpful.
 Be concise but thorough. When the user asks follow-up questions, reference the original data.

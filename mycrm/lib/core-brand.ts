@@ -1,6 +1,9 @@
 /**
- * CORE Brand System
+ * Cloudbox Brand System
  * Single source of truth for application name, icons, and appearance.
+ * Changing the platform's display name should only ever require editing
+ * BRAND.name/shortName below — every other file imports from here instead
+ * of hardcoding the name as a literal string.
  *
  * Usage:
  *   import { BRAND, ICONS, getAppearance } from "@/lib/core-brand";
@@ -11,9 +14,9 @@
 // ── Brand Identity ─────────────────────────────────────────────────────────
 
 export const BRAND = {
-  name:        "CORE",
+  name:        "Cloudbox",
   tagline:     "Professional Business Platform",
-  shortName:   "CORE",
+  shortName:   "Cloudbox",
   logoLetter:  "C",
   logoColor:   "#2563eb",   // blue-600
 } as const;

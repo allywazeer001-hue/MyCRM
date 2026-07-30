@@ -8,6 +8,7 @@ import {
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { api } from "@/lib/api";
+import { BRAND } from "@/lib/core-brand";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -285,7 +286,7 @@ export default function ReportViewerPage() {
         <div className="border-b-2 border-gray-800 pb-4 mb-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1">CORE — Report</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-1">{BRAND.name} — Report</p>
               <h1 className="text-2xl font-bold text-gray-900">{report.name}</h1>
               {report.description && (
                 <p className="text-sm text-gray-600 mt-1">{report.description}</p>

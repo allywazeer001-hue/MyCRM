@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, AlertCircle, CheckCircle2, ShieldQuestion } from "lucide-react";
 import { api } from "@/lib/api";
+import { BRAND } from "@/lib/core-brand";
 
 type Question = { key: string; label: string };
 type Step = "email" | "questions" | "reset" | "done";
@@ -113,7 +114,7 @@ export default function ForgotPasswordPage() {
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
             <LogoMark size={18} className="text-white" />
           </div>
-          <span className="font-bold text-gray-900 text-lg">Cloudbox</span>
+          <span className="font-bold text-gray-900 text-lg">{BRAND.name}</span>
         </div>
 
         <div className="mb-6">

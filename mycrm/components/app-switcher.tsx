@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { X, Database, ClipboardList, Globe, BarChart3, Zap, FileBarChart2, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BRAND } from "@/lib/core-brand";
 
 // ── App definitions ───────────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ export function AppSwitcher() {
               <div className="w-6 h-6 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-sm">
                 <WaffleIcon className="w-3.5 h-3.5 text-white" />
               </div>
-              <span className="text-[13px] font-bold text-slate-800 tracking-tight">Cloudbox Apps</span>
+              <span className="text-[13px] font-bold text-slate-800 tracking-tight">{BRAND.name} Apps</span>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -233,7 +234,7 @@ export function AppSwitcher() {
 
           {/* Footer */}
           <div className="px-4 py-2.5 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400 font-medium">Cloudbox Platform</span>
+            <span className="text-[11px] text-slate-400 font-medium">{BRAND.name} Platform</span>
             <Link
               href="/settings"
               onClick={() => setOpen(false)}

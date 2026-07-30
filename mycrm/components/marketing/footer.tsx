@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Mail, Phone } from "lucide-react";
 import { SOCIAL_PLATFORMS } from "@/lib/social-platforms";
 import { CONTACT_INFO } from "@/lib/contact-info";
+import { BRAND } from "@/lib/core-brand";
 
 const STORAGE_KEY = "cloudbox-landing-config";
 
@@ -42,7 +43,7 @@ export function Footer() {
             <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
               <LogoMark size={16} />
             </div>
-            <span className="font-bold text-lg text-white tracking-tight">Cloudbox</span>
+            <span className="font-bold text-lg text-white tracking-tight">{BRAND.name}</span>
           </div>
           <p className="text-sm leading-relaxed max-w-xs">
             One unified platform to grow your customer base, manage your people, track your finances, and run every operation — built from the gaps real teams actually hit.
@@ -105,7 +106,7 @@ export function Footer() {
       </div>
 
       <div className="max-w-7xl mx-auto pt-8 border-t border-white/[0.05] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/20">
-        <span>© {year} Cloudbox. All rights reserved.</span>
+        <span>© {year} {BRAND.name}. All rights reserved.</span>
         <a href="/land-admin" className="text-white/15 hover:text-white/40 transition-colors">
           Platform Admin
         </a>

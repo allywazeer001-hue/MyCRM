@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { AnnouncementBanner } from "@/components/announcement-banner";
+import { BRAND } from "@/lib/core-brand";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Cloudbox",
-  description: "Cloudbox — Professional Business Platform",
+  title: BRAND.name,
+  description: `${BRAND.name} — ${BRAND.tagline}`,
 };
 
 export default function RootLayout({

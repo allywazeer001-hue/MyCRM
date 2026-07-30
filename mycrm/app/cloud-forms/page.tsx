@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BRAND } from "@/lib/core-brand";
 
 // ── Cloud Forms splash screen ─────────────────────────────────────────────────
 // Shown when the user launches Cloud Forms from the app switcher.
@@ -102,7 +103,7 @@ export default function CloudFormsSplash() {
             Cloud Forms
           </h1>
           <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.95rem" }}>
-            by Cloudbox
+            by {BRAND.name}
           </p>
         </div>
 

@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/auth.store";
 import { api } from "@/lib/api";
+import { BRAND } from "@/lib/core-brand";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 
@@ -511,7 +512,7 @@ export default function PlatformPage() {
             <h1 className="text-xl font-bold text-slate-900">Platform — Organizations</h1>
           </div>
           <p className="text-sm text-slate-500 ml-9">
-            Manage all tenant organizations on the Cloudbox platform
+            Manage all tenant organizations on the {BRAND.name} platform
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">

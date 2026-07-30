@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import {
   User, Building2, Shield, Globe, Users, Mail,
   Zap, BarChart3, FileText, ArrowRight,
-  CheckCircle2, AlertCircle, GitFork, ShieldCheck,
+  CheckCircle2, AlertCircle, GitFork, ShieldCheck, Plug,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -217,6 +217,13 @@ const ADMIN_QUICK_LINKS = [
     label: "Users",
     description: "Manage user accounts, roles, and invitations.",
     color: "bg-green-50 text-green-600 border-green-100",
+  },
+  {
+    href: "/settings/connected-apps",
+    icon: Plug,
+    label: "Connected Applications",
+    description: "Approve external apps, issue API credentials, and control what they can access.",
+    color: "bg-indigo-50 text-indigo-600 border-indigo-100",
   },
 ];
 

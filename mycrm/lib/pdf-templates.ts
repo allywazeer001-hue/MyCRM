@@ -14,6 +14,8 @@
  *   - Add per-usertype template selection via getTemplateForUsertype()
  */
 
+import { BRAND } from "@/lib/core-brand";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface WelcomeUser {
@@ -32,7 +34,7 @@ const TEMPLATES: Record<TemplateKey, string> = {
   welcome: `
 Dear #first_name,
 
-Welcome to CORE.
+Welcome to ${BRAND.name}.
 
 Use the following details to access your account:
 
@@ -134,7 +136,7 @@ function buildPrintHTML(content: string, filename: string): string {
     <div class="header">
       <div class="logo">A</div>
       <div>
-        <div class="org-name">CORE</div>
+        <div class="org-name">${BRAND.name}</div>
         <div class="org-sub">System Administration</div>
       </div>
     </div>

@@ -196,6 +196,8 @@ model Organization {
   emailLogs               EmailLog[]         @relation("OrgEmailLogs")
   scheduledEmails         ScheduledEmail[]   @relation("OrgScheduledEmails")
   routingConfigs          RecordRoutingConfig[]
+  connectionRequests      ConnectionRequest[]
+  connectedApps           ConnectedApp[]
 
   @@map("organizations")
 }
@@ -2175,6 +2177,139 @@ model ApiKey {
   @@index([userId])
   @@index([organizationId])
   @@map("api_keys")
+}
+
+// ── Connected Applications (Phase 1: foundation, approval flow, OAuth tokens) ──
+// External apps (Inventory, HR, Finance, etc.) request access to an org's CRM
+// data. An admin reviews and approves/rejects in Settings > Connected
+// Applications. Approval mints a ConnectedApp (OAuth-style client) with
+// per-module/scope access levels. Token issuance follows a standard
+// authorization-code exchange (see ConnectedAppAuthCode/ConnectedAppToken)
+// so the client secret is only ever shown once, at approval time.
+
+enum ConnectionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ConnectedAppStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum ScopeAccess {
+  DENY
+  READ_ONLY
+  READ_WRITE
+}
+
+model ConnectionRequest {
+  id               String                  @id @default(cuid())
+  organizationId   String
+  appName          String
+  appUrl           String
+  appLogoUrl       String?
+  developerName    String
+  developerEmail   String?
+  requestedScopes  Json                    // string[] of scope keys requested by the app
+  redirectUrl      String
+  publicKey        String?                 @db.Text
+  status           ConnectionRequestStatus @default(PENDING)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  rejectionReason  String?
+  connectedAppId   String?                 @unique
+  createdAt        DateTime                @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectedApp ConnectedApp? @relation(fields: [connectedAppId], references: [id])
+
+  @@index([organizationId, status])
+  @@map("connection_requests")
+}
+
+model ConnectedApp {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  name               String
+  logoUrl            String?
+  developerName      String
+  redirectUrl        String
+  publicKey          String?            @db.Text
+  clientId           String             @unique
+  clientSecretHash   String
+  // AES-256-GCM ciphertext, unpopulated/unused until webhooks (Phase 3) exist.
+  webhookSecretEnc   String?
+  status             ConnectedAppStatus @default(ACTIVE)
+  connectedAt        DateTime           @default(now())
+  lastSyncAt         DateTime?
+  lastApiCallAt      DateTime?
+  lastTokenRefreshAt DateTime?
+  createdByUserId    String
+  // Optional IP allowlist (stored now, enforced once the public API gateway exists).
+  ipAllowlist        Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectionRequest ConnectionRequest?
+  scopes            ConnectedAppScope[]
+  authCodes         ConnectedAppAuthCode[]
+  tokens            ConnectedAppToken[]
+
+  @@index([organizationId])
+  @@map("connected_apps")
+}
+
+model ConnectedAppScope {
+  id             String      @id @default(cuid())
+  connectedAppId String
+  scopeKey       String      // e.g. "module:<moduleId>", "reports:read", "files:read", "forms:read"
+  access         ScopeAccess @default(DENY)
+
+  connectedApp ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+
+  @@unique([connectedAppId, scopeKey])
+  @@map("connected_app_scopes")
+}
+
+model ConnectedAppAuthCode {
+  id             String    @id @default(cuid())
+  connectedAppId String
+  codeHash       String
+  codePrefix     String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  connectedApp ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+
+  @@index([codePrefix])
+  @@index([connectedAppId])
+  @@map("connected_app_auth_codes")
+}
+
+model ConnectedAppToken {
+  id                String    @id @default(cuid())
+  connectedAppId    String
+  accessTokenJti    String    @unique
+  refreshTokenHash  String
+  refreshTokenPrefix String
+  accessExpiresAt   DateTime
+  refreshExpiresAt  DateTime
+  revokedAt         DateTime?
+  rotatedFromId     String?   @unique
+  createdAt         DateTime  @default(now())
+
+  connectedApp  ConnectedApp       @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+  rotatedFrom   ConnectedAppToken? @relation("TokenRotation", fields: [rotatedFromId], references: [id])
+  rotatedInto   ConnectedAppToken? @relation("TokenRotation")
+
+  @@index([connectedAppId])
+  @@index([refreshTokenPrefix])
+  @@map("connected_app_tokens")
 }
 
 // ── Request Engine ────────────────────────────────────────────────────────────

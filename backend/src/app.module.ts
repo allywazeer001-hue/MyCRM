@@ -49,6 +49,7 @@ import { FieldRulesModule } from './field-rules/field-rules.module';
 import { PivotModule } from './pivot/pivot.module';
 import { DataQualityModule } from './data-quality/data-quality.module';
 import { ScheduledConfigurationsModule } from './scheduled-configurations/scheduled-configurations.module';
+import { ConnectedAppsModule } from './connected-apps/connected-apps.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -100,6 +101,7 @@ import { ScheduledConfigurationsModule } from './scheduled-configurations/schedu
     PivotModule,
     DataQualityModule,
     ScheduledConfigurationsModule,
+    ConnectedAppsModule,
   ],
   controllers: [HealthController],
 })

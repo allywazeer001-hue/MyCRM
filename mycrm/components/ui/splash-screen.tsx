@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { BRAND } from "@/lib/core-brand";
 
 // ── CRM splash: dynamic data-flow simulation ─────────────────────────────────
 
@@ -211,7 +212,7 @@ export function SplashScreen({ show, variant = "crm" }: SplashScreenProps) {
         <div className="text-center space-y-0.5">
           <h1 className="text-[28px] font-bold text-white tracking-tight"
               style={{ textShadow: "0 2px 24px rgba(79,70,229,0.55)" }}>
-            Cloudbox
+            {BRAND.name}
           </h1>
           <p className="text-blue-300/70 text-[11px] font-semibold tracking-[0.22em] uppercase">
             Enterprise CRM Platform
