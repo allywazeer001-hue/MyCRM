@@ -14,6 +14,7 @@ const FIXED_SCOPES = [
   { key: 'reports:read', label: 'Read Reports' },
   { key: 'files:read', label: 'Read Files' },
   { key: 'forms:read', label: 'Read Forms' },
+  { key: 'users:read', label: 'Read Staff Directory' },
 ];
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
 const ACCESS_TOKEN_TTL = '1h';
@@ -45,6 +46,19 @@ export class ConnectedAppsService {
       ...modules.map(m => ({ key: `module:${m.id}`, label: m.name })),
       ...FIXED_SCOPES,
     ];
+  }
+
+  /**
+   * Public counterpart to listScopeOptions — lets an external app resolve an
+   * organization by slug and see what it could request access to, before ever
+   * submitting a connection request. Returns only key/label pairs — no
+   * organizationId or other internal identifiers leak here.
+   */
+  async listPublicScopeOptions(organizationSlug: string) {
+    if (!organizationSlug) throw new BadRequestException('organizationSlug is required');
+    const org = await this.prisma.organization.findUnique({ where: { slug: organizationSlug } });
+    if (!org || !org.isActive) throw new NotFoundException('Unknown organization');
+    return { organizationName: org.name, scopes: await this.listScopeOptions(org.id) };
   }
 
   // ── Connection requests (public submission) ────────────────────────────────

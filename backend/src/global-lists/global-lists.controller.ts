@@ -21,6 +21,11 @@ export class GlobalListsController {
     return this.svc.ensureStaffRolesList(user.organizationId);
   }
 
+  @Get('locations')
+  ensureLocations(@CurrentUser() user: any) {
+    return this.svc.ensureLocationsList(user.organizationId);
+  }
+
   @Get()
   findAll(@CurrentUser() user: any) {
     return this.svc.findAll(user.organizationId);

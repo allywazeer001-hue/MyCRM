@@ -11,6 +11,11 @@ export class GlobalListsService {
 
   async findAll(orgId: string) {
     try {
+      // Ensure the default Locations list exists so it's visible the first
+      // time an org opens Global Lists, without needing some unrelated page
+      // to trigger it first (unlike the older staff-roles lazy-create).
+      await this.ensureLocationsList(orgId).catch(() => {});
+
       // Include org's own lists + all published lists from other orgs
       const [own, published] = await Promise.all([
         this.prisma.globalList.findMany({
@@ -409,5 +414,95 @@ export class GlobalListsService {
     }
 
     return list;
+  }
+
+  // ── Locations: Countries / Regions / Wards ────────────────────────────────
+  // Countries is a plain, ordinary list (extensible — more countries can be
+  // added later). Regions is its own separate list, but it doesn't extend
+  // from Countries as a whole — it extends specifically from the Tanzania
+  // ITEM, using the per-item "link child list" feature (childListId on
+  // GlobalListItem, the same "Link existing list" action available on any
+  // item in the admin UI): the Tanzania item's childListId points at the
+  // Regions list. Expanding Tanzania in the admin tree jumps straight into
+  // Regions. Wards is left unattached and empty for now — there's no
+  // verified authoritative source here for Tanzania's ~4,000+ real ward
+  // names, and fabricating official administrative data would be worse
+  // than leaving it for admins (or a future real dataset) to populate and
+  // link from each region individually once that data exists.
+
+  private readonly DEFAULT_COUNTRIES = [
+    { label: 'Tanzania', value: 'tanzania' },
+  ];
+
+  private readonly DEFAULT_TANZANIA_REGIONS = [
+    'Arusha', 'Dar es Salaam', 'Dodoma', 'Geita', 'Iringa', 'Kagera', 'Katavi',
+    'Kigoma', 'Kilimanjaro', 'Lindi', 'Manyara', 'Mara', 'Mbeya', 'Morogoro',
+    'Mtwara', 'Mwanza', 'Njombe', 'Pwani', 'Rukwa', 'Ruvuma', 'Shinyanga',
+    'Simiyu', 'Singida', 'Songwe', 'Tabora', 'Tanga',
+    'Kaskazini Unguja', 'Kusini Unguja', 'Mjini Magharibi', 'Kaskazini Pemba', 'Kusini Pemba',
+  ].map(name => ({ label: name, value: name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') }));
+
+  private async ensureList(orgId: string, slug: string, name: string, description: string, levelLabel: string) {
+    let list = await this.prisma.globalList.findFirst({ where: { organizationId: orgId, slug, isActive: true } });
+    if (!list) {
+      list = await this.prisma.globalList.create({
+        data: {
+          name,
+          slug,
+          description,
+          organizationId: orgId,
+          isActive: true,
+          isPublished: false,
+          levelDefinitions: [{ level: 0, label: levelLabel, key: levelLabel.toLowerCase(), displayName: levelLabel }],
+        },
+      });
+    }
+    return list;
+  }
+
+  async ensureLocationsList(orgId: string) {
+    const countries = await this.ensureList(orgId, 'countries', 'Countries', 'Countries available for address and location fields.', 'Country');
+
+    let countryItems = await this.prisma.globalListItem.findMany({ where: { listId: countries.id, isActive: true }, orderBy: { order: 'asc' } });
+    if (countryItems.length === 0) {
+      for (let i = 0; i < this.DEFAULT_COUNTRIES.length; i++) {
+        await this.prisma.globalListItem.create({
+          data: { listId: countries.id, label: this.DEFAULT_COUNTRIES[i].label, value: this.DEFAULT_COUNTRIES[i].value, level: 0, order: i, isActive: true, metadata: {} },
+        });
+      }
+      countryItems = await this.prisma.globalListItem.findMany({ where: { listId: countries.id, isActive: true }, orderBy: { order: 'asc' } });
+    }
+    let tanzania = countryItems.find(i => i.value === 'tanzania');
+
+    const regions = await this.ensureList(orgId, 'regions', 'Regions', 'Tanzania\'s regions — extends from the Tanzania item in Countries.', 'Region');
+
+    const existingRegions = await this.prisma.globalListItem.count({ where: { listId: regions.id, isActive: true } });
+    if (existingRegions === 0) {
+      for (let i = 0; i < this.DEFAULT_TANZANIA_REGIONS.length; i++) {
+        await this.prisma.globalListItem.create({
+          data: {
+            listId: regions.id,
+            label: this.DEFAULT_TANZANIA_REGIONS[i].label,
+            value: this.DEFAULT_TANZANIA_REGIONS[i].value,
+            level: 0,
+            order: i,
+            isActive: true,
+            metadata: {},
+          },
+        });
+      }
+    }
+
+    // Tanzania's item extends into Regions via the per-item child-list link.
+    if (tanzania && tanzania.childListId !== regions.id) {
+      await this.prisma.globalListItem.update({ where: { id: tanzania.id }, data: { childListId: regions.id } });
+    }
+
+    await this.ensureList(orgId, 'wards', 'Wards', 'Wards — link from a region once real ward data is available.', 'Ward');
+
+    return this.prisma.globalList.findMany({
+      where: { organizationId: orgId, slug: { in: ['countries', 'regions', 'wards'] } },
+      include: { items: { where: { isActive: true }, orderBy: { order: 'asc' } } },
+    });
   }
 }

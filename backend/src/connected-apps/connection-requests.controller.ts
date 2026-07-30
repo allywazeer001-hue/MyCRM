@@ -22,6 +22,16 @@ export class ConnectionRequestsController {
     return this.service.submitRequest(dto);
   }
 
+  // Public — lets an external app look up an organization + its available scopes
+  // BEFORE requesting access, so the requester can ask for specific modules by name
+  // instead of guessing. Registered before GET :id below so it isn't swallowed by it.
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Get('available-scopes')
+  availableScopes(@Query('organizationSlug') organizationSlug: string) {
+    return this.service.listPublicScopeOptions(organizationSlug);
+  }
+
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get()
