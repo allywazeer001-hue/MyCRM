@@ -59,6 +59,12 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MultiCombobox } from "@/components/ui/combobox";
+import { resolvePostSubmitAction } from "@/lib/form-post-submit";
+import { ModuleIcon } from "@/components/ui/module-icon";
+import { ConditionTreeBuilder } from "@/components/workflows/ConditionTreeBuilder";
+import { normalizeConditionTree, type ConditionGroup } from "@/lib/condition-tree";
+import { INTEGRATION_FILTER_OPERATORS, INTEGRATION_FILTER_NO_VALUE_OPS } from "@/components/records/integration-filter-operators";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -76,6 +82,7 @@ interface FieldRule {
 interface ConditionalLogic {
   rules: FieldRule[];
   lookupAutoFill?: { sourceField: string; targetFieldKey: string }[];
+  integrationMappings?: { sourceFieldId: string; destinationFormFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[];
 }
 type FormRuleActionType =
   | "show_field" | "hide_field" | "require_field" | "unrequire_field"
@@ -102,6 +109,10 @@ interface CustomFieldDef {
   options?: { value: string; label: string }[];
   sectionId?: string | null;
   order: number;
+  // INTEGRATION only — self-contained since standalone forms have no backing
+  // module Field to store this on. Same shape as a module Field's `settings`.
+  settings?: { sourceModuleId?: string; searchFieldIds?: string[]; displayFieldId?: string; resultColumnFieldIds?: string[]; filterCriteria?: any; allowManualUpdate?: boolean };
+  integrationMappings?: { sourceFieldId: string; destinationFormFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[];
 }
 
 const FIELD_TYPE_ICONS: Record<string, string> = {
@@ -110,7 +121,7 @@ const FIELD_TYPE_ICONS: Record<string, string> = {
   DATETIME: "🕐", BOOLEAN: "✓", DROPDOWN: "▼", MULTI_SELECT: "☑",
   STATUS: "●", RADIO: "◉", FILE: "📎", IMAGE: "🖼", USER_SELECT: "👤",
   TAGS: "🏷", RATING: "⭐", PROGRESS: "%", FORMULA: "fx", AUTO_NUMBER: "🔢",
-  COLOR_PICKER: "🎨", LOOKUP: "🔍", GLOBAL_RELATION: "🌐", SIGNATURE: "✍",
+  COLOR_PICKER: "🎨", LOOKUP: "🔍", GLOBAL_RELATION: "🌐", SIGNATURE: "✍", INTEGRATION: "🔗",
 };
 
 const CUSTOM_FIELD_TYPES: { type: string; label: string; icon: any; color: string }[] = [
@@ -126,6 +137,7 @@ const CUSTOM_FIELD_TYPES: { type: string; label: string; icon: any; color: strin
   { type: "BOOLEAN",      label: "Checkbox",    icon: CheckSquare, color: "text-teal-600 bg-teal-50" },
   { type: "FILE",         label: "File Upload", icon: Upload,     color: "text-slate-600 bg-slate-50" },
   { type: "SIGNATURE",    label: "Signature",   icon: PenLine,    color: "text-rose-600 bg-rose-50" },
+  { type: "INTEGRATION",  label: "Integration Field", icon: Link2, color: "text-cyan-600 bg-cyan-50" },
 ];
 
 function parseLogic(ff: any): ConditionalLogic {
@@ -421,6 +433,195 @@ function LookupAutoFillEditor({ ff, formFields, allModuleFields, onUpdate }: {
   );
 }
 
+// ── Standalone Integration Field config ───────────────────────────────────────
+// Standalone forms have no Studio/module Field to configure this on, so the
+// whole thing (source module, search fields, display field, result columns)
+// lives inline, right here, on the CustomFieldDef itself.
+function StandaloneIntegrationConfig({ cf, onUpdate }: {
+  cf: CustomFieldDef; onUpdate: (c: any) => void;
+}) {
+  const settings = cf.settings || {};
+  const [modules, setModules] = useState<any[]>([]);
+  const [targetFields, setTargetFields] = useState<any[]>([]);
+  const sourceModuleId = settings.sourceModuleId || "";
+
+  // Fetched on mount — this component only exists while an Integration Field
+  // is actually selected, so there's no need for the parent to manage loading it.
+  useEffect(() => {
+    api.get("/modules").then(r => setModules(r.data || [])).catch(() => setModules([]));
+  }, []);
+
+  useEffect(() => {
+    if (!sourceModuleId) { setTargetFields([]); return; }
+    api.get(`/modules/${sourceModuleId}/fields`).then(r => setTargetFields(r.data || [])).catch(() => setTargetFields([]));
+  }, [sourceModuleId]);
+
+  const set = (key: string, value: any) => onUpdate({ settings: { ...settings, [key]: value } });
+  const setModule = (modId: string) => onUpdate({ settings: { sourceModuleId: modId, searchFieldIds: [], displayFieldId: "", resultColumnFieldIds: [] } });
+  // Auto-default Display Field to the first search field — leaving it unset
+  // used to silently show the raw record id as the search result label.
+  const setSearchFields = (ids: string[]) => onUpdate({
+    settings: { ...settings, searchFieldIds: ids, displayFieldId: settings.displayFieldId || ids[0] || "" },
+  });
+
+  const fieldOptions = targetFields.map(f => ({ value: f.id, label: f.label }));
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Integration Configuration</p>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Source Module *</Label>
+        <Select value={sourceModuleId} onValueChange={setModule}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select module..." /></SelectTrigger>
+          <SelectContent>
+            {modules.map(m => (
+              <SelectItem key={m.id} value={m.id}>
+                <ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1 -mt-0.5" /> {m.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {targetFields.length > 0 && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Search Fields</Label>
+            <MultiCombobox options={fieldOptions} values={settings.searchFieldIds || []} onChange={setSearchFields} placeholder="Fields users can search by..." />
+            <p className="text-xs text-gray-400">e.g. Email, Phone, ID — matched against whatever the user types</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Display Field</Label>
+            <Select value={settings.displayFieldId || ""} onValueChange={v => set("displayFieldId", v)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Field to show as the result label..." /></SelectTrigger>
+              <SelectContent>
+                {targetFields.map(f => <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Result Columns</Label>
+            <MultiCombobox options={fieldOptions} values={settings.resultColumnFieldIds || []} onChange={v => set("resultColumnFieldIds", v)} placeholder="Extra columns shown while searching..." />
+          </div>
+          <div className="space-y-1.5 pt-2 border-t border-gray-100">
+            <Label className="text-xs">Filter Criteria</Label>
+            <p className="text-xs text-gray-400">
+              Only records matching these conditions are searchable — narrows results before Search Fields are even applied (e.g. Camp = Camp A, when the module has millions of records).
+            </p>
+            <ConditionTreeBuilder
+              root={normalizeConditionTree(settings.filterCriteria) as ConditionGroup}
+              group={normalizeConditionTree(settings.filterCriteria) as ConditionGroup}
+              fields={targetFields}
+              isRoot
+              operators={INTEGRATION_FILTER_OPERATORS}
+              noValueOperators={INTEGRATION_FILTER_NO_VALUE_OPS}
+              loadDynamicOptions={() => {}}
+              dynamicOptions={{}}
+              onChange={tree => set("filterCriteria", tree)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100">
+            <div>
+              <Label className="text-xs">Allow manual selection to update the CRM record</Label>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Off by default. When on, submitting this form also pushes the mapped values back into whatever record the visitor searched for and picked — not just other fields on this form. Only enable this if you're comfortable with any submitter being able to search for and update a record this way.
+              </p>
+            </div>
+            <Switch checked={!!settings.allowManualUpdate} onCheckedChange={v => set("allowManualUpdate", v)} />
+          </div>
+        </>
+      )}
+      <p className="text-xs text-gray-400 pt-1 border-t border-gray-100">
+        Set up which fields on this form get prefilled in the "Mappings" tab above.
+      </p>
+    </div>
+  );
+}
+
+function IntegrationMappingEditor({ ff, formFields, allModuleFields, customFieldDefs, isStandalone, onUpdate }: {
+  ff: any; formFields: any[]; allModuleFields: any[]; customFieldDefs: any[]; isStandalone: boolean; onUpdate: (c: any) => void;
+}) {
+  // Standalone: this field IS its own config holder (Form.settings.customFields
+  // entry) — no module Field, no FormField row, no conditionalLogic wrapper.
+  const cf = isStandalone ? customFieldDefs.find(c => c.id === ff.id) : null;
+  const logic = isStandalone ? null : parseLogic(ff);
+  const mappings: { sourceFieldId: string; destinationFormFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[] =
+    isStandalone ? (cf?.integrationMappings || []) : (logic?.integrationMappings || []);
+
+  const integrationField = isStandalone ? null : allModuleFields.find((m: any) => m.id === ff.fieldId);
+  const sourceModuleId = isStandalone
+    ? (cf?.settings?.sourceModuleId || "")
+    : ((integrationField?.settings || {}).sourceModuleId || "");
+  const [sourceFields, setSourceFields] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!sourceModuleId) { setSourceFields([]); return; }
+    api.get(`/modules/${sourceModuleId}/fields`).then(r => setSourceFields(r.data || [])).catch(() => setSourceFields([]));
+  }, [sourceModuleId]);
+
+  const otherFields = isStandalone
+    ? customFieldDefs.filter(c => c.id !== ff.id).map(c => ({ id: c.id, label: c.label }))
+    : formFields.filter(f => f.id !== ff.id)
+        .map(f => ({ ff: f, mf: allModuleFields.find((m: any) => m.id === f.fieldId) })).filter(x => x.mf)
+        .map(({ ff: f, mf }) => ({ id: f.id, label: f.customLabel || mf.label }));
+
+  const save = (entries: typeof mappings) =>
+    isStandalone ? onUpdate({ integrationMappings: entries }) : onUpdate({ conditionalLogic: { ...logic, integrationMappings: entries } });
+
+  if (!sourceModuleId) {
+    return (
+      <p className="text-xs text-gray-400">
+        {isStandalone
+          ? "Set this field's Source Module in the Configuration section above, then come back to configure mappings."
+          : "Set this field's Source Module in Studio first, then come back to configure mappings."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-medium text-gray-700">Field Mappings</p>
+      <p className="text-xs text-gray-400">When a record is selected, copy its field values into other fields on this form.</p>
+      <div className="space-y-2">
+        {mappings.map((entry, idx) => (
+          <div key={idx} className="p-2 rounded-lg border border-gray-100 bg-gray-50/50 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Select value={entry.sourceFieldId || "_none"} onValueChange={v => save(mappings.map((x, i) => i === idx ? { ...x, sourceFieldId: v === "_none" ? "" : v } : x))}>
+                <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Source field…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>
+                  {sourceFields.map(f => <SelectItem key={f.id} value={f.id} className="text-xs">{f.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <Select value={entry.destinationFormFieldId || "_none"} onValueChange={v => save(mappings.map((x, i) => i === idx ? { ...x, destinationFormFieldId: v === "_none" ? "" : v } : x))}>
+                <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Fill into…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>
+                  {otherFields.map(f => <SelectItem key={f.id} value={f.id} className="text-xs">{f.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <button onClick={() => save(mappings.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+            </div>
+            <div className="flex items-center gap-3 pl-0.5">
+              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                <input type="radio" checked={(entry.behavior || "FILL_IF_EMPTY") === "FILL_IF_EMPTY"}
+                  onChange={() => save(mappings.map((x, i) => i === idx ? { ...x, behavior: "FILL_IF_EMPTY" } : x))} />
+                Fill only if empty
+              </label>
+              <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                <input type="radio" checked={entry.behavior === "UPDATE_EXISTING"}
+                  onChange={() => save(mappings.map((x, i) => i === idx ? { ...x, behavior: "UPDATE_EXISTING" } : x))} />
+                Always overwrite
+              </label>
+            </div>
+          </div>
+        ))}
+      </div>
+      <Button size="sm" variant="outline" onClick={() => save([...mappings, { sourceFieldId: "", destinationFormFieldId: "", behavior: "FILL_IF_EMPTY" as const }])} className="w-full gap-1.5 text-xs"><Plus className="w-3 h-3" /> Add Mapping</Button>
+    </div>
+  );
+}
+
 // ── Form Rule Engine ──────────────────────────────────────────────────────────
 
 const FORM_RULE_OPS = [
@@ -563,6 +764,7 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving, a
   const ps  = settings.postSubmit || {};
   const sty = settings.style || {};
   const gs  = settings.googleSheet || {};
+  const postSubmitAction = resolvePostSubmitAction(settings);
 
   // ── Google connection state ───────────────────────────────────────────────────
   const [googleConnected, setGoogleConnected]     = useState<boolean | null>(null);
@@ -1115,53 +1317,116 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving, a
                   <p className="text-xs text-slate-500 mt-0.5">What happens after a visitor submits the form</p>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Confirmation</p>
-                  <div className="space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">After Submission</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: "message",  label: "Show a message",             desc: "Simple thank-you confirmation" },
+                      { value: "refresh",  label: "Refresh & return to form",   desc: "Resets for another entry — good for kiosks" },
+                      { value: "receipt",  label: "Show receipt page",          desc: "Printable confirmation with details" },
+                      { value: "redirect", label: "Redirect elsewhere",         desc: "Send visitor to another URL" },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => onSettingsChange({
+                          postSubmit: { ...ps, action: opt.value },
+                          ticketing: { ...(settings.ticketing || {}), enabled: opt.value === "receipt" },
+                        })}
+                        className={cn(
+                          "text-left p-3 rounded-lg border transition-colors",
+                          postSubmitAction === opt.value ? "border-indigo-400 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
+                        )}
+                      >
+                        <p className={cn("text-sm font-medium", postSubmitAction === opt.value ? "text-indigo-700" : "text-slate-700")}>{opt.label}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{opt.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
                     <Label className="text-xs font-medium">Thank You Message</Label>
                     <Textarea value={ps.message || ""} onChange={e => setN("postSubmit", "message", e.target.value)}
                       placeholder="Thank you! Your response has been recorded." className="text-sm resize-none" rows={3} />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">Redirect URL</Label>
-                    <Input value={ps.redirectUrl || ""} onChange={e => setN("postSubmit", "redirectUrl", e.target.value)}
-                      placeholder="https://yoursite.com/thank-you" className="h-9 text-sm" />
-                    <p className="text-[11px] text-slate-400">Redirect visitor after submission instead of showing message</p>
-                  </div>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">Auto-create CRM Record</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Create a record in the linked module on each submission</p>
+
+                  {postSubmitAction === "refresh" && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Delay before returning to form (seconds)</Label>
+                      <Input type="number" min={0} max={30} value={ps.refreshDelay ?? 2}
+                        onChange={e => setN("postSubmit", "refreshDelay", Number(e.target.value))} className="h-9 text-sm w-32" />
+                      <p className="text-[11px] text-slate-400">Shows the message above, then automatically resets the form to blank.</p>
                     </div>
-                    <Switch checked={ps.createRecord !== false} onCheckedChange={v => setN("postSubmit", "createRecord", v)} />
-                  </div>
-                </div>
-                {ps.createRecord !== false && (
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">Update existing record if found</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Avoid duplicates — update a matching record instead of creating a new one</p>
-                      </div>
-                      <Switch checked={ps.mode === "update"} onCheckedChange={v => setN("postSubmit", "mode", v ? "update" : "create")} />
+                  )}
+
+                  {postSubmitAction === "receipt" && (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-3 flex items-center justify-between gap-3">
+                      <p className="text-xs text-amber-700">Configure the Application ID and layout in the Submission Receipt tab.</p>
+                      <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setSection("ticketing")}>Configure</Button>
                     </div>
-                    {ps.mode === "update" && (
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">Match by field</Label>
-                        <Select value={ps.matchField || ""} onValueChange={v => setN("postSubmit", "matchField", v)}>
-                          <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select a field…" /></SelectTrigger>
-                          <SelectContent>
-                            {allModuleFields.map((f: any) => (
-                              <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[11px] text-slate-400">
-                          If a submission's value for this field matches an existing record, that record is updated instead of a new one being created.
-                        </p>
+                  )}
+
+                  {postSubmitAction === "redirect" && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Redirect URL</Label>
+                      <Input value={ps.redirectUrl || ""} onChange={e => setN("postSubmit", "redirectUrl", e.target.value)}
+                        placeholder="https://yoursite.com/thank-you" className="h-9 text-sm" />
+                      <Label className="text-xs font-medium">Delay before redirect (seconds)</Label>
+                      <Input type="number" min={0} max={30} value={ps.redirectDelay ?? 3}
+                        onChange={e => setN("postSubmit", "redirectDelay", Number(e.target.value))} className="h-9 text-sm w-32" />
+                    </div>
+                  )}
+                </div>
+                {form?.moduleId ? (
+                  <>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Auto-create CRM Record</p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {ps.mode === "update"
+                              ? "Create a new record when no existing match is found (below)"
+                              : "Create a record in the linked module on each submission"}
+                          </p>
+                        </div>
+                        <Switch checked={ps.createRecord !== false} onCheckedChange={v => setN("postSubmit", "createRecord", v)} />
                       </div>
-                    )}
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Update existing record if found</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Avoid duplicates — update a matching record instead of creating a new one</p>
+                        </div>
+                        <Switch checked={ps.mode === "update"} onCheckedChange={v => setN("postSubmit", "mode", v ? "update" : "create")} />
+                      </div>
+                      {ps.mode === "update" && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">Match by field</Label>
+                          <Select value={ps.matchField || ""} onValueChange={v => setN("postSubmit", "matchField", v)}>
+                            <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select a field…" /></SelectTrigger>
+                            <SelectContent>
+                              {allModuleFields.map((f: any) => (
+                                <SelectItem key={f.id} value={f.name}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[11px] text-slate-400">
+                            {ps.createRecord === false
+                              ? "If a submission's value for this field matches an existing record, that record is updated. If no match is found, nothing is created (Auto-create is off) — the submission is still recorded, just no CRM record changes."
+                              : "If a submission's value for this field matches an existing record, that record is updated instead of a new one being created. If no match is found, a new record is created."}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-4 text-xs text-slate-500">
+                    <p className="font-medium text-slate-700 mb-1">This is a standalone form — it isn't linked to a CRM module.</p>
+                    <p>
+                      Submissions here are only ever saved as form responses, never as a CRM record — "Auto-create CRM Record" and
+                      "Update existing record if found" don't apply. If you want a submission to update a specific CRM record,
+                      use an Integration Field with its "Allow manual selection to update the CRM record" setting turned on instead.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1507,7 +1772,10 @@ function FormSettingsPanel({ form, settings, onSettingsChange, onSave, saving, a
                           <p className="text-xs text-slate-400 mt-0.5">Show a printable receipt page after each submission</p>
                         </div>
                       </div>
-                      <Switch checked={!!tk.enabled} onCheckedChange={v => setTK("enabled", v)} />
+                      <Switch checked={!!tk.enabled} onCheckedChange={v => onSettingsChange({
+                        ticketing: { ...tk, enabled: v },
+                        postSubmit: { ...ps, action: v ? "receipt" : "message" },
+                      })} />
                     </div>
 
                     {tk.enabled && (
@@ -2040,7 +2308,7 @@ function SidebarFieldItem({ field, onAdd }: { field: any; onAdd: () => void }) {
     <div ref={setNodeRef} className={cn("flex items-center gap-2 px-2.5 py-2 rounded-md border border-transparent transition-all group", isDragging ? "opacity-40 cursor-grabbing" : "hover:bg-indigo-50 hover:border-indigo-100 cursor-grab")}>
       <div {...attributes} {...listeners} className="flex items-center gap-2 flex-1 min-w-0 touch-none">
         <span className="w-6 h-6 bg-gray-100 group-hover:bg-indigo-100 rounded text-xs flex items-center justify-center font-mono text-gray-600 shrink-0 transition-colors">{FIELD_TYPE_ICONS[field.type] || "T"}</span>
-        <p className="text-xs font-medium truncate text-gray-700 group-hover:text-indigo-700">{field.label}</p>
+        <p className="text-xs font-medium truncate text-gray-700 group-hover:text-indigo-700" title={field.label}>{field.label}</p>
       </div>
       <button onClick={onAdd} className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-indigo-400 hover:text-indigo-600 transition-all shrink-0"><Plus className="w-3.5 h-3.5" /></button>
     </div>
@@ -2078,6 +2346,9 @@ function FormBuilderPageInner() {
   const [mode, setMode]                   = useState<"builder" | "rules" | "settings">("builder");
   const [rightTab, setRightTab]           = useState<"properties" | "rules" | "autofill">("properties");
   const [localSettings, setLocalSettings] = useState<any>({});
+  // Chains saveSettingsPatch's PATCH requests so they always reach the server
+  // in the order they were fired — see the comment inside saveSettingsPatch.
+  const settingsSaveQueue = useRef<Promise<any>>(Promise.resolve());
   const [openRightSections, setOpenRightSections] = useState<Set<string>>(new Set(["actions"]));
   const toggleRightSection = (key: string) => setOpenRightSections(prev => {
     const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n;
@@ -2263,7 +2534,18 @@ function FormBuilderPageInner() {
       next = { ...prev, ...patch };
       return next;
     });
-    try { await api.patch(`/forms/${id}`, { settings: next }); } catch {}
+    // The server does a blind full-column replace of `settings` (no merge, no
+    // version check) — so if two PATCH requests are in flight at once, whichever
+    // one's *response* the server processes last wins, regardless of which was
+    // fired first. Rapid edits (e.g. toggling several Search Fields in a row)
+    // could silently revert to an earlier, incomplete selection. Chaining every
+    // call onto the same promise forces them to hit the server in the order
+    // they were made, so the last edit always wins.
+    settingsSaveQueue.current = settingsSaveQueue.current
+      .catch(() => {})
+      .then(() => api.patch(`/forms/${id}`, { settings: next }))
+      .catch(() => {});
+    await settingsSaveQueue.current;
   };
 
   // ── Page helpers ──────────────────────────────────────────────────────────────
@@ -2701,6 +2983,7 @@ function FormBuilderPageInner() {
   const selectedCF = isStandalone && selectedFF ? customFieldDefs.find(c => c.id === selectedFF.id) : null;
   const selectedMF = !isStandalone && selectedFF ? allCanvasModuleField(selectedFF.fieldId) : null;
   const isLookup = selectedMF?.type === "LOOKUP";
+  const isIntegration = selectedMF?.type === "INTEGRATION" || selectedCF?.type === "INTEGRATION";
 
   return (
     <div style={{
@@ -3118,7 +3401,7 @@ function FormBuilderPageInner() {
                       {[
                         { key: "properties", label: "Properties" },
                         ...(!isStandalone ? [{ key: "rules", label: "Rules" }] : []),
-                        ...(!isStandalone && isLookup ? [{ key: "autofill", label: "Auto-Fill" }] : []),
+                        ...((!isStandalone && isLookup) || isIntegration ? [{ key: "autofill", label: isIntegration ? "Mappings" : "Auto-Fill" }] : []),
                       ].map(tab => (
                         <button key={tab.key} onClick={() => setRightTab(tab.key as any)}
                           className={cn("px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
@@ -3201,6 +3484,16 @@ function FormBuilderPageInner() {
                                   </div>
                                 );
                               })()}
+                              {/* Integration Field — self-contained config, no Studio needed */}
+                              {selectedCF.type === "INTEGRATION" && (
+                                <>
+                                  <Separator />
+                                  <StandaloneIntegrationConfig
+                                    cf={selectedCF}
+                                    onUpdate={c => updateCanvasField(selectedFF, c)}
+                                  />
+                                </>
+                              )}
                               <Separator />
                               <div className="space-y-1.5">
                                 <Label className="text-xs">Width</Label>
@@ -3335,6 +3628,16 @@ function FormBuilderPageInner() {
                       )}
                       {rightTab === "autofill" && isLookup && (
                         <LookupAutoFillEditor ff={selectedFF} formFields={liveCanvasFields} allModuleFields={allModuleFields} onUpdate={c => updateModuleField(selectedFF.id, c)} />
+                      )}
+                      {rightTab === "autofill" && isIntegration && (
+                        <IntegrationMappingEditor
+                          ff={selectedFF}
+                          formFields={liveCanvasFields}
+                          allModuleFields={allModuleFields}
+                          customFieldDefs={customFieldDefs}
+                          isStandalone={isStandalone}
+                          onUpdate={c => updateCanvasField(selectedFF, c)}
+                        />
                       )}
                     </div>
                   </ScrollArea>
@@ -3507,7 +3810,7 @@ function FormBuilderPageInner() {
                 )}>
                   <div className="px-4 pt-3 pb-2 flex items-start gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-900 truncate">{ff.customLabel || mf?.label || ff.fieldId}</p>
+                      <p className="text-sm font-semibold text-slate-900 truncate" title={ff.customLabel || mf?.label || ff.fieldId}>{ff.customLabel || mf?.label || ff.fieldId}</p>
                     </div>
                     <span className="shrink-0 text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{typeLabel}</span>
                   </div>

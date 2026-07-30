@@ -94,7 +94,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <Topbar onMenuToggle={() => setMobileMenuOpen(prev => !prev)} />
-          <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 flex flex-col min-h-0">
+          {/* scrollbar-gutter: stable reserves the scrollbar's width on both
+              scrollable and non-scrollable pages alike, so content padding
+              stays visually symmetric instead of shifting when a page's
+              content happens to overflow vertically. */}
+          <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 flex flex-col min-h-0 [scrollbar-gutter:stable]">
             {children}
           </main>
         </div>

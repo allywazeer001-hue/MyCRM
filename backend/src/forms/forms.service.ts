@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { GoogleSheetsService } from '../calendar-sync/google-sheets.service';
 import { BlueprintsService } from '../blueprints/blueprints.service';
+import { RecordsService } from '../records/records.service';
+import { signPrefillToken, verifyPrefillToken, PrefillTokenPayload } from '../records/prefill-link';
 import { randomBytes } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -12,6 +14,7 @@ export class FormsService {
     private prisma: PrismaService,
     private workflows: WorkflowsService,
     private blueprints: BlueprintsService,
+    private records: RecordsService,
     @Optional() private googleSheets: GoogleSheetsService,
   ) {}
 
@@ -247,6 +250,212 @@ export class FormsService {
     return form;
   }
 
+  // Integration Field search for a public (unauthenticated) form — the field's
+  // presence on this specific published form IS the authorization boundary: a
+  // visitor can only search whatever the form builder actually placed here,
+  // never an arbitrary fieldId for some other module.
+  //
+  // Two shapes of form carry an Integration Field differently: module-backed
+  // forms have a real FormField -> Field row (checked via form.fields); a
+  // standalone form has no Field row at all — its config lives inline as a
+  // CustomFieldDef inside Form.settings.customFields, matched by id instead.
+  async publicIntegrationSearch(token: string, fieldId: string, search: string, page = 1, pageSize = 20, searchFieldName?: string) {
+    const form = await this.prisma.form.findFirst({
+      where: { token, isActive: true },
+      include: { fields: true },
+    });
+    if (!form) throw new NotFoundException('Form not found or no longer available');
+
+    const belongsToForm = form.fields.some(ff => ff.fieldId === fieldId);
+    if (belongsToForm) {
+      return this.records.integrationSearch(form.organizationId, fieldId, search, page, pageSize, searchFieldName);
+    }
+
+    const customFields: any[] = (form.settings as any)?.customFields ?? [];
+    const cf = customFields.find(c => c.id === fieldId && c.type === 'INTEGRATION');
+    if (!cf) throw new ForbiddenException('This field is not available on this form');
+
+    return this.records.integrationSearchWithConfig(form.organizationId, cf.settings ?? {}, search, page, pageSize, searchFieldName);
+  }
+
+  // ── Prefilled form links ("Send Form Link" from a record's detail page) ─────
+  // Generates a signed link that, when opened, prefills the form's Integration
+  // Field mapping from a specific record — and, unlike a manual search-select,
+  // marks the submission to UPDATE that record instead of creating a new one.
+
+  async getPrefillCandidateForms(orgId: string, moduleId: string) {
+    const forms = await this.prisma.form.findMany({
+      where: { organizationId: orgId, isActive: true },
+      include: { fields: true },
+    });
+
+    const allFieldIds = Array.from(new Set(forms.flatMap(f => f.fields.map(ff => ff.fieldId))));
+    const integrationFields = allFieldIds.length
+      ? await this.prisma.field.findMany({ where: { id: { in: allFieldIds }, type: 'INTEGRATION' } })
+      : [];
+    const integrationFieldById = new Map(integrationFields.map(f => [f.id, f]));
+
+    const candidates: { formId: string; formName: string; integrationFieldId: string }[] = [];
+    for (const form of forms) {
+      const moduleBackedMatch = form.fields
+        .map(ff => integrationFieldById.get(ff.fieldId))
+        .find(f => f && (f.settings as any)?.sourceModuleId === moduleId);
+      if (moduleBackedMatch) {
+        candidates.push({ formId: form.id, formName: form.name, integrationFieldId: moduleBackedMatch.id });
+        continue;
+      }
+
+      const customFields: any[] = (form.settings as any)?.customFields ?? [];
+      const cf = customFields.find(c => c.type === 'INTEGRATION' && c.settings?.sourceModuleId === moduleId);
+      if (cf) candidates.push({ formId: form.id, formName: form.name, integrationFieldId: cf.id });
+    }
+    return candidates;
+  }
+
+  async generatePrefillLink(orgId: string, formId: string, integrationFieldId: string, recordId: string) {
+    const form = await this.prisma.form.findFirst({ where: { id: formId, organizationId: orgId }, include: { fields: true } });
+    if (!form) throw new NotFoundException('Form not found');
+
+    const belongsToForm = form.fields.some(ff => ff.fieldId === integrationFieldId);
+    const cfg = belongsToForm
+      ? await this.records.resolveIntegrationField(integrationFieldId, orgId)
+      : await (async () => {
+          const customFields: any[] = (form.settings as any)?.customFields ?? [];
+          const cf = customFields.find(c => c.id === integrationFieldId && c.type === 'INTEGRATION');
+          if (!cf) throw new NotFoundException('Integration field not found on this form');
+          return this.records.resolveIntegrationSettings(cf.settings ?? {}, orgId);
+        })();
+
+    const record = await this.prisma.record.findFirst({
+      where: { id: recordId, moduleId: cfg.sourceModuleId, organizationId: orgId, isDeleted: false },
+    });
+    if (!record) throw new NotFoundException('Record not found in the source module');
+
+    let token = form.token;
+    if (!token) {
+      const updated = await this.generateToken(form.id, orgId);
+      token = updated.token;
+    }
+
+    const prefillToken = signPrefillToken({
+      formId: form.id,
+      integrationFieldId,
+      recordId,
+      sourceModuleId: cfg.sourceModuleId,
+      orgId,
+    });
+
+    const base = (process.env.FRONTEND_URL || 'http://localhost:3000').split(',')[0];
+    return { url: `${base}/f/${token}?prefillToken=${prefillToken}` };
+  }
+
+  async resolvePrefillToken(formToken: string, prefillToken: string) {
+    let payload: PrefillTokenPayload;
+    try {
+      payload = verifyPrefillToken(prefillToken);
+    } catch {
+      throw new BadRequestException('This link has expired or is invalid');
+    }
+
+    const form = await this.prisma.form.findFirst({ where: { token: formToken, isActive: true } });
+    if (!form || form.id !== payload.formId || form.organizationId !== payload.orgId) {
+      throw new NotFoundException('Form not found or no longer available');
+    }
+
+    const record = await this.prisma.record.findFirst({
+      where: { id: payload.recordId, moduleId: payload.sourceModuleId, organizationId: form.organizationId, isDeleted: false },
+    });
+    if (!record) throw new NotFoundException('The linked record is no longer available');
+
+    const sourceFields = await this.prisma.field.findMany({
+      where: { moduleId: payload.sourceModuleId },
+      select: { id: true, name: true, label: true },
+    });
+
+    return {
+      integrationFieldId: payload.integrationFieldId,
+      recordId: record.id,
+      recordData: record.data,
+      sourceFields,
+    };
+  }
+
+  // Validates a client-claimed "I picked this record via manual search,
+  // update it too" signal (data.__integrationManualUpdate = {fieldId,
+  // recordId}). Never trusted at face value — the field must actually
+  // belong to this form AND have allowManualUpdate explicitly enabled in its
+  // own settings (an admin's conscious choice, since this is a much bigger
+  // authorization surface than a prefill link: any visitor on a public form
+  // could otherwise search for and silently overwrite an arbitrary record).
+  private async resolveManualUpdateTarget(
+    form: { id: string; organizationId: string; settings: any },
+    data: any,
+  ): Promise<{ integrationFieldId: string; recordId: string; sourceModuleId: string } | null> {
+    const manual = data.__integrationManualUpdate;
+    if (!manual?.fieldId || !manual?.recordId) return null;
+
+    try {
+      const formField = await this.prisma.formField.findFirst({ where: { formId: form.id, fieldId: manual.fieldId } });
+      const cfg = formField
+        ? await this.records.resolveIntegrationField(manual.fieldId, form.organizationId)
+        : await (async () => {
+            const customFields: any[] = (form.settings as any)?.customFields ?? [];
+            const cf = customFields.find((c: any) => c.id === manual.fieldId && c.type === 'INTEGRATION');
+            if (!cf) return null;
+            return this.records.resolveIntegrationSettings(cf.settings ?? {}, form.organizationId);
+          })();
+      if (!cfg?.allowManualUpdate) return null;
+
+      const record = await this.prisma.record.findFirst({
+        where: { id: manual.recordId, moduleId: cfg.sourceModuleId, organizationId: form.organizationId, isDeleted: false },
+      });
+      if (!record) return null;
+
+      return { integrationFieldId: manual.fieldId, recordId: manual.recordId, sourceModuleId: cfg.sourceModuleId };
+    } catch {
+      return null;
+    }
+  }
+
+  // Resolves an Integration field's mapping list to source/destination field
+  // NAMES for the write-back step at submit time — mirrors the read of the
+  // same mappings the builder's IntegrationMappingEditor writes, just from
+  // the opposite side (submission -> source record instead of source record
+  // -> form fields).
+  private async resolveIntegrationWriteback(form: { id: string; settings: any }, integrationFieldId: string, sourceModuleId: string) {
+    const sourceModuleFields = await this.prisma.field.findMany({
+      where: { moduleId: sourceModuleId },
+      select: { id: true, name: true },
+    });
+    const sourceNameById = new Map(sourceModuleFields.map(f => [f.id, f.name]));
+
+    let mappings: { sourceFieldId: string; destinationFormFieldId: string; behavior: string }[] = [];
+    let destNameById = new Map<string, string>();
+
+    const formField = await this.prisma.formField.findFirst({ where: { formId: form.id, fieldId: integrationFieldId } });
+    if (formField) {
+      mappings = (formField.conditionalLogic as any)?.integrationMappings || [];
+      const allFormFields = await this.prisma.formField.findMany({ where: { formId: form.id } });
+      const fieldIds = allFormFields.map(f => f.fieldId).filter(Boolean);
+      const fields = await this.prisma.field.findMany({ where: { id: { in: fieldIds } }, select: { id: true, name: true } });
+      const nameByFieldId = new Map(fields.map(f => [f.id, f.name]));
+      destNameById = new Map(allFormFields.map(ff => [ff.id, nameByFieldId.get(ff.fieldId) || ''] as [string, string]));
+    } else {
+      const customFields: any[] = (form.settings as any)?.customFields || [];
+      const cf = customFields.find((c: any) => c.id === integrationFieldId);
+      mappings = cf?.integrationMappings || [];
+      destNameById = new Map(customFields.map((c: any) => [c.id, c.name] as [string, string]));
+    }
+
+    return mappings
+      .map(m => ({
+        sourceFieldName: sourceNameById.get(m.sourceFieldId) || '',
+        destinationFieldName: destNameById.get(m.destinationFormFieldId) || '',
+        behavior: m.behavior,
+      }))
+      .filter(m => m.sourceFieldName && m.destinationFieldName);
+  }
+
   async submitPublicForm(token: string, data: any, ipAddress?: string, userAgent?: string) {
     const form = await this.prisma.form.findFirst({ where: { token, isActive: true } });
     if (!form) throw new NotFoundException('Form not found');
@@ -265,8 +474,37 @@ export class FormsService {
       data: { formId: form.id, data, ipAddress, userAgent },
     });
 
-    // If linked to a module and createRecord not explicitly disabled, create a module Record
-    if (form.moduleId && settings.postSubmit?.createRecord !== false) {
+    // Resolve what (if anything) ties this submission to a specific CRM
+    // record via an Integration Field — decides further down whether to
+    // update that record instead of (or in addition to) the form's normal
+    // create/update behavior. Two ways this can happen:
+    //  1. A signed prefill-link token — always honored; the link itself
+    //     proves an internal user chose this record ahead of time.
+    //  2. A manual search-and-select made during THIS submission — only
+    //     honored when the field's own config explicitly opts in
+    //     (allowManualUpdate), since otherwise any visitor on a public form
+    //     could search for and silently overwrite an arbitrary record.
+    let integrationPrefill: PrefillTokenPayload | null = null;
+    if (data.__integrationPrefillToken) {
+      try {
+        const decoded = verifyPrefillToken(data.__integrationPrefillToken);
+        if (decoded.formId === form.id && decoded.orgId === form.organizationId) integrationPrefill = decoded;
+      } catch {
+        // Expired/invalid/tampered token — ignore and submit normally.
+      }
+    }
+    const manualUpdateTarget = integrationPrefill ? null : await this.resolveManualUpdateTarget(form, data);
+    const writebackTarget: { integrationFieldId: string; recordId: string; sourceModuleId: string } | null =
+      integrationPrefill
+        ? { integrationFieldId: integrationPrefill.integrationFieldId, recordId: integrationPrefill.recordId, sourceModuleId: integrationPrefill.sourceModuleId }
+        : manualUpdateTarget;
+
+    // Touch a module Record when either: createRecord is allowed to create
+    // one, or "update if found" is configured — the latter must still run
+    // (and update a match) even when createRecord is off, since "only
+    // update, never create" is a legitimate configuration on its own.
+    const postSubmitCfg = settings.postSubmit || {};
+    if (form.moduleId && (postSubmitCfg.createRecord !== false || postSubmitCfg.mode === 'update')) {
       try {
         // Find a system user (first SUPER_ADMIN or ADMIN in the org) to attribute the record to
         const systemUser = await this.prisma.user.findFirst({
@@ -303,7 +541,12 @@ export class FormsService {
           const postSubmit = settings.postSubmit || {};
           let existingRecord: { id: string; data: any } | null = null;
 
-          const matchedRecordId: string | undefined = data.__matchedRecordId;
+          // Also honor a prefill-link/manual-update record when it targets
+          // this same form's own module — same code path as an explicit
+          // lookup-selected match, avoiding a second, separate write to the
+          // same record below.
+          const matchedRecordId: string | undefined = data.__matchedRecordId ||
+            (writebackTarget && writebackTarget.sourceModuleId === form.moduleId ? writebackTarget.recordId : undefined);
           if (matchedRecordId) {
             existingRecord = await this.prisma.record.findFirst({
               where: { id: matchedRecordId, moduleId: form.moduleId, organizationId: form.organizationId, isDeleted: false },
@@ -322,7 +565,7 @@ export class FormsService {
             }
           }
 
-          let recordId: string;
+          let recordId: string | undefined;
           if (existingRecord) {
             const mergedData = { ...(existingRecord.data as any), ...recordData };
             const updated = await this.prisma.record.update({
@@ -336,14 +579,14 @@ export class FormsService {
             this.workflows
               .executeForRecord('FIELD_CHANGED', form.moduleId, form.organizationId, updated, existingRecord.data)
               .catch(() => {});
-          } else {
+          } else if (postSubmit.createRecord !== false) {
             // Fill AUTO_NUMBER fields that were not submitted
             const allModuleFields = await this.prisma.field.findMany({
               where: { moduleId: form.moduleId, isActive: true, type: 'AUTO_NUMBER' },
             });
             for (const autoField of allModuleFields) {
               if (!recordData[autoField.name]) {
-                recordData[autoField.name] = await this.generateAutoNumber(autoField, form.moduleId, form.organizationId);
+                recordData[autoField.name] = await this.records.generateAutoNumber(autoField, form.moduleId, form.organizationId);
               }
             }
 
@@ -360,17 +603,79 @@ export class FormsService {
               .executeForRecord('RECORD_CREATED', form.moduleId, form.organizationId, newRecord)
               .catch(() => {});
           }
+          // else: "update if found" is on, createRecord is off, and no match
+          // was found — nothing to do. The submission itself was still saved
+          // above; we just don't touch the module's Record table.
 
-          this.blueprints
-            .evaluateAutomaticTransitions(
-              recordId, form.organizationId, systemUser.id, 'on_form_submit',
-              [], existingRecord ? (existingRecord.data as any) : undefined,
-            )
-            .catch(() => {});
+          if (recordId) {
+            this.blueprints
+              .evaluateAutomaticTransitions(
+                recordId, form.organizationId, systemUser.id, 'on_form_submit',
+                [], existingRecord ? (existingRecord.data as any) : undefined,
+              )
+              .catch(() => {});
+          }
         }
       } catch (err) {
         // Don't fail the submission if record creation fails — log and continue
         console.error('Failed to create module record from form submission:', err);
+      }
+    }
+
+    // Write-back — pushes the (possibly edited) mapped values back into the
+    // record a prefill-link or opt-in manual selection pointed at. Skipped
+    // when that record's module IS this form's own module: the block above
+    // already updated it via matchedRecordId, so writing again here would be
+    // redundant.
+    if (writebackTarget && writebackTarget.sourceModuleId !== form.moduleId) {
+      try {
+        const resolvedMappings = await this.resolveIntegrationWriteback(
+          form, writebackTarget.integrationFieldId, writebackTarget.sourceModuleId,
+        );
+        if (resolvedMappings.length > 0) {
+          const sourceRecord = await this.prisma.record.findFirst({
+            where: {
+              id: writebackTarget.recordId,
+              moduleId: writebackTarget.sourceModuleId,
+              organizationId: form.organizationId,
+              isDeleted: false,
+            },
+          });
+          if (sourceRecord) {
+            const updatedData: Record<string, any> = { ...(sourceRecord.data as any) };
+            for (const m of resolvedMappings) {
+              const submittedValue = data[m.destinationFieldName];
+              if (submittedValue === undefined) continue;
+              if (m.behavior === 'UPDATE_EXISTING') {
+                updatedData[m.sourceFieldName] = submittedValue;
+              } else {
+                const current = updatedData[m.sourceFieldName];
+                if (current === null || current === undefined || current === '') {
+                  updatedData[m.sourceFieldName] = submittedValue;
+                }
+              }
+            }
+
+            const systemUser = await this.prisma.user.findFirst({
+              where: { organizationId: form.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN'] }, isActive: true },
+              orderBy: { createdAt: 'asc' },
+              select: { id: true },
+            });
+
+            const updatedRecord = await this.prisma.record.update({
+              where: { id: sourceRecord.id },
+              data: { data: updatedData, updatedById: systemUser?.id },
+            });
+            this.workflows
+              .executeForRecord('RECORD_UPDATED', writebackTarget.sourceModuleId, form.organizationId, updatedRecord, sourceRecord.data)
+              .catch(() => {});
+            this.workflows
+              .executeForRecord('FIELD_CHANGED', writebackTarget.sourceModuleId, form.organizationId, updatedRecord, sourceRecord.data)
+              .catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.error('Failed to write back integration mapping:', err);
       }
     }
 
@@ -650,15 +955,4 @@ export class FormsService {
     };
   }
 
-  private async generateAutoNumber(field: any, moduleId: string, orgId: string): Promise<string> {
-    const settings = (field.settings as any) || {};
-    const prefix = settings.prefix || '';
-    const suffix = settings.suffix || '';
-    const startingNumber = settings.startingNumber ?? 1;
-    const paddingLength = settings.paddingLength ?? 5;
-    const count = await this.prisma.record.count({ where: { moduleId, organizationId: orgId } });
-    const nextNum = count + startingNumber;
-    const padded = String(nextNum).padStart(paddingLength, '0');
-    return [prefix, padded, suffix].filter(Boolean).join('-');
-  }
 }

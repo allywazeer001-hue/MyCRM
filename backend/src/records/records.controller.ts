@@ -22,6 +22,23 @@ export class LookupController {
   ) {
     return this.recordsService.lookupSearch(user.organizationId, moduleId, displayField, search || '');
   }
+
+  @Get('integration-search')
+  integrationSearch(
+    @Query('fieldId') fieldId: string,
+    @Query('search') search: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string,
+    @Query('searchField') searchField: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.recordsService.integrationSearch(
+      user.organizationId, fieldId, search || '',
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+      searchField || undefined,
+    );
+  }
 }
 
 @ApiTags('records')

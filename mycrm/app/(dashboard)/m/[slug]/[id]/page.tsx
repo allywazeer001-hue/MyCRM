@@ -6,7 +6,8 @@ import {
   ArrowLeft, Edit, Trash2, Loader2, AlertCircle, MessageSquare,
   Send, Clock, User, Calendar, Printer, MoreHorizontal, ExternalLink,
   Layers, ChevronRight, UserPlus, CheckCircle, RefreshCw, Save, X, FileText,
-  Archive, Lock, Unlock, History, Plus, Mail, CheckCircle2, XCircle, Eye, EyeOff,
+  Archive, Lock, Unlock, History, Plus, Mail, CheckCircle2, XCircle, Eye, EyeOff, Link2,
+  Images, QrCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,9 +36,11 @@ import { useFieldRules } from "@/hooks/use-field-rules";
 import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
 import { BlueprintActions } from "@/components/blueprints/blueprint-actions";
 import { SendEmailModal } from "@/components/email/send-email-modal";
+import { SendFormLinkModal } from "@/components/records/send-form-link-modal";
 import { useBlueprintRuntimeStore } from "@/store/blueprint-runtime.store";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { DEFAULT_MODULE_LAYOUT, type LayoutSection, type LayoutTab } from "@/lib/layout-templates";
+import { RecordGalleryTab, RecordDocumentsTab, RecordQrCodeTab } from "@/components/records/split-panel-tabs";
 
 // ── Field-lock override reason prompt ───────────────────────────────────────
 
@@ -1056,6 +1059,185 @@ function RelatedRecordsTable({ tab, currentRecordId }: { tab: RelatedModuleTab; 
   );
 }
 
+// ── Split Panel record layout (opt-in, per module — see layout.recordDetailStyle) ──
+// Read-only presentational view: a narrow left panel of core field rows, and a
+// wide right panel that's a single card with its own internal tab bar. Reuses
+// RecordFieldValue, ActivityTab, and RelatedRecordsTable verbatim rather than
+// re-implementing field/activity/related-record rendering.
+
+function SplitPanelInfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="py-2">
+      <p className="text-xs text-gray-500">{label}</p>
+      <div className="text-sm font-medium text-gray-800 mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function SplitPanelRecordView({
+  record, mod, data, displayFields, layoutSections, layoutTabs, mainSectionId, relatedTabs, id, slug,
+}: {
+  record: any;
+  mod: any;
+  data: Record<string, any>;
+  displayFields: Field[];
+  layoutSections: LayoutSection[];
+  layoutTabs: LayoutTab[];
+  mainSectionId?: string;
+  relatedTabs: RelatedModuleTab[];
+  id: string;
+  slug: string;
+}) {
+  // Main Tab (radio-exclusive, chosen in Studio): the one section shown in
+  // the left panel. Falls back to the first section if nothing's been chosen
+  // yet, and to "untabbed" sections for data saved before this selection
+  // existed. Every OTHER section becomes its own tab on the right, named
+  // after that LayoutTab's label. Fields with no section at all go to
+  // "Custom Fields" once at least one section exists to compare against.
+  const explicitMain = mainSectionId ? layoutSections.find(s => s.id === mainSectionId) : undefined;
+  const mainSections = explicitMain ? [explicitMain] : layoutSections.filter(s => !s.tabId);
+  const mainSectionIds = new Set(mainSections.map(s => s.id));
+
+  const tabbedSectionsByTabId = new Map<string, LayoutSection[]>();
+  for (const s of layoutSections) {
+    if (!s.tabId || mainSectionIds.has(s.id)) continue; // the Main section never doubles as a tab
+    const list = tabbedSectionsByTabId.get(s.tabId) ?? [];
+    list.push(s);
+    tabbedSectionsByTabId.set(s.tabId, list);
+  }
+  const fieldsOfSections = (secs: LayoutSection[]) =>
+    secs.flatMap(s => s.fieldIds).map(fid => displayFields.find(f => f.id === fid)).filter((f): f is Field => !!f);
+
+  const assignedFieldIds = new Set(layoutSections.flatMap(s => s.fieldIds));
+  const unassignedFields = displayFields.filter(f => !assignedFieldIds.has(f.id));
+
+  // Left panel = the Main section's fields. Fields with no section at all go
+  // to "Custom Fields" on the right — only the Main section's fields ever
+  // appear on the left.
+  const primaryFields = layoutSections.length > 0 ? fieldsOfSections(mainSections) : displayFields.slice(0, 8);
+  const remainingFields = layoutSections.length > 0 ? unassignedFields : [];
+
+  // Main Tab column count — reuses the section's own "Columns" setting
+  // (already configurable per section in the canvas) so the left panel can
+  // lay its fields out in a grid instead of always stacking single-column.
+  const mainColumns = mainSections[0]?.columns ?? 1;
+  const mainGridClass = {
+    1: "grid-cols-1",
+    2: "grid-cols-1 sm:grid-cols-2",
+    3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+    4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+  }[mainColumns] ?? "grid-cols-1";
+
+  const sectionTabs = layoutTabs
+    .filter(t => tabbedSectionsByTabId.has(t.id))
+    .sort((a, b) => a.order - b.order)
+    .map(t => ({ id: `section-${t.id}`, label: t.label, icon: null as any, fields: fieldsOfSections(tabbedSectionsByTabId.get(t.id) ?? []) }));
+
+  const imageFields = displayFields.filter(f => f.type === "IMAGE");
+  const fileFields = displayFields.filter(f => f.type === "FILE");
+
+  const rightTabs = [
+    ...(imageFields.length > 0 ? [{ id: "gallery", label: "Gallery", icon: Images }] : []),
+    ...(fileFields.length > 0 ? [{ id: "documents", label: "Documents", icon: FileText }] : []),
+    ...sectionTabs,
+    ...relatedTabs.map(t => ({ id: `related-${t.module.id}`, label: t.module.name, icon: null as any, tab: t })),
+    ...(remainingFields.length > 0 ? [{ id: "custom", label: "Custom Fields", icon: null as any }] : []),
+    { id: "timeline", label: "Timeline", icon: History },
+    { id: "qr", label: "QR Code", icon: QrCode },
+  ];
+
+  const [activeTab, setActiveTab] = useState<string>(() => rightTabs[0]?.id ?? "timeline");
+  const active = rightTabs.find(t => t.id === activeTab) ?? rightTabs[0];
+
+  const recordUrl = typeof window !== "undefined" ? `${window.location.origin}/m/${slug}/${id}` : `/m/${slug}/${id}`;
+
+  // The Main Tab gets more room as its own column count goes up, rather than
+  // staying pinned to one narrow width regardless of how much it's showing.
+  const leftPanelWidthClass = mainColumns >= 3 ? "lg:w-[42rem]" : mainColumns === 2 ? "lg:w-[32rem]" : "lg:w-96";
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-6 print:hidden">
+      {/* Left panel — core fields (Main Tab) */}
+      <div className={cn("w-full shrink-0", leftPanelWidthClass)}>
+        <Card>
+          {mainSections[0]?.title && (
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-gray-700">{mainSections[0].title}</CardTitle>
+            </CardHeader>
+          )}
+          <CardContent className="pt-5">
+            {primaryFields.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                {layoutSections.length > 0 ? "The Main Tab section has no fields — see Main Tab in Studio." : "No fields configured."}
+              </p>
+            ) : (
+              <div className={cn("grid gap-x-6", mainGridClass)}>
+                {primaryFields.map(f => (
+                  <SplitPanelInfoRow
+                    key={f.id}
+                    label={f.label}
+                    value={<RecordFieldValue value={data[f.name]} field={f} resolvedLabel={data[f.name + "__label"]} />}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Right panel — tabbed content */}
+      <div className="flex-1 min-w-0">
+        <Card>
+          <div className="border-b border-gray-100 px-2">
+            <nav className="flex gap-0 overflow-x-auto">
+              {rightTabs.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  className={cn(
+                    "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5",
+                    activeTab === t.id
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  {t.icon && <t.icon className="w-3.5 h-3.5" />}
+                  {t.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <CardContent className="pt-5">
+            {active?.id === "gallery" && <RecordGalleryTab fields={imageFields} data={data} />}
+            {active?.id === "documents" && <RecordDocumentsTab fields={fileFields} data={data} />}
+            {(active?.id === "custom" || active?.id.startsWith("section-")) && (() => {
+              const fieldsForTab = active.id === "custom"
+                ? remainingFields
+                : ((rightTabs.find(rt => rt.id === active.id) as any)?.fields as Field[] | undefined) ?? [];
+              return (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-5">
+                  {fieldsForTab.map(f => (
+                    <div key={f.id} className="space-y-1.5">
+                      <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{f.label}</dt>
+                      <dd><RecordFieldValue value={data[f.name]} field={f} resolvedLabel={data[f.name + "__label"]} /></dd>
+                    </div>
+                  ))}
+                </dl>
+              );
+            })()}
+            {active?.id === "timeline" && <ActivityTab moduleId={mod.id} recordId={id} />}
+            {active?.id === "qr" && <RecordQrCodeTab url={recordUrl} />}
+            {active?.id.startsWith("related-") && (() => {
+              const t = (rightTabs.find(rt => rt.id === active.id) as any)?.tab as RelatedModuleTab | undefined;
+              return t ? <RelatedRecordsTable tab={t} currentRecordId={id} /> : null;
+            })()}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 // ── Inline global-list helpers ─────────────────────────────────────────────
 
 function parseGlobalListId(rawSettings: any): string {
@@ -1297,6 +1479,7 @@ export default function RecordDetailPage() {
   const [portalStatus, setPortalStatus] = useState<{ portalEnabled: boolean; portalLabel?: string; portalUser: any } | null>(null);
   // Archive / Lock
   const [sendEmailOpen, setSendEmailOpen] = useState(false);
+  const [sendFormLinkOpen, setSendFormLinkOpen] = useState(false);
   const [creatingPortalUser, setCreatingPortalUser] = useState(false);
   const [portalMsg, setPortalMsg] = useState("");
 
@@ -1810,7 +1993,7 @@ export default function RecordDetailPage() {
   };
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto print:max-w-none">
+    <div className="space-y-4 w-full px-[5%] print:px-0">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 print:hidden">
         <div className="flex items-start gap-3 min-w-0">
@@ -1873,6 +2056,9 @@ export default function RecordDetailPage() {
               </PermissionGate>
               <DropdownMenuItem onClick={handlePrint} className="gap-2 cursor-pointer">
                 <Printer className="w-4 h-4" /> Print Record
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSendFormLinkOpen(true)} className="gap-2 cursor-pointer">
+                <Link2 className="w-4 h-4" /> Send Form Link
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -2004,6 +2190,21 @@ export default function RecordDetailPage() {
         <p className="text-sm text-gray-500">Created: {formatDate(record.createdAt)}</p>
       </div>
 
+      {(layout as any).recordDetailStyle === "split-panel" ? (
+        <SplitPanelRecordView
+          record={record}
+          mod={mod}
+          data={data}
+          displayFields={displayFields}
+          layoutSections={layoutSections}
+          layoutTabs={layoutTabsList}
+          mainSectionId={(layout as any).mainSectionId}
+          relatedTabs={relatedTabs}
+          id={id}
+          slug={slug}
+        />
+      ) : (
+        <>
       {/* Tabs — always visible: Details, Activity, Emails (if the module has an email field), and any related modules */}
       <div className="border-b border-gray-200 print:hidden">
         <nav className="-mb-px flex gap-0 overflow-x-auto">
@@ -2306,6 +2507,8 @@ export default function RecordDetailPage() {
 
         </div>
       )}
+        </>
+      )}
 
       {/* Send Email modal */}
       {sendEmailOpen && (() => {
@@ -2340,6 +2543,22 @@ export default function RecordDetailPage() {
             recordData={strData}
             recordLabel={String(titleValue ?? record.id.slice(0, 8))}
             recordId={record.id}
+          />
+        );
+      })()}
+
+      {sendFormLinkOpen && (() => {
+        const emailField = fields.find(f => f.type === "EMAIL");
+        const recordRaw = data as Record<string, any>;
+        const recordEmail = emailField ? String(recordRaw[emailField.name] ?? "") : "";
+        return (
+          <SendFormLinkModal
+            open={sendFormLinkOpen}
+            onClose={() => setSendFormLinkOpen(false)}
+            moduleId={record.module.id}
+            recordId={record.id}
+            recordLabel={String(titleValue ?? record.id.slice(0, 8))}
+            recordEmail={recordEmail || undefined}
           />
         );
       })()}

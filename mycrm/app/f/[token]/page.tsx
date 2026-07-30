@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useRef, Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, AlertCircle, X, Search, ChevronLeft, ChevronRight, Upload, FileText, ScanSearch, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api } from "@/lib/api";
 import { cn, parseFieldSettings } from "@/lib/utils";
 import { DateFieldInput } from "@/components/ui/date-field-input";
+import { IntegrationFieldInput } from "@/components/records/integration-field-input";
+import { applyIntegrationMapping } from "@/lib/integration-mapping";
+import { resolvePostSubmitAction } from "@/lib/form-post-submit";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -332,7 +335,7 @@ function StatusScreen({ icon, title, message, type = "error" }: {
 
 function PublicLookupInput({ field, value, onChange, onRecordSelect }: {
   field: any; value: any; onChange: (v: any) => void;
-  onRecordSelect?: (id: string, recordData: Record<string, any>) => void;
+  onRecordSelect?: (id: string, recordData: Record<string, any>, sourceFields?: { id: string; name: string; label: string }[]) => void;
 }) {
   const mf = field.moduleField || field;
   const settings = mf.settings || {};
@@ -447,9 +450,10 @@ function PublicGlobalRelationInput({ field, value, onChange }: { field: any; val
 
 // ── Field renderer ────────────────────────────────────────────────────────────
 
-function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: {
+function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect, token }: {
   field: any; value: any; onChange: (v: any) => void; readonly?: boolean;
-  onRecordSelect?: (id: string, recordData: Record<string, any>) => void;
+  onRecordSelect?: (id: string, recordData: Record<string, any>, sourceFields?: { id: string; name: string; label: string }[], allowManualUpdate?: boolean) => void;
+  token: string;
 }) {
   const mf = field.moduleField || field;
   const type = mf.type;
@@ -591,6 +595,17 @@ function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: 
     case "LOOKUP":
       return <PublicLookupInput field={field} value={value} onChange={v => !readonly && onChange(v)} onRecordSelect={onRecordSelect} />;
 
+    case "INTEGRATION":
+      return (
+        <IntegrationFieldInput
+          fieldId={mf.id}
+          searchEndpoint={`/public/forms/${token}/integration-search`}
+          value={value}
+          onChange={v => !readonly && onChange(v)}
+          onRecordSelect={onRecordSelect}
+        />
+      );
+
     case "GLOBAL_RELATION":
       return <PublicGlobalRelationInput field={field} value={value} onChange={v => !readonly && onChange(v)} />;
 
@@ -601,8 +616,10 @@ function PublicFieldInput({ field, value, onChange, readonly, onRecordSelect }: 
 
 // ── Main public form page ─────────────────────────────────────────────────────
 
-export default function PublicFormPage() {
+// Needs a Suspense boundary for useSearchParams (?prefillToken=).
+function PublicFormPageInner() {
   const { token } = useParams<{ token: string }>();
+  const searchParams = useSearchParams();
   const [form, setForm] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<{ code: string; message: string; unavailableMessage?: string } | null>(null);
@@ -610,15 +627,37 @@ export default function PublicFormPage() {
   // Set when a lookup field's autofill selects an existing CRM record — submitting
   // then updates that record instead of creating a duplicate.
   const [matchedRecordId, setMatchedRecordId] = useState<string | null>(null);
+  // Set when this page was opened via a personalized "Send Form Link" —
+  // submitting then writes the mapped values back into that record too.
+  const [integrationPrefillToken, setIntegrationPrefillToken] = useState<string | null>(null);
+  const [prefillApplied, setPrefillApplied] = useState(false);
+  // Set when a manual Integration Field selection is on a field whose config
+  // opts in to "allow manual selection to update the CRM record" — submitting
+  // then also writes the mapped values back into the record the visitor
+  // picked (re-verified server-side; this is just what to ask for).
+  const [manualUpdateTarget, setManualUpdateTarget] = useState<{ fieldId: string; recordId: string } | null>(null);
+  // Destination field NAMES an Integration Field's mapping just prefilled,
+  // keyed by that field's own id — only populated when allowManualUpdate is
+  // on, since those are the only fields whose edits actually get written
+  // back to the CRM. Locking them (read-only) once filled stops a visitor
+  // from accidentally changing data that then overwrites the real record.
+  const [lockedFieldsByIntegrationField, setLockedFieldsByIntegrationField] = useState<Record<string, string[]>>({});
+  const lockedFieldNames = new Set(Object.values(lockedFieldsByIntegrationField).flat());
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [redirectTimer, setRedirectTimer] = useState<number | null>(null);
+  const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
   const [appId, setAppId] = useState<string | null>(null);
   const [submittedSnapshot, setSubmittedSnapshot] = useState<Record<string, any>>({});
   const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   const prevSetValues = useRef<Record<string, any>>({});
+  // Tracks the values Integration Field mappings last auto-filled, so
+  // re-selecting a different search result can tell "still holds our last
+  // auto-fill" apart from "the visitor typed their own value" — see
+  // applyIntegrationMapping's doc comment.
+  const autoFilledRef = useRef<Record<string, any>>({});
 
   // OCR Upload state
   const [ocrPhase, setOcrPhase] = useState<"landing" | "form">("landing");
@@ -670,11 +709,25 @@ export default function PublicFormPage() {
     if (!submitted) return;
     const settings = form?.settings || {};
     const ps = settings.postSubmit || {};
-    if (!ps.redirectUrl) return;
+    if (resolvePostSubmitAction(settings) !== "redirect") return;
     const delay = (ps.redirectDelay ?? 3) * 1000;
     const t = window.setTimeout(() => { window.location.href = ps.redirectUrl; }, delay);
     setRedirectTimer(delay / 1000);
     const interval = setInterval(() => setRedirectTimer(prev => (prev !== null && prev > 1 ? prev - 1 : null)), 1000);
+    return () => { clearTimeout(t); clearInterval(interval); };
+  }, [submitted, form]);
+
+  // "Refresh & return to form" — resets to a blank submission after a short
+  // delay, same as clicking "Submit Another Response" but automatic.
+  useEffect(() => {
+    if (!submitted) return;
+    const settings = form?.settings || {};
+    if (resolvePostSubmitAction(settings) !== "refresh") return;
+    const ps = settings.postSubmit || {};
+    const delay = (ps.refreshDelay ?? 2) * 1000;
+    const t = window.setTimeout(() => { window.location.reload(); }, delay);
+    setRefreshTimer(delay / 1000);
+    const interval = setInterval(() => setRefreshTimer(prev => (prev !== null && prev > 1 ? prev - 1 : null)), 1000);
     return () => { clearTimeout(t); clearInterval(interval); };
   }, [submitted, form]);
 
@@ -733,7 +786,10 @@ export default function PublicFormPage() {
           isHidden: false,
           isReadonly: false,
           customLabel: cf.label,
-          conditionalLogic: null,
+          // Lets the existing handleLookupAutoFill code path work unchanged for
+          // a standalone Integration Field — its mappings live directly on the
+          // CustomFieldDef (cf.integrationMappings), not a real FormField row.
+          conditionalLogic: cf.type === "INTEGRATION" ? { integrationMappings: cf.integrationMappings || [] } : null,
         }))
     : form?.resolvedFields || form?.fields || [];
   const computedFields = rawFields
@@ -868,7 +924,12 @@ export default function PublicFormPage() {
     setSubmittedAt(new Date());
     setSubmitting(true);
     try {
-      const payload = matchedRecordId ? { ...formData, __matchedRecordId: matchedRecordId } : formData;
+      const payload = {
+        ...formData,
+        ...(matchedRecordId ? { __matchedRecordId: matchedRecordId } : {}),
+        ...(integrationPrefillToken ? { __integrationPrefillToken: integrationPrefillToken } : {}),
+        ...(manualUpdateTarget ? { __integrationManualUpdate: manualUpdateTarget } : {}),
+      };
       const result = await api.post(`/public/forms/${token}/submit`, payload);
       if (result.data?.ticketNumber) setAppId(result.data.ticketNumber);
       setSubmitted(true);
@@ -891,7 +952,76 @@ export default function PublicFormPage() {
     else doSubmit();
   };
 
-  const handleLookupAutoFill = (ff: any, recordId: string, recordData: Record<string, any>) => {
+  const handleLookupAutoFill = (
+    ff: any, recordId: string, recordData: Record<string, any>,
+    sourceFields?: { id: string; name: string; label: string }[],
+    allowManualUpdate?: boolean,
+  ) => {
+    const mf = ff.moduleField || ff;
+
+    if (mf.type === "INTEGRATION") {
+      // Integration Field only copies values into other fields on THIS form —
+      // unlike LOOKUP self-service forms, the record being submitted is NOT
+      // the searched record, so matchedRecordId is deliberately left untouched.
+      // The one opt-in exception: when the field's own config explicitly
+      // allows it, remember this selection so submit can also write back
+      // into the searched record (verified server-side — see
+      // resolveManualUpdateTarget in forms.service.ts).
+      setManualUpdateTarget(allowManualUpdate ? { fieldId: mf.id, recordId } : null);
+
+      const mappings: { sourceFieldId: string; destinationFormFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[] =
+        (ff.conditionalLogic as any)?.integrationMappings || [];
+      if (mappings.length === 0) {
+        setLockedFieldsByIntegrationField(prev => {
+          if (!(mf.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[mf.id];
+          return next;
+        });
+        return;
+      }
+
+      const sourceById = new Map<string, string>((sourceFields || []).map(f => [f.id, f.name]));
+      const destById: Map<string, string> = isStandalone
+        ? new Map(customFieldDefs.map((c: any) => [c.id, c.name] as [string, string]))
+        : new Map((form?.resolvedFields || form?.fields || []).map((f: any) => [f.id, (f.moduleField || f).name] as [string, string]));
+
+      const resolved = mappings
+        .map(m => ({
+          sourceFieldName: sourceById.get(m.sourceFieldId) || "",
+          destinationFieldName: destById.get(m.destinationFormFieldId) || "",
+          behavior: m.behavior,
+        }))
+        .filter(m => m.sourceFieldName && m.destinationFieldName);
+
+      // Only lock fields when this selection can actually write back to the
+      // CRM (allowManualUpdate) — otherwise a locked field would just be an
+      // annoyance with no corresponding safety benefit.
+      setLockedFieldsByIntegrationField(prev => {
+        if (!allowManualUpdate) {
+          if (!(mf.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[mf.id];
+          return next;
+        }
+        return { ...prev, [mf.id]: resolved.map(m => m.destinationFieldName) };
+      });
+
+      // Deliberately NOT the `setFormData(prev => ...)` functional-updater
+      // form here: React (Strict Mode, dev) invokes updater functions twice
+      // to catch impure ones, and mutating autoFilledRef inside the updater
+      // made the second invocation see an already-advanced ref while `prev`
+      // was still the pre-update value — so it read as "neither empty nor
+      // still our last fill" and silently skipped the update on every
+      // re-selection after the first. Reading `formData` directly from the
+      // closure and dispatching a plain value keeps the ref mutation outside
+      // React's update machinery entirely.
+      const result = applyIntegrationMapping(formData, recordData, resolved, autoFilledRef.current);
+      autoFilledRef.current = result.autoFilled;
+      setFormData(result.data);
+      return;
+    }
+
     const autoFillMap: { sourceField: string; targetFieldKey: string }[] =
       (ff.conditionalLogic as any)?.lookupAutoFill || [];
     if (autoFillMap.length === 0) return;
@@ -906,6 +1036,25 @@ export default function PublicFormPage() {
     // create a duplicate.
     setMatchedRecordId(recordId);
   };
+
+  // Personalized "Send Form Link" — a ?prefillToken= param identifies a
+  // specific record; resolve it once the form has loaded and apply its
+  // mapped values exactly like a manual Integration Field search-select,
+  // then remember the token so submitting writes back into that record.
+  useEffect(() => {
+    if (!form || prefillApplied) return;
+    const prefillToken = searchParams.get("prefillToken");
+    if (!prefillToken) return;
+    setPrefillApplied(true);
+    api.get(`/public/forms/${token}/prefill`, { params: { prefillToken } })
+      .then(r => {
+        const { integrationFieldId, recordId, recordData, sourceFields } = r.data;
+        const ff = rawFields.find((f: any) => f.fieldId === integrationFieldId);
+        if (ff) handleLookupAutoFill(ff, recordId, recordData, sourceFields);
+        setIntegrationPrefillToken(prefillToken);
+      })
+      .catch(() => { /* expired/invalid link — fall back to a blank form */ });
+  }, [form, prefillApplied, searchParams, token]);
 
   const handleDocExtract = async () => {
     if (!docFile) return;
@@ -1106,6 +1255,7 @@ export default function PublicFormPage() {
   if (submitted) {
     const ps = settings.postSubmit || {};
     const message = ps.message || "Thank you! Your response has been recorded.";
+    const postSubmitAction = resolvePostSubmitAction(settings);
     const showReceipt = !!(settings.ticketing?.enabled);
 
     if (showReceipt) {
@@ -1250,10 +1400,16 @@ export default function PublicFormPage() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-2">All done!</h2>
               <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-line">{message}</p>
-              {ps.redirectUrl && redirectTimer !== null && (
+              {postSubmitAction === "redirect" && redirectTimer !== null && (
                 <div className="mt-5 inline-flex items-center gap-2 text-xs text-slate-400 bg-slate-50 rounded-full px-3 py-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Redirecting in {redirectTimer}s…
+                </div>
+              )}
+              {postSubmitAction === "refresh" && refreshTimer !== null && (
+                <div className="mt-5 inline-flex items-center gap-2 text-xs text-slate-400 bg-slate-50 rounded-full px-3 py-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Returning to form in {refreshTimer}s…
                 </div>
               )}
             </div>
@@ -1440,7 +1596,7 @@ export default function PublicFormPage() {
                           const mf = ff._mf;
                           const label = ff.customLabel || mf.label || mf.name;
                           const required = ff._state.required;
-                          const readonly = ff._state.readonly;
+                          const readonly = ff._state.readonly || lockedFieldNames.has(mf.name);
                           const err = fieldErrors[mf.name];
                           const colSpan = getFieldColSpan(ff.fieldId || ff.id);
                           const rawVal = formData[mf.name];
@@ -1484,7 +1640,8 @@ export default function PublicFormPage() {
                                 value={formData[mf.name] ?? ""}
                                 readonly={readonly}
                                 onChange={v => setFormData(prev => ({ ...prev, [mf.name]: v }))}
-                                onRecordSelect={(rid, rdata) => handleLookupAutoFill(ff, rid, rdata)}
+                                onRecordSelect={(rid, rdata, srcFields, allowManualUpdate) => handleLookupAutoFill(ff, rid, rdata, srcFields, allowManualUpdate)}
+                                token={token}
                               />
                               {err && (
                                 <p className="flex items-center gap-1.5 text-xs text-red-500 mt-2.5 font-medium">
@@ -1561,5 +1718,13 @@ export default function PublicFormPage() {
         </div>{/* /flex-1 form column */}
       </div>{/* /max-w-5xl flex */}
     </div>
+  );
+}
+
+export default function PublicFormPage() {
+  return (
+    <Suspense>
+      <PublicFormPageInner />
+    </Suspense>
   );
 }

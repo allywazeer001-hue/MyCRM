@@ -89,6 +89,14 @@ export class RelationResolverService {
       return f.type === 'MIRROR' && s.sourceLookupFieldName && s.mirrorFieldName;
     });
 
+    // Category 7: INTEGRATION — same stored-value shape as LOOKUP (a linked
+    // record id), but the display field is stored as an id (settings.displayFieldId)
+    // rather than a bare name, so it needs one extra resolution step below.
+    const integrationFields = fields.filter((f) => {
+      const s = this.parseSettings(f);
+      return f.type === 'INTEGRATION' && s.sourceModuleId;
+    });
+
     // Category 2: USER_SELECT — value is a userId
     const userFields = fields.filter((f) => f.type === 'USER_SELECT');
 
@@ -128,7 +136,17 @@ export class RelationResolverService {
       const s = this.parseSettings(field);
       allLookupIds.push(...this.collectLeafIds(records, s.sourceLookupFieldName));
     }
+    // Integration fields store a linked record id under their own name, exactly like LOOKUP
+    for (const field of integrationFields) {
+      allLookupIds.push(...this.collectLeafIds(records, field.name));
+    }
     const uniqueLookupIds = [...new Set(allLookupIds)];
+
+    // Integration fields need their configured display field's *name* resolved
+    // from its id — one lookup per distinct (sourceModuleId, displayFieldId) pair.
+    const integrationDisplayFieldIds = [...new Set(
+      integrationFields.map((f) => this.parseSettings(f).displayFieldId).filter(Boolean),
+    )] as string[];
 
     // User IDs (simple string values)
     const allUserIds: string[] = [];
@@ -186,6 +204,18 @@ export class RelationResolverService {
       }
     }
 
+    // Integration display-field names (covers category 7)
+    const integrationDisplayFieldNameMap = new Map<string, string>();
+    if (integrationDisplayFieldIds.length > 0) {
+      const displayFields = await this.prisma.field.findMany({
+        where: { id: { in: integrationDisplayFieldIds } },
+        select: { id: true, name: true },
+      });
+      for (const f of displayFields) {
+        integrationDisplayFieldNameMap.set(f.id, f.name);
+      }
+    }
+
     // -----------------------------------------------------------------------
     // 4. Enrich each record — SHADOW LABELS only, raw values untouched
     // -----------------------------------------------------------------------
@@ -203,6 +233,21 @@ export class RelationResolverService {
           const s = this.parseSettings(field);
           const displayField: string = s.displayField ?? 'name';
           const label = (fetchedRecord.data as any)?.[displayField] ?? id;
+          data[field.name + '__label'] = label;
+        }
+      }
+
+      // --- Category 7: INTEGRATION (same linked-record shape as LOOKUP) ---
+      for (const field of integrationFields) {
+        const rawValue = data[field.name];
+        if (rawValue === null || rawValue === undefined || rawValue === '') continue;
+
+        const id = String(rawValue);
+        const fetchedRecord = lookupRecordMap.get(id);
+        if (fetchedRecord) {
+          const s = this.parseSettings(field);
+          const displayFieldName = s.displayFieldId ? integrationDisplayFieldNameMap.get(s.displayFieldId) : undefined;
+          const label = displayFieldName ? ((fetchedRecord.data as any)?.[displayFieldName] ?? id) : id;
           data[field.name + '__label'] = label;
         }
       }

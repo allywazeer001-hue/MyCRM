@@ -49,6 +49,7 @@ enum FieldType {
   GLOBAL_RELATION
   INLINE_SUBFORM
   MIRROR
+  INTEGRATION
 }
 
 enum RelationType {

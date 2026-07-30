@@ -26,6 +26,11 @@ export class FieldsController {
     return this.fieldsService.update(id, user.organizationId, body);
   }
 
+  @Post(':id/reset-auto-number')
+  resetAutoNumber(@Param('id') id: string, @Body('startFrom') startFrom: number, @CurrentUser() user: any) {
+    return this.fieldsService.resetAutoNumber(id, user.organizationId, startFrom);
+  }
+
   @Post('reorder')
   reorder(@Param('moduleId') moduleId: string, @Body('fieldIds') fieldIds: string[], @CurrentUser() user: any) {
     return this.fieldsService.reorder(moduleId, user.organizationId, fieldIds);

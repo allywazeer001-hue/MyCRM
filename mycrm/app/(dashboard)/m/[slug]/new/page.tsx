@@ -19,6 +19,8 @@ import { FormSectionRenderer } from "@/components/ui/form-section-renderer";
 import { DEFAULT_MODULE_LAYOUT } from "@/lib/layout-templates";
 import { evaluateModuleRules } from "@/lib/evaluate-layout-rules";
 import { DependentGlobalListInput, GlobalListInput } from "@/components/ui/dependent-global-list-input";
+import { IntegrationFieldInput } from "@/components/records/integration-field-input";
+import { applyIntegrationMapping } from "@/lib/integration-mapping";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { useGlobalListDependency } from "@/hooks/use-global-list-dependency";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
@@ -396,12 +398,49 @@ export default function NewRecordPage() {
   const formScrollRef = useRef<HTMLDivElement>(null);
   const [saveError, setSaveError] = useState("");
   const [blueprintStatusField, setBlueprintStatusField] = useState<string | null>(null);
+  // Tracks the values Integration Field mappings last auto-filled — see
+  // applyIntegrationMapping's doc comment (mycrm/lib/integration-mapping.ts).
+  const autoFilledRef = useRef<Record<string, any>>({});
 
   const { fieldOptions, onDependencyFieldChange } = useGlobalListDependency(
     (mod?.fields ?? []) as any[],
     formData,
     setFormData
   );
+
+  // Integration Field selection on the internal Create page uses its own
+  // module-level "Internal Record Mappings" (settings.internalMappings),
+  // configured in Studio — separate from a form's per-form mappings, since
+  // this page isn't backed by any particular Form/FormField.
+  const handleIntegrationSelect = (
+    integrationField: Field, recordId: string, recordData: Record<string, any>,
+    sourceFields: { id: string; name: string; label: string }[],
+  ) => {
+    const settings = parseFieldSettings(integrationField as any) || {};
+    const mappings: { sourceFieldId: string; destinationFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[] =
+      settings.internalMappings || [];
+    if (mappings.length === 0) return;
+
+    const sourceById = new Map<string, string>(sourceFields.map(f => [f.id, f.name]));
+    const destById = new Map<string, string>(allFields.map((f: any) => [f.id, f.name] as [string, string]));
+    const resolved = mappings
+      .map(m => ({
+        sourceFieldName: sourceById.get(m.sourceFieldId) || "",
+        destinationFieldName: destById.get(m.destinationFieldId) || "",
+        behavior: m.behavior,
+      }))
+      .filter(m => m.sourceFieldName && m.destinationFieldName);
+
+    // Not the functional-updater form here — React double-invokes updaters
+    // in Strict Mode (dev) to catch impure ones, and mutating autoFilledRef
+    // inside the updater made re-selection silently stop applying after the
+    // first pick (the second invocation saw an already-advanced ref against
+    // a not-yet-updated `prev`). Reading formData from the closure keeps the
+    // ref mutation outside React's update machinery.
+    const result = applyIntegrationMapping(formData, recordData, resolved, autoFilledRef.current);
+    autoFilledRef.current = result.autoFilled;
+    setFormData(recomputeFormulaFields(result.data, allFields));
+  };
 
   useEffect(() => {
     api.get(`/modules/by-slug/${slug}`)
@@ -708,18 +747,28 @@ export default function NewRecordPage() {
                       {field._state.required && <span className="text-red-500 ml-0.5">*</span>}
                       {field._state.isBlueprintStatusField && <span className="ml-1.5 normal-case text-gray-400">(process-managed)</span>}
                     </label>
-                    <DynamicFieldInput
-                      field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
-                      value={formData[field.name]}
-                      externalOptions={fieldOptions}
-                      onChange={(v) => {
-                        if (field._state.readonly || field.type === "FORMULA") return;
-                        const isSrc = ["GLOBAL_RELATION","GLOBAL_LIST","DEPENDENT_GLOBAL_LIST","DROPDOWN","STATUS"].includes(field.type);
-                        const updatedData = recomputeFormulaFields({ ...formData, [field.name]: v }, allFields);
-                        setFormData(() => updatedData);
-                        if (isSrc) onDependencyFieldChange(field.name, v);
-                      }}
-                    />
+                    {field.type === "INTEGRATION" ? (
+                      <IntegrationFieldInput
+                        fieldId={field.id}
+                        searchEndpoint="/records/integration-search"
+                        value={formData[field.name]}
+                        onChange={v => setFormData(prev => ({ ...prev, [field.name]: v }))}
+                        onRecordSelect={(rid, rdata, srcFields) => handleIntegrationSelect(field, rid, rdata, srcFields || [])}
+                      />
+                    ) : (
+                      <DynamicFieldInput
+                        field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
+                        value={formData[field.name]}
+                        externalOptions={fieldOptions}
+                        onChange={(v) => {
+                          if (field._state.readonly || field.type === "FORMULA") return;
+                          const isSrc = ["GLOBAL_RELATION","GLOBAL_LIST","DEPENDENT_GLOBAL_LIST","DROPDOWN","STATUS"].includes(field.type);
+                          const updatedData = recomputeFormulaFields({ ...formData, [field.name]: v }, allFields);
+                          setFormData(() => updatedData);
+                          if (isSrc) onDependencyFieldChange(field.name, v);
+                        }}
+                      />
+                    )}
                     {field._state.isBlueprintStatusField && (
                       <p className="mt-1 text-xs text-gray-400">Set automatically when the record is created; change it afterwards using the process actions on the record page.</p>
                     )}

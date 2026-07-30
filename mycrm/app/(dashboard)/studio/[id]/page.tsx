@@ -34,13 +34,16 @@ import { cn, parseFieldSettings, generateId } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { type SummaryStatConfig, type SummaryCondition } from "@/components/modules/module-summary-bar";
 import {
-  DEFAULT_MODULE_LAYOUT, LayoutConfig,
+  DEFAULT_MODULE_LAYOUT, LayoutConfig, LayoutTab,
   ModuleLayoutRule, ModuleRuleCondition, ModuleRuleAction,
   ModuleRuleConditionGroup, ModuleRuleConditionNode,
   ModuleRuleOperator, ModuleRuleActionType, ModuleRuleTarget, ModuleRuleLogic,
 } from "@/lib/layout-templates";
-import { ModuleLayoutCanvas } from "@/components/studio/layout-canvas";
+import { ModuleLayoutCanvas, TabChip } from "@/components/studio/layout-canvas";
 import { ModuleIcon } from "@/components/ui/module-icon";
+import { ConditionTreeBuilder } from "@/components/workflows/ConditionTreeBuilder";
+import { normalizeConditionTree, type ConditionGroup } from "@/lib/condition-tree";
+import { INTEGRATION_FILTER_OPERATORS, INTEGRATION_FILTER_NO_VALUE_OPS } from "@/components/records/integration-filter-operators";
 import { FORMULA_FUNCTION_DOCS, validateFormula, type FormulaFunctionDoc } from "@/lib/formula-engine";
 
 const FIELD_TYPES = [
@@ -66,6 +69,7 @@ const FIELD_TYPES = [
   { type: "USER_SELECT",   label: "User Select",       icon: "👤",  group: "Relation", description: "Select a user" },
   { type: "LOOKUP",        label: "Lookup",            icon: "🔍",  group: "Relation", description: "Link to another module" },
   { type: "MIRROR",        label: "Mirror Field",      icon: "↔",   group: "Relation", description: "Pull a field from a linked record" },
+  { type: "INTEGRATION",   label: "Integration Field", icon: "🔗",  group: "Relation", description: "Search another module and prefill mapped fields" },
   { type: "GLOBAL_RELATION",label:"Global List",       icon: "🌐",  group: "Relation", description: "Hierarchical global dataset" },
   { type: "TAGS",          label: "Tags",              icon: "🏷",  group: "Advanced", description: "Tag list" },
   { type: "RATING",        label: "Rating",            icon: "⭐",  group: "Advanced", description: "Star rating 1-5" },
@@ -187,7 +191,7 @@ function SortableFieldItem({
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{field.label}</p>
+        <p className="text-sm font-medium text-gray-900 truncate" title={field.label}>{field.label}</p>
         <p className="text-xs text-gray-400">{fieldDef?.label || field.type}</p>
       </div>
 
@@ -222,13 +226,15 @@ function CanvasDropZone({ isOver }: { isOver: boolean }) {
 
 
 function ModulePropertiesPanel({
-  activeModule, moduleId, saving, onSave, onUpdate,
+  activeModule, moduleId, saving, onSave, onUpdate, layoutConfig, onLayoutChange,
 }: {
   activeModule: any;
   moduleId: string;
   saving: boolean;
   onSave: () => void;
   onUpdate: (patch: any) => void;
+  layoutConfig: LayoutConfig;
+  onLayoutChange: (cfg: LayoutConfig) => void;
 }) {
   const [portalEnabled, setPortalEnabled] = useState<boolean | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -325,6 +331,132 @@ function ModulePropertiesPanel({
               <a href="/settings/portal" className="underline font-medium">Settings → Portal Settings</a>.
             </div>
           )}
+        </div>
+
+        <Separator />
+
+        {/* Record Layout — Tabs (shared by Standard's custom tabs and Split
+            Panel's section tabs), style, and Main Tab (Split Panel only) */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Record Layout</p>
+
+          <div className="space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+            <p className="text-sm font-medium text-gray-700">Tabs</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {((layoutConfig as any).tabs ?? []).map((t: LayoutTab) => (
+                <TabChip
+                  key={t.id}
+                  tab={t}
+                  onRename={label => onLayoutChange({
+                    ...layoutConfig,
+                    tabs: ((layoutConfig as any).tabs ?? []).map((tab: LayoutTab) => tab.id === t.id ? { ...tab, label } : tab),
+                  } as any)}
+                  onDelete={() => onLayoutChange({
+                    ...layoutConfig,
+                    tabs: ((layoutConfig as any).tabs ?? []).filter((tab: LayoutTab) => tab.id !== t.id),
+                    sections: (layoutConfig.sections ?? []).map(s => s.tabId === t.id ? { ...s, tabId: undefined } : s),
+                  } as any)}
+                />
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const tabs = (layoutConfig as any).tabs ?? [];
+                  const t: LayoutTab = { id: `t-${generateId().slice(0, 8)}`, label: "New Tab", order: tabs.length };
+                  onLayoutChange({ ...layoutConfig, tabs: [...tabs, t] } as any);
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-gray-300 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+              >
+                <Plus className="h-3 w-3" /> Add Tab
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Detail Style</p>
+              <p className="text-xs text-gray-400 mt-0.5">How an individual record of this module is displayed</p>
+            </div>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0 bg-white">
+              {([
+                { value: "standard", label: "Standard" },
+                { value: "split-panel", label: "Split Panel" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    const sections = layoutConfig.sections ?? [];
+                    const tabs = (layoutConfig as any).tabs ?? [];
+                    // First time switching to Split Panel: if no Main Tab has
+                    // been chosen yet, seed the default — section 1 is Main,
+                    // every other existing section becomes its own tab.
+                    const noMainChosenYet = !(layoutConfig as any).mainSectionId && sections.every(s => !s.tabId);
+                    if (opt.value === "split-panel" && noMainChosenYet && sections.length > 1) {
+                      let nextOrder = tabs.length;
+                      const newTabs = [...tabs];
+                      const newSections = sections.map((s, idx) => {
+                        if (idx === 0) return s;
+                        const tabId = generateId();
+                        newTabs.push({ id: tabId, label: s.title || `Section ${idx + 1}`, order: nextOrder++ });
+                        return { ...s, tabId };
+                      });
+                      onLayoutChange({
+                        ...layoutConfig, recordDetailStyle: opt.value,
+                        sections: newSections, tabs: newTabs, mainSectionId: sections[0].id,
+                      } as any);
+                    } else {
+                      onLayoutChange({ ...layoutConfig, recordDetailStyle: opt.value } as any);
+                    }
+                  }}
+                  className={cn(
+                    "px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    ((layoutConfig as any).recordDetailStyle ?? "standard") === opt.value
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-gray-600 hover:bg-gray-50",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Main Tab — radio-exclusive (a Select is a natural single-choice
+              control): the one section shown in the left panel. Every other
+              section automatically becomes its own tab — no need to spell
+              that out here beyond the one-line hint below. */}
+          {((layoutConfig as any).recordDetailStyle) === "split-panel" && (layoutConfig.sections ?? []).length > 0 && (() => {
+            const sections = layoutConfig.sections ?? [];
+            const effectiveMainId = (layoutConfig as any).mainSectionId || sections[0]?.id;
+            const selectMainSection = (sectionId: string) => {
+              const tabs = (layoutConfig as any).tabs ?? [];
+              let nextOrder = tabs.length;
+              const newTabs = [...tabs];
+              const newSections = sections.map((sec, idx) => {
+                if (sec.id === sectionId) return { ...sec, tabId: undefined };
+                if (sec.tabId) return sec; // already has a tab — leave it alone
+                const tabId = generateId();
+                newTabs.push({ id: tabId, label: sec.title || `Section ${idx + 1}`, order: nextOrder++ });
+                return { ...sec, tabId };
+              });
+              onLayoutChange({ ...layoutConfig, mainSectionId: sectionId, sections: newSections, tabs: newTabs } as any);
+            };
+            return (
+              <div className="space-y-1.5 pt-1">
+                <Label className="text-xs">Main Tab</Label>
+                <Select value={effectiveMainId} onValueChange={selectMainSection}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select a section…" /></SelectTrigger>
+                  <SelectContent>
+                    {sections.map((s, idx) => (
+                      <SelectItem key={s.id} value={s.id}>{s.title || `Section ${idx + 1}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-gray-400">Shown in the left panel. Every other section becomes its own tab.</p>
+              </div>
+            );
+          })()}
         </div>
 
         <Separator />
@@ -1122,19 +1254,32 @@ function StudioEditorPageInner() {
   }, [fields.length]);
 
   const [fieldSaved, setFieldSaved] = useState("");
+  // Chains field-save PATCH requests so they always reach the server in the
+  // order they were made — the endpoint does a blind full-column replace of
+  // `settings` (no merge, no version check), so two overlapping in-flight
+  // requests could otherwise let an earlier one "win" over a newer edit if
+  // its response happens to arrive last (e.g. rapid successive changes to
+  // Search Fields/Result Columns). Same fix as the form builder's
+  // saveSettingsPatch (mycrm/app/(dashboard)/forms/[id]/builder/page.tsx).
+  const fieldSaveQueue = useRef<Promise<any>>(Promise.resolve());
   const updateSelectedField = async (changes: Partial<Field>) => {
     if (!selectedField) return;
     const updated = { ...selectedField, ...changes };
     setSelectedField(updated);
     setFields(prev => prev.map(f => f.id === selectedField.id ? updated : f));
-    try {
-      await api.patch(`/modules/${id}/fields/${selectedField.id}`, changes);
-      setFieldSaved("Saved");
-      setTimeout(() => setFieldSaved(""), 2000);
-    } catch {
-      setFieldSaved("Save failed");
-      setTimeout(() => setFieldSaved(""), 2000);
-    }
+    const fieldId = selectedField.id;
+    fieldSaveQueue.current = fieldSaveQueue.current
+      .catch(() => {})
+      .then(() => api.patch(`/modules/${id}/fields/${fieldId}`, changes))
+      .then(() => {
+        setFieldSaved("Saved");
+        setTimeout(() => setFieldSaved(""), 2000);
+      })
+      .catch(() => {
+        setFieldSaved("Save failed");
+        setTimeout(() => setFieldSaved(""), 2000);
+      });
+    await fieldSaveQueue.current;
   };
 
   const deleteField = async (fieldId: string) => {
@@ -1477,7 +1622,7 @@ function StudioEditorPageInner() {
           </div>
 
           {/* Right: Properties Panel */}
-          <div className="w-[26rem] bg-white border-l border-gray-200 flex flex-col shrink-0">
+          <div className="w-[30rem] bg-white border-l border-gray-200 flex flex-col shrink-0">
             {/* Tab header */}
             <div className="flex border-b border-gray-100 shrink-0">
               {(["properties", "summary", "rules"] as const).map(tab => (
@@ -1935,7 +2080,7 @@ function StudioEditorPageInner() {
                     {selectedField.type === "AUTO_NUMBER" && (
                       <>
                         <Separator />
-                        <AutoNumberConfig field={selectedField} onUpdate={updateSelectedField} />
+                        <AutoNumberConfig field={selectedField} moduleId={id} onUpdate={updateSelectedField} />
                       </>
                     )}
 
@@ -1946,6 +2091,19 @@ function StudioEditorPageInner() {
                         <LookupConfig
                           field={selectedField}
                           modules={modules}
+                          onUpdate={updateSelectedField}
+                        />
+                      </>
+                    )}
+
+                    {/* INTEGRATION config */}
+                    {selectedField.type === "INTEGRATION" && (
+                      <>
+                        <Separator />
+                        <IntegrationConfig
+                          field={selectedField}
+                          modules={modules}
+                          currentModuleFields={fields}
                           onUpdate={updateSelectedField}
                         />
                       </>
@@ -2009,6 +2167,8 @@ function StudioEditorPageInner() {
                     setActiveModule({ ...activeModule, ...patch } as any);
                   }
                 }}
+                layoutConfig={layoutConfig}
+                onLayoutChange={cfg => setLayoutConfig(cfg)}
               />
             )}
           </div>
@@ -2035,25 +2195,60 @@ function StudioEditorPageInner() {
 
 // ── AUTO NUMBER Config ────────────────────────────────────────────────────────
 
-function AutoNumberConfig({ field, onUpdate }: { field: Field; onUpdate: (c: Partial<Field>) => void }) {
+function AutoNumberConfig({ field, moduleId, onUpdate }: { field: Field; moduleId: string; onUpdate: (c: Partial<Field>) => void }) {
   const settings = (field as any).settings || {};
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetValue, setResetValue] = useState(String(settings.startingNumber ?? 1));
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   const set = (key: string, value: any) => {
     onUpdate({ settings: { ...settings, [key]: value } } as any);
   };
 
+  // Once numbers have actually been generated, `currentValue` (not
+  // `startingNumber`) drives the next one — editing Starting Number below no
+  // longer moves it, only "Reset Counter" does (see records.service.ts's
+  // generateAutoNumber).
+  const hasStarted = typeof settings.currentValue === "number";
+  const nextRaw = hasStarted ? settings.currentValue + 1 : (settings.startingNumber ?? 1);
   const preview = [
     settings.prefix,
-    String(settings.startingNumber ?? 1).padStart(settings.paddingLength ?? 5, "0"),
+    String(nextRaw).padStart(settings.paddingLength ?? 5, "0"),
     settings.suffix,
   ].filter(Boolean).join("-");
+
+  const openReset = () => {
+    setResetValue(String(settings.startingNumber ?? 1));
+    setResetError("");
+    setResetOpen(true);
+  };
+
+  const confirmReset = async () => {
+    const startFrom = Number(resetValue);
+    if (!Number.isFinite(startFrom) || startFrom < 1) { setResetError("Enter a positive number"); return; }
+    setResetting(true);
+    setResetError("");
+    try {
+      const { data } = await api.post(`/modules/${moduleId}/fields/${field.id}/reset-auto-number`, { startFrom });
+      onUpdate({ settings: data.settings } as any);
+      setResetOpen(false);
+    } catch (err: any) {
+      setResetError(err?.response?.data?.message || "Failed to reset counter");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   return (
     <div className="space-y-3">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Auto Number Config</p>
 
-      <div className="p-2 bg-gray-50 rounded-md text-center font-mono text-sm font-medium text-blue-700">
-        {preview || "00001"}
+      <div className="p-2 bg-gray-50 rounded-md text-center">
+        <p className="font-mono text-sm font-medium text-blue-700">{preview || "00001"}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">
+          {hasStarted ? "Next value to be generated" : "Not started yet — this is the first value"}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -2083,6 +2278,7 @@ function AutoNumberConfig({ field, onUpdate }: { field: Field; onUpdate: (c: Par
             onChange={e => set("startingNumber", Number(e.target.value))}
             min={1}
             className="h-8 text-xs"
+            disabled={hasStarted}
           />
         </div>
         <div className="space-y-1">
@@ -2097,6 +2293,42 @@ function AutoNumberConfig({ field, onUpdate }: { field: Field; onUpdate: (c: Par
           />
         </div>
       </div>
+      {hasStarted && (
+        <p className="text-xs text-gray-400">
+          Numbering has already started, so Starting Number is locked — use "Reset Counter" below to restart it.
+        </p>
+      )}
+
+      {!resetOpen ? (
+        <button
+          type="button"
+          onClick={openReset}
+          className="w-full h-8 rounded-md border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          Reset Counter
+        </button>
+      ) : (
+        <div className="p-2 rounded-md border border-gray-200 bg-gray-50/50 space-y-2">
+          <Label className="text-xs">Restart numbering from</Label>
+          <Input
+            type="number"
+            value={resetValue}
+            onChange={e => setResetValue(e.target.value)}
+            min={1}
+            className="h-8 text-xs"
+          />
+          {resetError && <p className="text-xs text-red-600">{resetError}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" className="h-7 text-xs flex-1" onClick={confirmReset} disabled={resetting}>
+              {resetting ? "Resetting..." : "Confirm Reset"}
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setResetOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       <p className="text-xs text-gray-400">Generated automatically. Users cannot edit this field.</p>
     </div>
   );
@@ -2372,7 +2604,7 @@ function FormulaEditor({
                   <span className="text-xs font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">
                     ${field.name}
                   </span>
-                  <span className="text-xs text-gray-700 truncate flex-1">{field.label}</span>
+                  <span className="text-xs text-gray-700 truncate flex-1" title={field.label}>{field.label}</span>
                   <span className="text-[10px] text-gray-300 shrink-0 uppercase font-mono">{field.type.toLowerCase()}</span>
                 </button>
               ))}
@@ -2669,6 +2901,199 @@ function LookupConfig({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── INTEGRATION Config ────────────────────────────────────────────────────────
+// Zoho-style "Integration Field": search another module, pick a record, and
+// (configured separately, per-form, in the Auto-Fill/Mappings tab) prefill
+// other fields from it. This panel only configures WHAT can be searched —
+// the actual field-to-field mappings live on the form that uses this field.
+
+function IntegrationConfig({
+  field,
+  modules,
+  currentModuleFields,
+  onUpdate,
+}: {
+  field: Field;
+  modules: any[];
+  currentModuleFields: Field[];
+  onUpdate: (c: Partial<Field>) => void;
+}) {
+  const settings = (field as any).settings || {};
+  const [targetFields, setTargetFields] = useState<any[]>([]);
+
+  const sourceModuleId = settings.sourceModuleId || "";
+
+  useEffect(() => {
+    if (!sourceModuleId) { setTargetFields([]); return; }
+    api.get(`/modules/${sourceModuleId}/fields`)
+      .then(r => setTargetFields(r.data || []))
+      .catch(() => setTargetFields([]));
+  }, [sourceModuleId]);
+
+  const set = (key: string, value: any) => {
+    onUpdate({ settings: { ...settings, [key]: value } } as any);
+  };
+
+  const setModule = (modId: string) => {
+    onUpdate({
+      settings: { ...settings, sourceModuleId: modId, searchFieldIds: [], displayFieldId: "", resultColumnFieldIds: [] },
+    } as any);
+  };
+
+  // Auto-default Display Field to the first search field — leaving it unset
+  // used to silently show the raw record id as the search result label.
+  const setSearchFields = (ids: string[]) => {
+    onUpdate({
+      settings: { ...settings, searchFieldIds: ids, displayFieldId: settings.displayFieldId || ids[0] || "" },
+    } as any);
+  };
+
+  const fieldOptions = targetFields.map(f => ({ value: f.id, label: f.label }));
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Integration Configuration</p>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Source Module *</Label>
+        <Select value={sourceModuleId} onValueChange={setModule}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Select module..." />
+          </SelectTrigger>
+          <SelectContent>
+            {modules.map(m => (
+              <SelectItem key={m.id} value={m.id}>
+                <ModuleIcon icon={m.icon} slug={m.slug} className="w-4 h-4 inline-block mr-1 -mt-0.5" /> {m.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {targetFields.length > 0 && (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Search Fields</Label>
+            <MultiCombobox
+              options={fieldOptions}
+              values={settings.searchFieldIds || []}
+              onChange={setSearchFields}
+              placeholder="Fields users can search by..."
+            />
+            <p className="text-xs text-gray-400">e.g. Email, Phone, ID — matched against whatever the user types</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Display Field</Label>
+            <Select value={settings.displayFieldId || ""} onValueChange={v => set("displayFieldId", v)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Field to show as the result label..." />
+              </SelectTrigger>
+              <SelectContent>
+                {targetFields.map(f => (
+                  <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">The main label shown for each search result</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Result Columns</Label>
+            <MultiCombobox
+              options={fieldOptions}
+              values={settings.resultColumnFieldIds || []}
+              onChange={v => set("resultColumnFieldIds", v)}
+              placeholder="Extra columns shown while searching..."
+            />
+            <p className="text-xs text-gray-400">Shown alongside the display field in the search results list</p>
+          </div>
+
+          <div className="space-y-1.5 pt-2 border-t border-gray-100">
+            <Label className="text-xs">Filter Criteria</Label>
+            <p className="text-xs text-gray-400">
+              Only records matching these conditions are searchable — narrows results before Search Fields are even applied (e.g. Camp = Camp A, when the module has millions of records).
+            </p>
+            <ConditionTreeBuilder
+              root={normalizeConditionTree(settings.filterCriteria) as ConditionGroup}
+              group={normalizeConditionTree(settings.filterCriteria) as ConditionGroup}
+              fields={targetFields}
+              isRoot
+              operators={INTEGRATION_FILTER_OPERATORS}
+              noValueOperators={INTEGRATION_FILTER_NO_VALUE_OPS}
+              loadDynamicOptions={() => {}}
+              dynamicOptions={{}}
+              onChange={tree => set("filterCriteria", tree)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100">
+            <div>
+              <Label className="text-xs">Allow manual selection to update the CRM record</Label>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Off by default. When on, submitting a form with this field also pushes the mapped values back into whatever record the visitor searched for and picked — not just other fields on that form. Only enable this if you're comfortable with any submitter being able to search for and update a record this way.
+              </p>
+            </div>
+            <Switch checked={!!settings.allowManualUpdate} onCheckedChange={v => set("allowManualUpdate", v)} />
+          </div>
+        </>
+      )}
+
+      {targetFields.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-gray-100">
+          <Label className="text-xs">Internal Record Mappings</Label>
+          <p className="text-xs text-gray-400">Used when this field appears on the internal Create/Edit record page (forms configure their own mappings separately, in the form builder).</p>
+          {(settings.internalMappings || []).map((m: any, idx: number) => {
+            const mappings = settings.internalMappings || [];
+            const otherCurrentFields = currentModuleFields.filter(f => f.id !== field.id);
+            return (
+              <div key={idx} className="p-2 rounded-lg border border-gray-100 bg-gray-50/50 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Select value={m.sourceFieldId || "_none"} onValueChange={v => set("internalMappings", mappings.map((x: any, i: number) => i === idx ? { ...x, sourceFieldId: v === "_none" ? "" : v } : x))}>
+                    <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Source field…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>
+                      {targetFields.map(f => <SelectItem key={f.id} value={f.id} className="text-xs">{f.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-gray-400 shrink-0">→</span>
+                  <Select value={m.destinationFieldId || "_none"} onValueChange={v => set("internalMappings", mappings.map((x: any, i: number) => i === idx ? { ...x, destinationFieldId: v === "_none" ? "" : v } : x))}>
+                    <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Fill into…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none" className="text-xs italic text-gray-400">Select field…</SelectItem>
+                      {otherCurrentFields.map(f => <SelectItem key={f.id} value={f.id} className="text-xs">{f.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <button onClick={() => set("internalMappings", mappings.filter((_: any, i: number) => i !== idx))} className="text-gray-300 hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                </div>
+                <div className="flex items-center gap-3 pl-0.5">
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                    <input type="radio" checked={(m.behavior || "FILL_IF_EMPTY") === "FILL_IF_EMPTY"}
+                      onChange={() => set("internalMappings", mappings.map((x: any, i: number) => i === idx ? { ...x, behavior: "FILL_IF_EMPTY" } : x))} />
+                    Fill only if empty
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer">
+                    <input type="radio" checked={m.behavior === "UPDATE_EXISTING"}
+                      onChange={() => set("internalMappings", mappings.map((x: any, i: number) => i === idx ? { ...x, behavior: "UPDATE_EXISTING" } : x))} />
+                    Always overwrite
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+          <Button size="sm" variant="outline" onClick={() => set("internalMappings", [...(settings.internalMappings || []), { sourceFieldId: "", destinationFieldId: "", behavior: "FILL_IF_EMPTY" }])} className="w-full gap-1.5 text-xs">
+            <Plus className="w-3 h-3" /> Add Mapping
+          </Button>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400 pt-1 border-t border-gray-100">
+        Field-to-field mappings for forms are configured per-form, in the Auto-Fill tab when this field is placed on a form.
+      </p>
     </div>
   );
 }
@@ -3544,7 +3969,7 @@ function SortableSubformColumn({
           {SUBFORM_COL_TYPES.find(t => t.value === col.type)?.icon || "?"}
         </span>
 
-        <span className="flex-1 text-xs font-medium text-gray-700 truncate">{col.label}</span>
+        <span className="flex-1 text-xs font-medium text-gray-700 truncate" title={col.label}>{col.label}</span>
 
         {col.required && <span className="text-[10px] text-blue-500 shrink-0">req</span>}
 

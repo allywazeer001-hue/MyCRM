@@ -108,6 +108,16 @@ export interface LayoutConfig {
   headerType?: "minimal" | "banner" | "none";
   density?: "compact" | "normal" | "spacious";
   rules?: ModuleLayoutRule[];
+  // Record detail page style — undefined/"standard" renders exactly as
+  // before (the tab-bar + Details/Activity/Emails/related-tabs layout).
+  // "split-panel" renders a narrow left info panel + a wide right panel
+  // with its own internal tab bar (Gallery/Documents/Custom Fields/Timeline/
+  // QR Code/related modules). Purely additive — opt-in per module.
+  recordDetailStyle?: "standard" | "split-panel";
+  // Split Panel's "Main Tab" selection — radio-exclusive: exactly one section
+  // id, or undefined (defaults to the first section). Every OTHER section is
+  // automatically a tab on the right (see LayoutSection.tabId).
+  mainSectionId?: string;
 }
 
 export interface LayoutTemplate {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { FormsService } from './forms.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -54,6 +54,11 @@ export class FormsController {
   @Get('shared-folders')
   getSharedFolders(@CurrentUser() user: any) {
     return this.svc.getSharedFolders(user.organizationId, user.id, user.role, user.departmentId ?? null);
+  }
+
+  @Get('prefill-candidates')
+  getPrefillCandidateForms(@Query('moduleId') moduleId: string, @CurrentUser() user: any) {
+    return this.svc.getPrefillCandidateForms(user.organizationId, moduleId);
   }
 
   @Get(':id')
@@ -173,6 +178,17 @@ export class FormsController {
     return this.svc.getSubmissions(id, user.organizationId);
   }
 
+  // Prefilled form links ("Send Form Link" from a record's detail page)
+
+  @Post(':id/generate-prefill-link')
+  generatePrefillLink(
+    @Param('id') id: string,
+    @Body() body: { integrationFieldId: string; recordId: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.svc.generatePrefillLink(user.organizationId, id, body.integrationFieldId, body.recordId);
+  }
+
   // Form sharing settings
 
   @Get(':id/sharing')
@@ -195,6 +211,28 @@ export class PublicFormsController {
   @Get(':token')
   getPublicForm(@Param('token') token: string) {
     return this.svc.getPublicForm(token);
+  }
+
+  @Get(':token/integration-search')
+  integrationSearch(
+    @Param('token') token: string,
+    @Query('fieldId') fieldId: string,
+    @Query('search') search: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string,
+    @Query('searchField') searchField: string,
+  ) {
+    return this.svc.publicIntegrationSearch(
+      token, fieldId, search || '',
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+      searchField || undefined,
+    );
+  }
+
+  @Get(':token/prefill')
+  resolvePrefillToken(@Param('token') token: string, @Query('prefillToken') prefillToken: string) {
+    return this.svc.resolvePrefillToken(token, prefillToken);
   }
 
   @Post(':token/submit')

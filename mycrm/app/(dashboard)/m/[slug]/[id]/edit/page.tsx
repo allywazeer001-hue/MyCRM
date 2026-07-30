@@ -25,6 +25,8 @@ import { useWorkflowEvaluator } from "@/hooks/use-workflow-evaluator";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { DateFieldInput } from "@/components/ui/date-field-input";
 import { recomputeFormulaFields, formatFormulaDisplayValue } from "@/lib/formula-engine";
+import { IntegrationFieldInput } from "@/components/records/integration-field-input";
+import { applyIntegrationMapping } from "@/lib/integration-mapping";
 
 // ── Reusable field inputs ─────────────────────────────────────────────────
 
@@ -576,6 +578,42 @@ export default function EditRecordPage() {
   const recordIdRef = useRef<string | null>(null);
   const loadedDataRef = useRef<Record<string, any>>({});
   const bootstrapped = useRef(false);
+  // Tracks the values Integration Field mappings last auto-filled — see
+  // applyIntegrationMapping's doc comment (mycrm/lib/integration-mapping.ts).
+  const autoFilledRef = useRef<Record<string, any>>({});
+
+  // Same module-level "Internal Record Mappings" used by the Create page —
+  // configured in Studio, separate from a form's per-form mappings.
+  const handleIntegrationSelect = (
+    integrationField: Field, recordId: string, recordData: Record<string, any>,
+    sourceFields: { id: string; name: string; label: string }[],
+  ) => {
+    const settings = parseFieldSettings((integrationField as any).settings) || {};
+    const mappings: { sourceFieldId: string; destinationFieldId: string; behavior: "UPDATE_EXISTING" | "FILL_IF_EMPTY" }[] =
+      settings.internalMappings || [];
+    if (mappings.length === 0) return;
+
+    const allFields = mod?.fields || [];
+    const sourceById = new Map<string, string>(sourceFields.map(f => [f.id, f.name]));
+    const destById = new Map<string, string>(allFields.map((f: any) => [f.id, f.name] as [string, string]));
+    const resolved = mappings
+      .map(m => ({
+        sourceFieldName: sourceById.get(m.sourceFieldId) || "",
+        destinationFieldName: destById.get(m.destinationFieldId) || "",
+        behavior: m.behavior,
+      }))
+      .filter(m => m.sourceFieldName && m.destinationFieldName);
+
+    // Not the functional-updater form here — React double-invokes updaters
+    // in Strict Mode (dev) to catch impure ones, and mutating autoFilledRef
+    // inside the updater made re-selection silently stop applying after the
+    // first pick (the second invocation saw an already-advanced ref against
+    // a not-yet-updated `prev`). Reading formData from the closure keeps the
+    // ref mutation outside React's update machinery.
+    const result = applyIntegrationMapping(formData, recordData, resolved, autoFilledRef.current);
+    autoFilledRef.current = result.autoFilled;
+    setFormData(recomputeFormulaFields(result.data, allFields));
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -777,19 +815,29 @@ export default function EditRecordPage() {
                       {field.type === "AUTO_NUMBER" && <Badge variant="secondary" className="text-xs ml-1">Auto</Badge>}
                       {field._state.isBlueprintStatusField && <Badge variant="secondary" className="text-xs ml-1">Process-managed</Badge>}
                     </Label>
-                    <DynamicFieldInput
-                      field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
-                      value={formData[field.name]}
-                      externalOptions={fieldOptions}
-                      onChange={v => {
-                        if (field._state.readonly || field.type === "FORMULA") return;
-                        const allFields = mod?.fields || [];
-                        setFormData(prev => recomputeFormulaFields({ ...prev, [field.name]: v }, allFields));
-                        if (["GLOBAL_RELATION","GLOBAL_LIST","DEPENDENT_GLOBAL_LIST","DROPDOWN","STATUS"].includes(field.type)) {
-                          onDependencyFieldChange(field.name, v);
-                        }
-                      }}
-                    />
+                    {field.type === "INTEGRATION" ? (
+                      <IntegrationFieldInput
+                        fieldId={field.id}
+                        searchEndpoint="/records/integration-search"
+                        value={formData[field.name]}
+                        onChange={v => setFormData(prev => ({ ...prev, [field.name]: v }))}
+                        onRecordSelect={(rid, rdata, srcFields) => handleIntegrationSelect(field, rid, rdata, srcFields || [])}
+                      />
+                    ) : (
+                      <DynamicFieldInput
+                        field={{ ...field, isRequired: field._state.required, isReadonly: field._state.readonly }}
+                        value={formData[field.name]}
+                        externalOptions={fieldOptions}
+                        onChange={v => {
+                          if (field._state.readonly || field.type === "FORMULA") return;
+                          const allFields = mod?.fields || [];
+                          setFormData(prev => recomputeFormulaFields({ ...prev, [field.name]: v }, allFields));
+                          if (["GLOBAL_RELATION","GLOBAL_LIST","DEPENDENT_GLOBAL_LIST","DROPDOWN","STATUS"].includes(field.type)) {
+                            onDependencyFieldChange(field.name, v);
+                          }
+                        }}
+                      />
+                    )}
                     {field._state.isBlueprintStatusField && (
                       <p className="text-xs text-gray-400">Managed by the blueprint process — use the process actions on the record page to change stage.</p>
                     )}

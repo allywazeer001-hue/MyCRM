@@ -6,6 +6,7 @@ import { BlueprintsService } from '../blueprints/blueprints.service';
 import { RelationResolverService } from './relation-resolver.service';
 import { AppGateway } from '../websocket/app.gateway';
 import { getLockInfoForRecordData, partitionLockedFields, resolveStageLock } from '../blueprints/field-lock';
+import { conditionTreeToPrismaWhere } from './integration-filter';
 @Injectable()
 export class RecordsService {
   constructor(
@@ -51,15 +52,36 @@ export class RecordsService {
     return record;
   }
 
-  private async generateAutoNumber(field: any, moduleId: string, orgId: string): Promise<string> {
+  // Public — also called by FormsService (form-submission backfill) so both
+  // callers share one implementation instead of drifting copies.
+  //
+  // Uses a persisted counter (settings.currentValue) instead of deriving the
+  // next number from a live `COUNT(*)` of the module's records. The old
+  // count-based approach meant "Starting Number" couldn't actually reset
+  // anything — the live count kept climbing regardless, so changing it had
+  // no effect once any records existed, and deleting/archiving records could
+  // silently reuse an already-issued number. A persisted counter is only
+  // ever moved forward by generating a number or by an explicit reset (see
+  // FieldsService.resetAutoNumber), so it stays stable and restartable.
+  //
+  // First-time use (currentValue not set yet) falls back to the existing
+  // record count so a field that's been generating numbers under the old
+  // scheme doesn't jump backwards and collide with numbers already in use.
+  async generateAutoNumber(field: any, moduleId: string, orgId: string): Promise<string> {
     const settings = (field.settings as any) || {};
     const prefix = settings.prefix || '';
     const suffix = settings.suffix || '';
     const startingNumber = settings.startingNumber ?? 1;
     const paddingLength = settings.paddingLength ?? 5;
-    const count = await this.prisma.record.count({ where: { moduleId, organizationId: orgId } });
-    const nextNum = count + startingNumber;
-    const padded = String(nextNum).padStart(paddingLength, '0');
+
+    const current = typeof settings.currentValue === 'number'
+      ? settings.currentValue
+      : (await this.prisma.record.count({ where: { moduleId, organizationId: orgId } })) + startingNumber - 1;
+
+    const next = current + 1;
+    await this.prisma.field.update({ where: { id: field.id }, data: { settings: { ...settings, currentValue: next } } });
+
+    const padded = String(next).padStart(paddingLength, '0');
     const parts = [prefix, padded, suffix].filter(Boolean);
     return parts.join('-');
   }
@@ -663,5 +685,146 @@ export class RecordsService {
       label: (r.data as any)?.[displayField] ?? r.id,
       data: r.data,
     }));
+  }
+
+  // ── Integration Field search ────────────────────────────────────────────────
+  // Resolves everything (target module, search/display/column fields) from the
+  // Integration field's own settings — the caller supplies only the field id,
+  // never a module id directly, so a client can't point the search at a module
+  // it wasn't configured for.
+  // Public — also used by FormsService to resolve an Integration field's
+  // config (source module + fields) without running a search, e.g. to build
+  // or consume a prefill link.
+  async resolveIntegrationField(fieldId: string, orgId: string) {
+    const field = await this.prisma.field.findFirst({
+      where: { id: fieldId, type: 'INTEGRATION', module: { organizationId: orgId } },
+    });
+    if (!field) throw new NotFoundException('Integration field not found');
+    return this.resolveIntegrationSettings((field.settings as any) ?? {}, orgId);
+  }
+
+  // Shared by both the module-backed path (settings come off a real Field row)
+  // and the standalone-form path (settings come off a CustomFieldDef inside
+  // Form.settings.customFields — a JSON blob with no Field row at all).
+  async resolveIntegrationSettings(settings: any, orgId: string) {
+    const sourceModuleId: string | undefined = settings?.sourceModuleId;
+    const searchFieldIds: string[] = settings?.searchFieldIds ?? [];
+    const displayFieldId: string | undefined = settings?.displayFieldId;
+    const resultColumnFieldIds: string[] = settings?.resultColumnFieldIds ?? [];
+    if (!sourceModuleId) throw new NotFoundException('Integration field is not configured yet');
+
+    // The standalone path's settings are just JSON on the form — confirm the
+    // referenced module is actually in this org before trusting anything else in it.
+    const mod = await this.prisma.dynamicModule.findFirst({ where: { id: sourceModuleId, organizationId: orgId } });
+    if (!mod) throw new NotFoundException('Source module not found');
+
+    // Fetch every field on the source module (not just the ones referenced by
+    // search/display/columns) — the client-side mapping engine needs to resolve
+    // an arbitrary sourceFieldId (from the form's mapping config) to a name, and
+    // public forms can't call the authenticated /modules/:id/fields endpoint to
+    // do that themselves.
+    const allSourceFields = await this.prisma.field.findMany({ where: { moduleId: sourceModuleId } });
+    const byId = new Map(allSourceFields.map(f => [f.id, f]));
+
+    // Filter Criteria conditions are stored keyed by field NAME already (same
+    // convention as the workflow condition-tree), so no id resolution is needed.
+    const filterWhere = conditionTreeToPrismaWhere(settings?.filterCriteria);
+
+    return {
+      sourceModuleId,
+      searchFieldNames: searchFieldIds.map(id => byId.get(id)?.name).filter(Boolean) as string[],
+      searchFields: searchFieldIds
+        .map(id => byId.get(id))
+        .filter((f): f is typeof allSourceFields[number] => !!f)
+        .map(f => ({ name: f.name, label: f.label })),
+      displayFieldName: displayFieldId ? byId.get(displayFieldId)?.name : undefined,
+      resultColumns: resultColumnFieldIds
+        .map(id => ({ name: byId.get(id)?.name, label: byId.get(id)?.label }))
+        .filter((c): c is { name: string; label: string } => !!c.name),
+      sourceFields: allSourceFields.map(f => ({ id: f.id, name: f.name, label: f.label })),
+      filterWhere,
+      // Opt-in, off by default — lets a manual search-and-select on a PUBLIC
+      // form also write mapped values back into the selected record, not
+      // just prefill other fields on the same form. Off by default because
+      // it lets any submitter search for and update an arbitrary record in
+      // the source module; an admin must explicitly accept that tradeoff
+      // per field.
+      allowManualUpdate: !!settings?.allowManualUpdate,
+    };
+  }
+
+  private async runIntegrationSearch(
+    orgId: string,
+    cfg: {
+      sourceModuleId: string; searchFieldNames: string[]; searchFields: { name: string; label: string }[];
+      displayFieldName?: string;
+      resultColumns: { name: string; label: string }[]; sourceFields: { id: string; name: string; label: string }[];
+      filterWhere?: any;
+      allowManualUpdate?: boolean;
+    },
+    search: string,
+    page: number,
+    pageSize: number,
+    // "Advanced search" — restricts matching to exactly this one configured
+    // Search Field instead of OR-ing across all of them. Validated against
+    // cfg.searchFieldNames (never trust a client-supplied field name outright)
+    // so a visitor can't probe arbitrary fields the builder never exposed here.
+    searchFieldName?: string,
+  ) {
+    const baseWhere: any = { moduleId: cfg.sourceModuleId, organizationId: orgId, isDeleted: false };
+    const andClauses: any[] = [];
+    const effectiveSearchFields = searchFieldName && cfg.searchFieldNames.includes(searchFieldName)
+      ? [searchFieldName]
+      : cfg.searchFieldNames;
+    if (search && effectiveSearchFields.length > 0) {
+      // MySQL's Prisma JSON filter takes `path` as a JSONPath *string*
+      // ("$.fieldName") — the array form (`['fieldName']`) is Postgres-only
+      // and silently matches nothing on MySQL instead of erroring.
+      andClauses.push({ OR: effectiveSearchFields.map(name => ({ data: { path: `$.${name}`, string_contains: search } })) });
+    }
+    if (cfg.filterWhere) andClauses.push(cfg.filterWhere);
+    const where: any = andClauses.length > 0 ? { ...baseWhere, AND: andClauses } : baseWhere;
+
+    const [total, records] = await Promise.all([
+      this.prisma.record.count({ where }),
+      this.prisma.record.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    ]);
+
+    // When Advanced Search is restricting to one specific field, show THAT
+    // field's value as the label — the visitor searched by it, so they expect
+    // to see it, not whatever the (independently configured) Display Field
+    // happens to be. Falls back to Display Field, then the first search
+    // field, when searching across all of them (no single field to prefer) —
+    // a raw record id is meaningless to a user picking a result.
+    const activeSearchField = searchFieldName && cfg.searchFieldNames.includes(searchFieldName) ? searchFieldName : undefined;
+    const fallbackFieldName = activeSearchField || cfg.displayFieldName || cfg.searchFieldNames[0];
+    const items = records.map(r => {
+      const data = (r.data as any) ?? {};
+      const columns: Record<string, any> = {};
+      for (const col of cfg.resultColumns) columns[col.name] = data[col.name];
+      return { id: r.id, label: fallbackFieldName ? (data[fallbackFieldName] ?? r.id) : r.id, columns, data };
+    });
+
+    return {
+      items, total, page, pageSize,
+      columns: cfg.resultColumns, sourceFields: cfg.sourceFields, searchFields: cfg.searchFields,
+      allowManualUpdate: !!cfg.allowManualUpdate,
+    };
+  }
+
+  // Also used by FormsService for the public-form path — org there is derived
+  // from the form (already verified), and the caller has already checked the
+  // field actually belongs to that specific published form.
+  async integrationSearch(orgId: string, fieldId: string, search: string, page = 1, pageSize = 20, searchFieldName?: string) {
+    const cfg = await this.resolveIntegrationField(fieldId, orgId);
+    return this.runIntegrationSearch(orgId, cfg, search || '', page, pageSize, searchFieldName);
+  }
+
+  // Standalone-form path — there's no Field row to look up by id, so the
+  // caller (FormsService, which owns the form and can be trusted for the
+  // settings it hands over) passes the CustomFieldDef's own settings directly.
+  async integrationSearchWithConfig(orgId: string, settings: any, search: string, page = 1, pageSize = 20, searchFieldName?: string) {
+    const cfg = await this.resolveIntegrationSettings(settings, orgId);
+    return this.runIntegrationSearch(orgId, cfg, search || '', page, pageSize, searchFieldName);
   }
 }

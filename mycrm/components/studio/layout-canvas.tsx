@@ -1018,7 +1018,7 @@ type ActiveDrag =
 
 // ── TabChip — inline-renameable, matches the section title's double-click UX ──
 
-function TabChip({ tab, onRename, onDelete }: { tab: LayoutTab; onRename: (label: string) => void; onDelete: () => void }) {
+export function TabChip({ tab, onRename, onDelete }: { tab: LayoutTab; onRename: (label: string) => void; onDelete: () => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(tab.label);
 
@@ -1153,27 +1153,8 @@ export function ModuleLayoutCanvas({
     [layoutConfig, onLayoutChange]
   );
 
-  // ── Tab operations ───────────────────────────────────────────────────────────
-  // A tab is just a named group other sections opt into via LayoutSection.tabId —
-  // deleting a tab un-assigns its sections back to the flat list rather than
-  // deleting them, since the fields themselves shouldn't disappear.
-
-  function addTab() {
-    const t: LayoutTab = { id: `t-${generateId().slice(0, 8)}`, label: "New Tab", order: tabs.length };
-    onLayoutChange({ ...layoutConfig, tabs: [...tabs, t] });
-  }
-
-  function renameTab(tabId: string, label: string) {
-    onLayoutChange({ ...layoutConfig, tabs: tabs.map(t => t.id === tabId ? { ...t, label } : t) });
-  }
-
-  function deleteTab(tabId: string) {
-    onLayoutChange({
-      ...layoutConfig,
-      tabs: tabs.filter(t => t.id !== tabId),
-      sections: sections.map(s => s.tabId === tabId ? { ...s, tabId: undefined } : s),
-    });
-  }
+  // Tab management (add/rename/delete) now lives in the Properties panel —
+  // see ModulePropertiesPanel in app/(dashboard)/studio/[id]/page.tsx.
 
   function setDetailColumns(n: 2 | 3) {
     onLayoutChange({ ...layoutConfig, detailColumns: n } as any);
@@ -1445,7 +1426,10 @@ export function ModuleLayoutCanvas({
       onDragCancel={onDragCancel}
     >
       <div className="space-y-6">
-        {/* Detail page columns + Tabs — module-level layout settings, not per-section */}
+        {/* Detail page columns — module-level layout setting, not per-section.
+            Tab management (add/rename/delete) now lives in the Properties
+            panel instead of here — see ModulePropertiesPanel in
+            app/(dashboard)/studio/[id]/page.tsx. */}
         {!previewMode && (
           <div className="flex flex-wrap items-center gap-4 pb-4 border-b border-gray-100">
             <div className="flex items-center gap-2">
@@ -1467,19 +1451,6 @@ export function ModuleLayoutCanvas({
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs font-medium text-gray-500 mr-0.5">Tabs</span>
-              {tabs.map(t => (
-                <TabChip key={t.id} tab={t} onRename={label => renameTab(t.id, label)} onDelete={() => deleteTab(t.id)} />
-              ))}
-              <button
-                onClick={addTab}
-                className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-gray-300 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
-              >
-                <Plus className="h-3 w-3" /> Add Tab
-              </button>
             </div>
           </div>
         )}

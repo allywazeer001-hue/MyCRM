@@ -118,6 +118,22 @@ export class FieldsService {
     return this.prisma.field.update({ where: { id }, data: fieldData, include: { options: true } });
   }
 
+  // Restarts an AUTO_NUMBER field's persisted counter (see
+  // RecordsService.generateAutoNumber) so the NEXT generated value is exactly
+  // `startFrom` — used when numbering needs to restart for a new batch/camp/year.
+  async resetAutoNumber(id: string, orgId: string, startFrom: number) {
+    const field = await this.prisma.field.findFirst({ where: { id }, include: { module: true } });
+    if (!field || field.module.organizationId !== orgId) throw new NotFoundException('Field not found');
+    if (field.type !== 'AUTO_NUMBER') throw new BadRequestException('Only Auto Number fields can be reset');
+    if (!Number.isFinite(startFrom) || startFrom < 1) throw new BadRequestException('Start value must be a positive number');
+
+    const settings = (field.settings as any) || {};
+    return this.prisma.field.update({
+      where: { id },
+      data: { settings: { ...settings, startingNumber: startFrom, currentValue: startFrom - 1 } },
+    });
+  }
+
   async reorder(moduleId: string, orgId: string, fieldIds: string[]) {
     const mod = await this.prisma.dynamicModule.findFirst({ where: { id: moduleId, organizationId: orgId } });
     if (!mod) throw new NotFoundException('Module not found');
