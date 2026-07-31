@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
+import { generateAccessReport } from "@/lib/pdf-templates";
 
 const ROLE_COLORS: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-700 border-red-200",
@@ -64,6 +65,7 @@ type ProfileData = {
   lastLoginAt?: string;
   departmentId?: string;
   department?: { id: string; name: string; color: string };
+  organization?: { id: string; name: string; slug: string; logo?: string; website?: string; description?: string };
   _count?: { createdRecords: number; comments: number };
   recentActivity?: Array<{
     id: string;
@@ -115,6 +117,7 @@ export default function UserProfilePage() {
   const [taskSummary, setTaskSummary] = useState<TaskSummary>({ pending: 0, completed: 0, overdue: 0 });
   const [taskFilter, setTaskFilter] = useState<"pending" | "completed" | "overdue" | "all">("pending");
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [printingReport, setPrintingReport] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -123,6 +126,47 @@ export default function UserProfilePage() {
       .catch((err) => setError(err?.response?.data?.message || "Failed to load profile"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const printAccessReport = useCallback(async () => {
+    if (!profile) return;
+    setPrintingReport(true);
+    try {
+      const systemRow = profile.departmentPermissions?.find((p) => !p.moduleId);
+      const moduleRows = profile.departmentPermissions?.filter((p) => !!p.moduleId) || [];
+      const { data: overrides } = await api.get(`/users/${id}/permission-overrides`).catch(() => ({ data: [] }));
+
+      generateAccessReport(
+        {
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          email: profile.email,
+          role: profile.role,
+          department: profile.department?.name,
+        },
+        {
+          canDashboard: !!systemRow?.canDashboard,
+          canAnalytics: !!systemRow?.canAnalytics,
+          canWorkflow: !!systemRow?.canWorkflow,
+          canForms: !!systemRow?.canForms,
+          canStudio: !!systemRow?.canStudio,
+        },
+        moduleRows.map((m) => ({
+          moduleId: m.moduleId!,
+          moduleName: m.module?.name || "Unknown module",
+          canView: m.canView, canCreate: m.canCreate, canEdit: m.canEdit, canDelete: m.canDelete,
+          canExport: m.canExport, canImport: m.canImport, canPrint: m.canPrint,
+        })),
+        (overrides || []).map((o: any) => ({
+          scope: o.module?.name || "System-level",
+          reason: o.reason,
+          expiresAt: o.expiresAt,
+        })),
+        profile.organization,
+      );
+    } finally {
+      setPrintingReport(false);
+    }
+  }, [id, profile]);
 
   const loadTasks = useCallback(async (filter: string) => {
     if (!id) return;
@@ -163,12 +207,15 @@ export default function UserProfilePage() {
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Back navigation */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
         <Link href="/users">
           <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500">
             <ArrowLeft className="w-4 h-4" /> Team Members
           </Button>
         </Link>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={printAccessReport} disabled={printingReport}>
+          <Printer className="w-4 h-4" /> {printingReport ? "Preparing…" : "Print Access Report"}
+        </Button>
       </div>
 
       {/* Profile header */}

@@ -50,6 +50,15 @@ export class UsersController {
     return user.organizationId;
   }
 
+  // Static route — must come before :id below (Nest matches in declaration
+  // order, and :id would otherwise swallow "profile" as an id segment... it
+  // wouldn't here since this has an extra path segment, but keeping the
+  // convention already used for me/permissions and me/profile above).
+  @Get(':id/profile')
+  getUserProfile(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.usersService.getUserProfile(id, this.resolveOrgId(user));
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
     return this.usersService.findOne(id, this.resolveOrgId(user));

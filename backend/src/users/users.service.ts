@@ -89,6 +89,12 @@ export class UsersService {
   }
 
   async getMyProfile(userId: string, orgId: string) {
+    return this.getUserProfile(userId, orgId);
+  }
+
+  // Powers both "my own profile" and an admin viewing another staff member's
+  // profile (GET /users/:id/profile) — same shape either way.
+  async getUserProfile(userId: string, orgId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, organizationId: orgId },
       select: {
@@ -109,13 +115,57 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    const departmentPermissions = await this.getMyPermissions(userId, orgId);
+    const [permissions, moduleDirectory] = await Promise.all([
+      this.permCheck.resolveUserPermissions(userId, orgId),
+      this.prisma.dynamicModule.findMany({
+        where: { organizationId: orgId, isActive: true },
+        select: { id: true, name: true, slug: true, icon: true },
+        orderBy: { order: 'asc' },
+      }),
+    ]);
 
     return {
       ...user,
       recentActivity: user.auditLogs,
-      departmentPermissions,
+      departmentPermissions: this.buildPermissionRows(permissions, moduleDirectory),
     };
+  }
+
+  // Flattens PermissionCheckService.resolveUserPermissions()'s {system, modules}
+  // shape (modules keyed by slug, no names) into the array-of-rows-with-joined-
+  // module shape the profile UI renders: one "system" row (moduleId absent) plus
+  // one row per module (moduleId set, module:{id,name,slug,icon} joined in).
+  private buildPermissionRows(
+    permissions: { isSuperAdmin?: boolean; system?: Record<string, boolean>; modules?: Record<string, any> },
+    moduleDirectory: Array<{ id: string; name: string; slug: string; icon: string | null }>,
+  ) {
+    const sys = permissions.system || {};
+    const isSuperAdmin = !!permissions.isSuperAdmin;
+    const rows: any[] = [{
+      id: 'system',
+      canDashboard: !!sys.canDashboard,
+      canAnalytics: !!sys.canAnalytics,
+      canWorkflow:  !!sys.canWorkflow,
+      canForms:     !!sys.canForms,
+      canStudio:    !!sys.canStudio,
+    }];
+
+    for (const mod of moduleDirectory) {
+      const mp = isSuperAdmin ? null : permissions.modules?.[mod.slug];
+      rows.push({
+        id: mod.id,
+        moduleId: mod.id,
+        canView:   isSuperAdmin || !!mp?.canView,
+        canCreate: isSuperAdmin || !!mp?.canCreate,
+        canEdit:   isSuperAdmin || !!mp?.canEdit,
+        canDelete: isSuperAdmin || !!mp?.canDelete,
+        canExport: isSuperAdmin || !!mp?.canExport,
+        canImport: isSuperAdmin || !!mp?.canImport,
+        canPrint:  isSuperAdmin || !!mp?.canPrint,
+        module: { id: mod.id, name: mod.name, slug: mod.slug, icon: mod.icon },
+      });
+    }
+    return rows;
   }
 
   async update(id: string, orgId: string | null, data: any) {
@@ -364,10 +414,21 @@ export class UsersService {
   }
 
   async getPermissionSummary(userId: string, orgId: string | null) {
-    const [effective, overrides] = await Promise.all([
+    // moduleDirectory joins names/icons onto `effective.modules`, which is
+    // keyed only by slug (see PermissionCheckService.resolveUserPermissions)
+    // — needed for a human-readable per-module access report, not just the
+    // raw slug-keyed booleans.
+    const [effective, overrides, moduleDirectory] = await Promise.all([
       this.permCheck.resolveUserPermissions(userId, orgId as string),
       this.getPermissionOverrides(userId, orgId),
+      orgId
+        ? this.prisma.dynamicModule.findMany({
+            where: { organizationId: orgId, isActive: true },
+            select: { id: true, name: true, slug: true, icon: true },
+            orderBy: { order: 'asc' },
+          })
+        : Promise.resolve([]),
     ]);
-    return { effective, overrides };
+    return { effective, overrides, moduleDirectory };
   }
 }
