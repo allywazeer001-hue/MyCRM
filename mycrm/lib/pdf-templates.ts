@@ -26,6 +26,11 @@ export interface WelcomeUser {
   role?: string;
 }
 
+export interface WelcomeOrg {
+  name?: string;
+  logo?: string;
+}
+
 export type TemplateKey = "welcome" | "password_reset";
 
 // ── Template definitions ──────────────────────────────────────────────────────
@@ -78,7 +83,25 @@ export function renderTemplate(key: TemplateKey, user: WelcomeUser): string {
 
 // ── HTML wrapper for print/PDF ────────────────────────────────────────────────
 
-function buildPrintHTML(content: string, filename: string): string {
+// Org name/logo come from live database fields (admin-editable), unlike the
+// hardcoded BRAND constant — escape before splicing into the print window's
+// HTML so an org name/logo URL containing markup can't inject into the
+// generating admin's own browser.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildPrintHTML(content: string, filename: string, org?: WelcomeOrg): string {
+  const orgName = (org?.name || BRAND.name).trim();
+  const logoLetter = escapeHtml((orgName.charAt(0) || BRAND.logoLetter).toUpperCase());
+  const logoHtml = org?.logo
+    ? `<img src="${escapeHtml(org.logo)}" alt="${escapeHtml(orgName)}" style="width:44px;height:44px;border-radius:9px;object-fit:cover;flex-shrink:0;" />`
+    : `<div class="logo">${logoLetter}</div>`;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -134,10 +157,10 @@ function buildPrintHTML(content: string, filename: string): string {
 <body>
   <div class="card">
     <div class="header">
-      <div class="logo">A</div>
+      ${logoHtml}
       <div>
         <div class="org-name">${BRAND.name}</div>
-        <div class="org-sub">System Administration</div>
+        <div class="org-sub">${escapeHtml(orgName)}</div>
       </div>
     </div>
     <div class="body">${content}</div>
@@ -156,13 +179,14 @@ function buildPrintHTML(content: string, filename: string): string {
  * Opens a styled print window; the browser's "Save as PDF" sets the filename.
  *
  * @param user        - newly created user object
+ * @param org         - the creating admin's organization (logo + name shown in the letterhead)
  * @param _password   - reserved for future use (email/WhatsApp delivery)
  */
-export function generateWelcomePDF(user: WelcomeUser, _password?: string): void {
+export function generateWelcomePDF(user: WelcomeUser, org?: WelcomeOrg, _password?: string): void {
   const content  = renderTemplate("welcome", user);
   const displayName = user.displayName || [user.firstName, user.lastName].filter(Boolean).join(' ');
   const filename = `welcome_${displayName.toLowerCase().replace(/\s+/g, '_')}`;
-  const html     = buildPrintHTML(content, filename);
+  const html     = buildPrintHTML(content, filename, org);
 
   const win = window.open("", "_blank", "width=680,height=820");
   if (!win) return; // popup blocked — silent fail, existing CredentialDialog still shows

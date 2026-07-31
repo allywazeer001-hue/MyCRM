@@ -63,34 +63,34 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ── One-time credentials modal, shown once right after approval ────────────
-function OneTimeCredentialsDialog({ open, onClose, credentials }: {
+// ── Pairing code modal, shown once right after approval ────────────────────
+// No raw credentials appear here anymore — just a short code the CRM admin
+// relays to the integration's own admin, who redeems it (POST /connected-apps/pair)
+// inside their app to get everything it needs in one shot.
+function PairingCodeDialog({ open, onClose, pairing }: {
   open: boolean; onClose: () => void;
-  credentials: { connectionId: string; clientId: string; clientSecret: string; authorizationCode: string } | null;
+  pairing: { pairingCode: string; expiresAt: string } | null;
 }) {
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><KeyRound className="w-4 h-4" /> Connection approved</DialogTitle>
           <DialogDescription>
-            Save these now and hand them to the developer. The Client Secret will never be shown again.
+            Share this code with your integration's administrator — they'll enter it in their own app to complete the connection.
           </DialogDescription>
         </DialogHeader>
-        {credentials && (
+        {pairing && (
           <div className="space-y-3">
+            <CopyField label="Pairing code" value={pairing.pairingCode} />
             <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              This dialog will not reappear. Copy every value before closing it.
+              Expires in 15 minutes ({formatDate(pairing.expiresAt)}). This dialog will not reappear — no other credentials are shown here; the receiving app gets everything it needs when it redeems this code.
             </div>
-            <CopyField label="Connection ID" value={credentials.connectionId} />
-            <CopyField label="Client ID" value={credentials.clientId} />
-            <CopyField label="Client Secret" value={credentials.clientSecret} />
-            <CopyField label="Authorization Code" value={credentials.authorizationCode} />
           </div>
         )}
         <DialogFooter>
-          <Button onClick={onClose}>Done — I've saved these</Button>
+          <Button onClick={onClose}>Done</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -101,7 +101,7 @@ function OneTimeCredentialsDialog({ open, onClose, credentials }: {
 function ApproveDialog({ request, scopeOptions, onClose, onApproved }: {
   request: any; scopeOptions: ScopeOption[];
   onClose: () => void;
-  onApproved: (creds: any) => void;
+  onApproved: (pairing: { pairingCode: string; expiresAt: string }) => void;
 }) {
   const toast = useToast();
   const [grants, setGrants] = useState<Record<string, ScopeAccess>>(() => {
@@ -145,7 +145,7 @@ function ApproveDialog({ request, scopeOptions, onClose, onApproved }: {
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            Approve & generate credentials
+            Approve & generate pairing code
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -354,7 +354,7 @@ function ConnectedAppsTab({ scopeOptions }: { scopeOptions: ScopeOption[] }) {
   );
 }
 
-function PendingRequestsTab({ scopeOptions, onApproved }: { scopeOptions: ScopeOption[]; onApproved: (creds: any) => void }) {
+function PendingRequestsTab({ scopeOptions, onApproved }: { scopeOptions: ScopeOption[]; onApproved: (pairing: { pairingCode: string; expiresAt: string }) => void }) {
   const [requests, setRequests] = useState<any[] | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
   const [approving, setApproving] = useState<any | null>(null);
@@ -413,7 +413,7 @@ function PendingRequestsTab({ scopeOptions, onApproved }: { scopeOptions: ScopeO
         <ApproveDialog
           request={approving} scopeOptions={scopeOptions}
           onClose={() => setApproving(null)}
-          onApproved={creds => { setApproving(null); load(); onApproved(creds); }}
+          onApproved={pairing => { setApproving(null); load(); onApproved(pairing); }}
         />
       )}
     </div>
@@ -575,7 +575,7 @@ function ConnectedAppsPageInner() {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") || "apps";
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>([]);
-  const [newCredentials, setNewCredentials] = useState<any>(null);
+  const [pairingResult, setPairingResult] = useState<{ pairingCode: string; expiresAt: string } | null>(null);
 
   useEffect(() => { api.get("/connected-apps/scope-options").then(r => setScopeOptions(r.data)); }, []);
 
@@ -601,7 +601,7 @@ function ConnectedAppsPageInner() {
           <ConnectedAppsTab scopeOptions={scopeOptions} />
         </TabsContent>
         <TabsContent value="pending" className="mt-4">
-          <PendingRequestsTab scopeOptions={scopeOptions} onApproved={setNewCredentials} />
+          <PendingRequestsTab scopeOptions={scopeOptions} onApproved={setPairingResult} />
         </TabsContent>
         <TabsContent value="tokens" className="mt-4">
           <ApiTokensTab />
@@ -614,7 +614,7 @@ function ConnectedAppsPageInner() {
         </TabsContent>
       </Tabs>
 
-      <OneTimeCredentialsDialog open={!!newCredentials} onClose={() => setNewCredentials(null)} credentials={newCredentials} />
+      <PairingCodeDialog open={!!pairingResult} onClose={() => setPairingResult(null)} pairing={pairingResult} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ScopeAccess } from '@prisma/client';
-import { encrypt, generateClientId, generateOpaqueToken } from './crypto/connected-app-crypto.util';
+import { decrypt, encrypt, generateClientId, generateOpaqueToken, generatePairingCode } from './crypto/connected-app-crypto.util';
 import { CreateConnectionRequestDto } from './dto/create-connection-request.dto';
 import { ScopeGrantDto } from './dto/scope-grant.dto';
 
@@ -16,7 +16,8 @@ const FIXED_SCOPES = [
   { key: 'forms:read', label: 'Read Forms' },
   { key: 'users:read', label: 'Read Staff Directory' },
 ];
-const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
+const PAIRING_CODE_TTL_MS = 15 * 60 * 1000;
+const PAIRING_CODE_MAX_ATTEMPTS = 5;
 const ACCESS_TOKEN_TTL = '1h';
 const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -111,9 +112,10 @@ export class ConnectedAppsService {
     const clientId = generateClientId();
     const clientSecret = generateOpaqueToken();
     const webhookSecret = generateOpaqueToken();
-    const authCode = generateOpaqueToken();
+    const pairing = generatePairingCode();
+    const pairingExpiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS);
 
-    const connectedApp = await this.prisma.$transaction(async tx => {
+    await this.prisma.$transaction(async tx => {
       const app = await tx.connectedApp.create({
         data: {
           organizationId: orgId,
@@ -131,12 +133,16 @@ export class ConnectedAppsService {
           },
         },
       });
+      // The pairing code is what the admin actually sees; the client secret
+      // it carries (encrypted) is only ever handed back once, at redemption
+      // time via POST /connected-apps/pair — never displayed here.
       await tx.connectedAppAuthCode.create({
         data: {
           connectedAppId: app.id,
-          codeHash: await bcrypt.hash(authCode.token, 10),
-          codePrefix: authCode.prefix,
-          expiresAt: new Date(Date.now() + AUTH_CODE_TTL_MS),
+          codeHash: await bcrypt.hash(pairing.code, 10),
+          codePrefix: pairing.prefix,
+          clientSecretEnc: encrypt(clientSecret.token),
+          expiresAt: pairingExpiresAt,
         },
       });
       await tx.connectionRequest.update({
@@ -146,30 +152,7 @@ export class ConnectedAppsService {
       return app;
     });
 
-    // Best-effort handoff to the app's own redirect URL — never blocks the
-    // admin's response, since the admin-facing "save these now" modal is the
-    // guaranteed delivery path.
-    this.notifyAppOfApproval(request.redirectUrl, {
-      connectionId: connectedApp.id,
-      clientId,
-      authorizationCode: authCode.token,
-    }).catch(err => this.logger.warn(`Redirect handoff to ${request.redirectUrl} failed: ${err?.message}`));
-
-    return {
-      connectionId: connectedApp.id,
-      clientId,
-      clientSecret: clientSecret.token,
-      authorizationCode: authCode.token,
-    };
-  }
-
-  private async notifyAppOfApproval(redirectUrl: string, payload: Record<string, string>) {
-    await fetch(redirectUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
-    });
+    return { pairingCode: pairing.display, expiresAt: pairingExpiresAt.toISOString() };
   }
 
   async rejectRequest(orgId: string, adminUserId: string, role: string, requestId: string, reason?: string) {
@@ -302,6 +285,66 @@ export class ConnectedAppsService {
       refresh_token: refresh.token,
       token_type: 'Bearer',
       expires_in: ACCESS_TOKEN_TTL_MS / 1000,
+    };
+  }
+
+  /**
+   * Redeems a short pairing code (see approveRequest) for full client
+   * credentials + a live token pair, in one shot — no webhook, no raw
+   * secrets ever shown to or typed by a human. Public: the caller is the
+   * external app itself (or its admin, pasting the code into it), not an
+   * authenticated CRM user, and not yet holding any client credentials —
+   * that's the whole point of this endpoint.
+   *
+   * Every failure path (no match / expired / already used / attempt cap
+   * hit) returns the exact same generic error, so a caller can never tell
+   * which case they hit — that distinction is exactly what would help
+   * someone brute-forcing a 6-digit code.
+   */
+  async redeemPairingCode(pairingCodeInput: string) {
+    const GENERIC_ERROR = 'Invalid or expired pairing code';
+    const digits = (pairingCodeInput || '').replace(/\D/g, '');
+    if (digits.length !== 6) throw new UnauthorizedException(GENERIC_ERROR);
+
+    // codePrefix is only a WEAK pre-filter here (see generatePairingCode) —
+    // real candidates are narrowed further by usedAt/expiresAt, and
+    // clientSecretEnc-not-null excludes rows from the older long-opaque-code
+    // flow (which never populates it) so the two schemes can't cross-match.
+    const prefix = digits.slice(0, 3);
+    const candidates = await this.prisma.connectedAppAuthCode.findMany({
+      where: { codePrefix: prefix, usedAt: null, expiresAt: { gt: new Date() }, clientSecretEnc: { not: null } },
+    });
+
+    const match = await this.findBcryptMatch(candidates, c => c.codeHash, digits);
+    if (!match) {
+      // Attribute the failed guess to whatever live code(s) share this
+      // prefix bucket (almost always zero or one) and self-invalidate any
+      // that hit the attempt cap — forces a fresh approval instead of
+      // leaving a still-live code open to further guesses.
+      for (const candidate of candidates) {
+        const failedAttempts = candidate.failedAttempts + 1;
+        await this.prisma.connectedAppAuthCode.update({
+          where: { id: candidate.id },
+          data: failedAttempts >= PAIRING_CODE_MAX_ATTEMPTS
+            ? { failedAttempts, usedAt: new Date() }
+            : { failedAttempts },
+        });
+      }
+      throw new UnauthorizedException(GENERIC_ERROR);
+    }
+
+    await this.prisma.connectedAppAuthCode.update({ where: { id: match.id }, data: { usedAt: new Date() } });
+
+    const app = await this.prisma.connectedApp.findUnique({ where: { id: match.connectedAppId } });
+    if (!app || app.status !== 'ACTIVE') throw new UnauthorizedException(GENERIC_ERROR);
+
+    const clientSecret = decrypt(match.clientSecretEnc!);
+    const tokens = await this.issueTokenPair(app.id);
+    return {
+      client_id: app.clientId,
+      client_secret: clientSecret,
+      ...tokens,
+      granted_scopes: await this.grantedScopeKeys(app.id),
     };
   }
 

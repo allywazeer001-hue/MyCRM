@@ -50,3 +50,21 @@ export function generateOpaqueToken(): { token: string; prefix: string } {
   const token = crypto.randomBytes(32).toString('base64url');
   return { token, prefix: token.slice(0, 8) };
 }
+
+/**
+ * Human-typeable 6-digit pairing code (e.g. "482-931") handed to a CRM admin
+ * after approving a connection request, for them to relay to the external
+ * app's own admin out of band — replaces copy/pasting raw client credentials.
+ * `code` is the bare 6 digits (what gets bcrypt-hashed); `display` is the
+ * dashed form shown in the UI; `prefix` is only the first 3 digits — a WEAK
+ * pre-filter (not a security boundary the way the 8-char prefix on
+ * generateOpaqueToken() is, since 3 digits is only 1-in-1000) used purely to
+ * find candidate rows to bcrypt-compare and to attribute failed-attempt
+ * lockout counts to a specific code. The real defense against guessing is
+ * the short expiry + per-code attempt cap + per-IP throttle on the redeem
+ * endpoint, not this prefix.
+ */
+export function generatePairingCode(): { code: string; display: string; prefix: string } {
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  return { code, display: `${code.slice(0, 3)}-${code.slice(3)}`, prefix: code.slice(0, 3) };
+}

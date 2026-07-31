@@ -1329,7 +1329,7 @@ export default function UsersPage() {
           upsertUser(user);
           if (tempPassword) {
             setCredDialog({ user, tempPassword });
-            generateWelcomePDF(user);
+            generateWelcomePDF(user, (me as any)?.organization);
           }
         }}
         departments={departments}

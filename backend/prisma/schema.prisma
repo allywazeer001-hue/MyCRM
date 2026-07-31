@@ -2283,6 +2283,17 @@ model ConnectedAppAuthCode {
   expiresAt      DateTime
   usedAt         DateTime?
   createdAt      DateTime  @default(now())
+  // Populated only by the pairing-code flow (approveRequest) — AES-256-GCM
+  // ciphertext of the raw client secret, decrypted back at redemption time
+  // (POST /connected-apps/pair) so the caller gets full credentials in one
+  // shot. Rows from the older long-opaque-code flow leave this null, which
+  // is also how redeemPairingCode tells the two kinds of rows apart.
+  clientSecretEnc String?  @db.Text
+  // Failed bcrypt-compare attempts against this specific row, via the
+  // pairing-code flow's weak codePrefix pre-filter. Capped at
+  // PAIRING_CODE_MAX_ATTEMPTS in ConnectedAppsService, after which the row
+  // self-invalidates (usedAt gets set) rather than staying guessable.
+  failedAttempts  Int      @default(0)
 
   connectedApp ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
 
