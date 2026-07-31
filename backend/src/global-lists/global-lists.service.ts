@@ -417,22 +417,49 @@ export class GlobalListsService {
   }
 
   // ── Locations: Countries / Regions / Wards ────────────────────────────────
-  // Countries is a plain, ordinary list (extensible — more countries can be
-  // added later). Regions is its own separate list, but it doesn't extend
-  // from Countries as a whole — it extends specifically from the Tanzania
-  // ITEM, using the per-item "link child list" feature (childListId on
-  // GlobalListItem, the same "Link existing list" action available on any
-  // item in the admin UI): the Tanzania item's childListId points at the
-  // Regions list. Expanding Tanzania in the admin tree jumps straight into
-  // Regions. Wards is left unattached and empty for now — there's no
-  // verified authoritative source here for Tanzania's ~4,000+ real ward
-  // names, and fabricating official administrative data would be worse
-  // than leaving it for admins (or a future real dataset) to populate and
-  // link from each region individually once that data exists.
+  // Countries is a full, standard list of world countries (safe, well-known
+  // reference data — unlike ward-level administrative data below, there's
+  // no fabrication risk here). Regions is its own separate list, but it
+  // doesn't extend from Countries as a whole — it extends specifically from
+  // the Tanzania ITEM, using the per-item "link child list" feature
+  // (childListId on GlobalListItem, the same "Link existing list" action
+  // available on any item in the admin UI): the Tanzania item's childListId
+  // points at the Regions list. Expanding Tanzania in the admin tree jumps
+  // straight into Regions — other countries have no child list yet and can
+  // have one attached the same way once their own regions are added. Wards
+  // is left unattached and empty for now — there's no verified authoritative
+  // source here for Tanzania's ~4,000+ real ward names, and fabricating
+  // official administrative data would be worse than leaving it for admins
+  // (or a future real dataset) to populate and link from each region
+  // individually once that data exists.
 
   private readonly DEFAULT_COUNTRIES = [
-    { label: 'Tanzania', value: 'tanzania' },
-  ];
+    'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina',
+    'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados',
+    'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana',
+    'Brazil', 'Brunei', 'Bulgaria', 'Burkina Faso', 'Burundi', 'Cabo Verde', 'Cambodia', 'Cameroon',
+    'Canada', 'Central African Republic', 'Chad', 'Chile', 'China', 'Colombia', 'Comoros',
+    'Congo (Republic of the)', 'Congo (Democratic Republic of the)', 'Costa Rica', 'Croatia', 'Cuba',
+    'Cyprus', 'Czechia', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'Ecuador', 'Egypt',
+    'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland',
+    'France', 'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala',
+    'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia',
+    'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya',
+    'Kiribati', 'Kosovo', 'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia',
+    'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives',
+    'Mali', 'Malta', 'Marshall Islands', 'Mauritania', 'Mauritius', 'Mexico', 'Micronesia', 'Moldova',
+    'Monaco', 'Mongolia', 'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru', 'Nepal',
+    'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia',
+    'Norway', 'Oman', 'Pakistan', 'Palau', 'Palestine', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru',
+    'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Russia', 'Rwanda', 'Saint Kitts and Nevis',
+    'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe',
+    'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia',
+    'Solomon Islands', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka',
+    'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Taiwan', 'Tajikistan', 'Tanzania', 'Thailand',
+    'Timor-Leste', 'Togo', 'Tonga', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Tuvalu',
+    'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan',
+    'Vanuatu', 'Vatican City', 'Venezuela', 'Vietnam', 'Yemen', 'Zambia', 'Zimbabwe',
+  ].map(name => ({ label: name, value: name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') }));
 
   private readonly DEFAULT_TANZANIA_REGIONS = [
     'Arusha', 'Dar es Salaam', 'Dodoma', 'Geita', 'Iringa', 'Kagera', 'Katavi',
@@ -464,13 +491,23 @@ export class GlobalListsService {
     const countries = await this.ensureList(orgId, 'countries', 'Countries', 'Countries available for address and location fields.', 'Country');
 
     let countryItems = await this.prisma.globalListItem.findMany({ where: { listId: countries.id, isActive: true }, orderBy: { order: 'asc' } });
-    if (countryItems.length === 0) {
-      for (let i = 0; i < this.DEFAULT_COUNTRIES.length; i++) {
+    const existingCountryValues = new Set(countryItems.map(i => i.value));
+    const missingCountries = this.DEFAULT_COUNTRIES.filter(c => !existingCountryValues.has(c.value));
+
+    if (missingCountries.length > 0) {
+      // Heals lists seeded before the full country set existed (e.g. an
+      // earlier Tanzania-only default) as well as brand-new lists.
+      for (const c of missingCountries) {
         await this.prisma.globalListItem.create({
-          data: { listId: countries.id, label: this.DEFAULT_COUNTRIES[i].label, value: this.DEFAULT_COUNTRIES[i].value, level: 0, order: i, isActive: true, metadata: {} },
+          data: { listId: countries.id, label: c.label, value: c.value, level: 0, order: 0, isActive: true, metadata: {} },
         });
       }
-      countryItems = await this.prisma.globalListItem.findMany({ where: { listId: countries.id, isActive: true }, orderBy: { order: 'asc' } });
+      countryItems = await this.prisma.globalListItem.findMany({ where: { listId: countries.id, isActive: true } });
+      const sorted = [...countryItems].sort((a, b) => a.label.localeCompare(b.label));
+      await Promise.all(sorted.map((item, idx) =>
+        item.order === idx ? Promise.resolve() : this.prisma.globalListItem.update({ where: { id: item.id }, data: { order: idx } }),
+      ));
+      countryItems = sorted;
     }
     let tanzania = countryItems.find(i => i.value === 'tanzania');
 
