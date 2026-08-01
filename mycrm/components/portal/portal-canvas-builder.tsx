@@ -653,67 +653,113 @@ function CrmFieldMapper({
 
 // ── CRM Section Modal ─────────────────────────────────────────────────────────
 
+interface SuggestedSection {
+  label: string;
+  sectionType: string;
+  moduleSlug: string;
+  moduleId: string;
+  relationField?: string;
+  fields: Array<{ id: string; name: string; label: string; type: string }>;
+}
+
+function rawSectionToCanvas(raw: any): CanvasSection {
+  return {
+    ...raw,
+    sectionColumns: 1,
+    columnRatio: "equal",
+    isVisible: raw.isVisible ?? true,
+    fields: (raw.fields ?? []).map((f: any) => ({
+      ...f, options: f.options ?? [],
+      isAdminOnly: f.isAdminOnly ?? false,
+      isVisible: f.isVisible ?? true,
+    })),
+  };
+}
+
 function CrmSectionModal({ pageId, onCreated, onClose }: {
   pageId: string;
-  onCreated: (s: CanvasSection) => void;
+  onCreated: (sections: CanvasSection[]) => void;
   onClose: () => void;
 }) {
   const [modules, setModules] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any>(null);
-  const [fields, setFields] = useState<any[]>([]);
-  const [selectedFields, setSelectedFields] = useState<string[]>([]);
-  const [label, setLabel] = useState("");
-  const [loadingFields, setLoadingFields] = useState(false);
+  const [selectedModule, setSelectedModule] = useState<any>(null);
+  const [suggested, setSuggested] = useState<SuggestedSection[]>([]);
+  const [selectedSectionIdxs, setSelectedSectionIdxs] = useState<number[]>([]);
+  const [sectionLabels, setSectionLabels] = useState<Record<number, string>>({});
+  const [sectionFields, setSectionFields] = useState<Record<number, string[]>>({});
+  const [loadingSections, setLoadingSections] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState<"module" | "fields">("module");
+  const [step, setStep] = useState<"module" | "sections" | "fields">("module");
 
   useEffect(() => {
     portalApi.get("/portal/padmin/crm-modules").then(r => setModules(r.data ?? [])).catch(() => {});
   }, []);
 
   const pickModule = async (mod: any) => {
-    setSelected(mod); setLabel(mod.name); setLoadingFields(true);
+    setSelectedModule(mod); setLoadingSections(true);
     try {
-      const r = await portalApi.get(`/portal/padmin/crm-modules/${mod.id}/fields`);
-      setFields(r.data ?? []);
-      setSelectedFields((r.data ?? []).slice(0, 8).map((f: any) => f.id));
+      const r = await portalApi.get(`/portal/padmin/crm-modules/${mod.id}/suggest-sections`);
+      const secs: SuggestedSection[] = r.data ?? [];
+      setSuggested(secs);
+      setSelectedSectionIdxs(secs.map((_, i) => i));
+      setSectionLabels(Object.fromEntries(secs.map((s, i) => [i, s.label])));
+      setSectionFields(Object.fromEntries(secs.map((s, i) => [i, s.fields.map(f => f.id)])));
     } catch {}
-    setLoadingFields(false); setStep("fields");
+    setLoadingSections(false); setStep("sections");
+  };
+
+  const toggleSection = (idx: number) => {
+    setSelectedSectionIdxs(prev => prev.includes(idx) ? prev.filter(x => x !== idx) : [...prev, idx]);
+  };
+
+  const toggleField = (sectionIdx: number, fieldId: string) => {
+    setSectionFields(prev => {
+      const current = prev[sectionIdx] ?? [];
+      const next = current.includes(fieldId) ? current.filter(x => x !== fieldId) : [...current, fieldId];
+      return { ...prev, [sectionIdx]: next };
+    });
   };
 
   const handleCreate = async () => {
-    if (!selected || !label.trim()) return;
+    if (selectedSectionIdxs.length === 0) return;
     setSaving(true);
     try {
-      const res = await portalApi.post(`/portal/padmin/pages/${pageId}/sections/from-module`, {
-        label: label.trim(), moduleSlug: selected.slug, moduleId: selected.id,
-        fieldIds: selectedFields, sectionType: "primary",
+      const sectionsDto = selectedSectionIdxs
+        .map(idx => {
+          const sec = suggested[idx];
+          return {
+            label: (sectionLabels[idx] ?? sec.label).trim() || sec.label,
+            moduleSlug: sec.moduleSlug,
+            moduleId: sec.moduleId,
+            sectionType: sec.sectionType,
+            relationField: sec.relationField,
+            fieldIds: sectionFields[idx] ?? sec.fields.map(f => f.id),
+          };
+        })
+        .filter(s => s.fieldIds.length > 0);
+      if (sectionsDto.length === 0) return;
+
+      const res = await portalApi.post(`/portal/padmin/pages/${pageId}/sections/from-module-batch`, {
+        sections: sectionsDto,
       });
-      const raw = res.data;
-      const section: CanvasSection = {
-        ...raw,
-        sectionColumns: 1,
-        columnRatio: "equal",
-        isVisible: raw.isVisible ?? true,
-        fields: (raw.fields ?? []).map((f: any) => ({
-          ...f, options: f.options ?? [],
-          isAdminOnly: f.isAdminOnly ?? false,
-          isVisible: f.isVisible ?? true,
-        })),
-      };
-      onCreated(section);
+      const created: CanvasSection[] = (res.data ?? []).map(rawSectionToCanvas);
+      onCreated(created);
       onClose();
     } catch {}
     setSaving(false);
   };
 
+  const totalSelectedFields = selectedSectionIdxs.reduce((sum, idx) => sum + (sectionFields[idx]?.length ?? 0), 0);
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
             <Database className="w-4 h-4 text-indigo-500" />
-            {step === "module" ? "Select CRM Module" : `${selected?.name} — Select Fields`}
+            {step === "module" && "Select CRM Module"}
+            {step === "sections" && `${selectedModule?.name} — Select Sections`}
+            {step === "fields" && `${selectedModule?.name} — Review Fields`}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
         </div>
@@ -736,29 +782,57 @@ function CrmSectionModal({ pageId, onCreated, onClose }: {
               }
             </div>
           )}
+          {step === "sections" && (
+            loadingSections
+              ? <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /></div>
+              : (
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-gray-600">CRM sections available</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => setSelectedSectionIdxs(suggested.map((_, i) => i))} className="text-xs text-indigo-500">All</button>
+                      <button onClick={() => setSelectedSectionIdxs([])} className="text-xs text-gray-400">None</button>
+                    </div>
+                  </div>
+                  {suggested.length === 0
+                    ? <p className="text-sm text-gray-400 text-center py-6">No importable sections found for this module</p>
+                    : suggested.map((sec, idx) => (
+                      <label key={idx} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${selectedSectionIdxs.includes(idx) ? "border-indigo-300 bg-indigo-50" : "border-gray-200 hover:bg-gray-50"}`}>
+                        <input type="checkbox" checked={selectedSectionIdxs.includes(idx)}
+                          onChange={() => toggleSection(idx)}
+                          className="mt-0.5 rounded accent-indigo-500" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-800">{sec.label}</p>
+                          <p className="text-xs text-gray-400">{sec.fields.length} field{sec.fields.length !== 1 ? "s" : ""} · {sec.sectionType}</p>
+                        </div>
+                      </label>
+                    ))
+                  }
+                </div>
+              )
+          )}
           {step === "fields" && (
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Section Label</label>
-                <input value={label} onChange={e => setLabel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              </div>
-              {loadingFields
-                ? <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /></div>
-                : (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-medium text-gray-600">Fields to show</label>
+            <div className="p-4 space-y-5">
+              {selectedSectionIdxs.map(idx => {
+                const sec = suggested[idx];
+                const chosen = sectionFields[idx] ?? [];
+                return (
+                  <div key={idx} className="border border-gray-200 rounded-xl p-3">
+                    <input value={sectionLabels[idx] ?? sec.label}
+                      onChange={e => setSectionLabels(prev => ({ ...prev, [idx]: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 mb-2 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-gray-500">Fields to import</span>
                       <div className="flex gap-2">
-                        <button onClick={() => setSelectedFields(fields.map(f => f.id))} className="text-xs text-indigo-500">All</button>
-                        <button onClick={() => setSelectedFields([])} className="text-xs text-gray-400">None</button>
+                        <button onClick={() => setSectionFields(prev => ({ ...prev, [idx]: sec.fields.map(f => f.id) }))} className="text-xs text-indigo-500">All</button>
+                        <button onClick={() => setSectionFields(prev => ({ ...prev, [idx]: [] }))} className="text-xs text-gray-400">None</button>
                       </div>
                     </div>
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {fields.map(f => (
-                        <label key={f.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                          <input type="checkbox" checked={selectedFields.includes(f.id)}
-                            onChange={() => setSelectedFields(prev => prev.includes(f.id) ? prev.filter(x => x !== f.id) : [...prev, f.id])}
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {sec.fields.map(f => (
+                        <label key={f.id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <input type="checkbox" checked={chosen.includes(f.id)}
+                            onChange={() => toggleField(idx, f.id)}
                             className="rounded accent-indigo-500" />
                           <span className="text-sm text-gray-700 flex-1">{f.label}</span>
                           <span className="text-xs text-gray-400 font-mono">{f.type?.toLowerCase()}</span>
@@ -766,18 +840,28 @@ function CrmSectionModal({ pageId, onCreated, onClose }: {
                       ))}
                     </div>
                   </div>
-                )
-              }
+                );
+              })}
             </div>
           )}
         </div>
-        {step === "fields" && (
+        {step === "sections" && (
           <div className="px-6 pb-5 pt-3 border-t flex gap-2 shrink-0">
-            <button onClick={handleCreate} disabled={saving || !label.trim() || selectedFields.length === 0}
+            <button onClick={() => setStep("fields")} disabled={selectedSectionIdxs.length === 0}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}Add Section
+              Next: Review Fields <ChevronRight className="w-4 h-4" />
             </button>
             <button onClick={() => setStep("module")} className="px-3 py-2 text-gray-500 text-sm rounded-lg hover:text-gray-700">← Back</button>
+          </div>
+        )}
+        {step === "fields" && (
+          <div className="px-6 pb-5 pt-3 border-t flex gap-2 shrink-0">
+            <button onClick={handleCreate} disabled={saving || totalSelectedFields === 0}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Add {selectedSectionIdxs.length} Section{selectedSectionIdxs.length !== 1 ? "s" : ""}
+            </button>
+            <button onClick={() => setStep("sections")} className="px-3 py-2 text-gray-500 text-sm rounded-lg hover:text-gray-700">← Back</button>
           </div>
         )}
       </div>
@@ -2097,9 +2181,10 @@ export function PortalCanvasBuilder({
     setRecentTypes(prev => [type, ...prev.filter(t => t !== type)].slice(0, 4));
   };
 
-  const handleCrmCreated = (s: CanvasSection) => {
-    update([...sections, s]);
-    setSelectedSectionId(s.id);
+  const handleCrmCreated = (newSections: CanvasSection[]) => {
+    if (newSections.length === 0) return;
+    update([...sections, ...newSections]);
+    setSelectedSectionId(newSections[0].id);
     setSelectedFieldId(null);
   };
 

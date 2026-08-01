@@ -1989,6 +1989,7 @@ function StudioEditorPageInner() {
                       {[
                         { key: "isRequired", label: "Required", description: "Must be filled to save" },
                         { key: "isUnique",   label: "Unique",   description: "No duplicates allowed" },
+                        { key: "isConfidential", label: "Confidential", description: "Value hidden from everyone except admins, everywhere this record is shown, exported, or read via the API" },
                       ].map(({ key, label, description }) => (
                         <div key={key} className="flex items-center justify-between">
                           <div>

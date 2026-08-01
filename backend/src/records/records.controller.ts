@@ -51,6 +51,12 @@ export class RecordsController {
     private permCheck: PermissionCheckService,
   ) {}
 
+  // Field-Level Confidentiality bypass — Phase 1: admins only. A future
+  // per-user/time-limited grant system will extend this, not replace it.
+  private canSeeConfidential(user: any): boolean {
+    return ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
+  }
+
   @Post()
   async create(@Param('moduleId') moduleId: string, @Body() body: any, @CurrentUser() user: any) {
     await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canCreate');
@@ -59,7 +65,7 @@ export class RecordsController {
 
   @Get()
   findAll(@Param('moduleId') moduleId: string, @Query() query: any, @CurrentUser() user: any) {
-    return this.recordsService.findAll(moduleId, user.organizationId, query);
+    return this.recordsService.findAll(moduleId, user.organizationId, query, this.canSeeConfidential(user));
   }
 
   // Registered before the ':id' route below — Nest matches in declaration order, and 'id' would
@@ -75,7 +81,7 @@ export class RecordsController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.recordsService.findOne(id, user.organizationId);
+    return this.recordsService.findOne(id, user.organizationId, this.canSeeConfidential(user));
   }
 
   @Patch(':id')
@@ -85,7 +91,7 @@ export class RecordsController {
     return this.recordsService.update(id, user.organizationId, user.id, data, {
       role: user.role,
       lockOverrideReason,
-    });
+    }, this.canSeeConfidential(user));
   }
 
   @Delete(':id')
@@ -142,7 +148,7 @@ export class RecordsController {
     @Res() res: Response,
   ) {
     await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canExport');
-    const csv = await this.recordsService.exportCsv(moduleId, user.organizationId, filterGroup);
+    const csv = await this.recordsService.exportCsv(moduleId, user.organizationId, filterGroup, this.canSeeConfidential(user));
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="export-${Date.now()}.csv"`);
     res.send(csv);
@@ -161,7 +167,7 @@ export class RecordsController {
   @Post(':id/duplicate')
   async duplicate(@Param('moduleId') moduleId: string, @Param('id') id: string, @CurrentUser() user: any) {
     await this.permCheck.enforceModulePerm(user.id, user.organizationId, moduleId, 'canCreate');
-    return this.recordsService.duplicate(id, user.organizationId, user.id);
+    return this.recordsService.duplicate(id, user.organizationId, user.id, this.canSeeConfidential(user));
   }
 
   @Patch(':id/archive')

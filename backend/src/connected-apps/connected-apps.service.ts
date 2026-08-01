@@ -175,7 +175,9 @@ export class ConnectedAppsService {
       include: { _count: { select: { scopes: true, tokens: true } } },
       orderBy: { connectedAt: 'desc' },
     });
-    return apps.map(({ clientSecretHash, webhookSecretEnc, ...safe }) => safe);
+    return apps.map(({ clientSecretHash, webhookSecretEnc, ...safe }) => ({
+      ...safe, hasWebhookSecret: !!webhookSecretEnc,
+    }));
   }
 
   async getApp(orgId: string, role: string, id: string) {
@@ -186,7 +188,29 @@ export class ConnectedAppsService {
     });
     if (!app) throw new NotFoundException('Connected app not found');
     const { clientSecretHash, webhookSecretEnc, ...safe } = app;
-    return safe;
+    return { ...safe, hasWebhookSecret: !!webhookSecretEnc };
+  }
+
+  // Real-time sync target for this connected app, pasted in by the CRM admin
+  // from values the external app generated on its own side — never
+  // auto-generated here (see WebhookDispatchService for how these get used).
+  // webhookUrl: '' clears it. webhookSecret: omitted/blank leaves the
+  // currently stored secret untouched, since it's never re-displayed.
+  async updateWebhookConfig(orgId: string, role: string, id: string, dto: { webhookUrl?: string; webhookSecret?: string }) {
+    this.assertAdmin(role);
+    const app = await this.prisma.connectedApp.findFirst({ where: { id, organizationId: orgId } });
+    if (!app) throw new NotFoundException('Connected app not found');
+
+    const data: { webhookUrl?: string | null; webhookSecretEnc?: string } = {};
+    if (dto.webhookUrl !== undefined) {
+      data.webhookUrl = dto.webhookUrl.trim() === '' ? null : dto.webhookUrl.trim();
+    }
+    if (dto.webhookSecret !== undefined && dto.webhookSecret.trim() !== '') {
+      data.webhookSecretEnc = encrypt(dto.webhookSecret.trim());
+    }
+
+    await this.prisma.connectedApp.update({ where: { id }, data });
+    return this.getApp(orgId, role, id);
   }
 
   async updateScopes(orgId: string, role: string, id: string, scopes: ScopeGrantDto[]) {

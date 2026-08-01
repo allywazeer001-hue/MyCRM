@@ -110,6 +110,11 @@ export class PortalPadminController {
     return this.builderService.createSectionFromModule(user.organizationId, pageId, dto);
   }
 
+  @Post('pages/:pageId/sections/from-module-batch')
+  createSectionsFromModule(@CurrentPortalUser() user: any, @Param('pageId') pageId: string, @Body() dto: any) {
+    return this.builderService.createSectionsFromModule(user.organizationId, pageId, dto);
+  }
+
   @Patch('pages/:pageId/primary-module')
   setPagePrimaryModule(@CurrentPortalUser() user: any, @Param('pageId') pageId: string, @Body() dto: any) {
     return this.builderService.setPagePrimaryModule(user.organizationId, pageId, dto);

@@ -397,6 +397,40 @@ export class ProcessService {
         },
       });
 
+      const record = await this.prisma.record.findUnique({
+        where: { id: instance.recordId },
+      });
+      if (record) {
+        const blueprint = await this.prisma.processBlueprint.findUnique({
+          where: { id: instance.blueprintId },
+          select: { triggerField: true },
+        });
+        const statusField = blueprint?.triggerField || 'status';
+        const recordData = (record.data as any) || {};
+        const updatedRecord = await this.prisma.record.update({
+          where: { id: instance.recordId },
+          data: {
+            data: {
+              ...recordData,
+              [statusField]: action === 'reject' ? 'Rejected' : 'Approved',
+            },
+            updatedById: actorId,
+          },
+        });
+        this.gateway.emitToModule(instance.recordModule, 'record:updated', {
+          id: instance.recordId,
+          moduleId: instance.recordModule,
+          data: updatedRecord.data,
+          updatedAt: updatedRecord.updatedAt,
+        });
+        this.gateway.emitToOrg(instance.organizationId, 'record:updated', {
+          id: instance.recordId,
+          moduleId: instance.recordModule,
+          data: updatedRecord.data,
+          updatedAt: updatedRecord.updatedAt,
+        });
+      }
+
       await this.prisma.processTimeline.create({
         data: {
           instanceId: instance.id,

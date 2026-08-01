@@ -3,13 +3,14 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plug, Loader2, Check, X, Eye, Ban, RotateCcw, KeyRound,
-  Copy, AlertTriangle, ShieldCheck, Activity, Settings2,
+  Copy, AlertTriangle, ShieldCheck, Activity, Settings2, Webhook,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
@@ -210,6 +211,64 @@ function ViewPermissionsDialog({ request, scopeOptions, onClose }: { request: an
   );
 }
 
+// ── Real-time Sync (webhook) config ─────────────────────────────────────────
+// Values come from the external app's own side (e.g. Inventory's Sync
+// Settings screen) — the CRM admin just pastes them in here. The secret is
+// never sent back down after being saved, so the field always starts blank;
+// leaving it blank on a later save keeps whatever's already stored.
+function WebhookConfigSection({ appId, webhookUrl, hasWebhookSecret, onSaved }: {
+  appId: string; webhookUrl?: string | null; hasWebhookSecret?: boolean; onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [url, setUrl] = useState(webhookUrl || "");
+  const [secret, setSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/connected-apps/${appId}/webhook`, {
+        webhookUrl: url,
+        ...(secret.trim() ? { webhookSecret: secret.trim() } : {}),
+      });
+      setSecret("");
+      toast.success("Sync settings saved");
+      onSaved();
+    } catch (e: any) {
+      toast.error("Failed to save", e?.response?.data?.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 pt-1">
+      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+        <Webhook className="w-3.5 h-3.5" /> Real-time Sync — pushes a signed webhook to this app whenever a record it can access changes.
+      </p>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600">Webhook URL</label>
+        <Input
+          placeholder="https://example.com/api/connections/webhook/{connectionId}"
+          value={url} onChange={e => setUrl(e.target.value)} className="text-xs font-mono"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600">
+          Webhook Secret {hasWebhookSecret && <span className="text-emerald-600 font-normal">(configured — leave blank to keep it)</span>}
+        </label>
+        <Input
+          type="password" placeholder={hasWebhookSecret ? "••••••••••••••••" : "Paste the hex secret from the external app"}
+          value={secret} onChange={e => setSecret(e.target.value)} className="text-xs font-mono"
+        />
+      </div>
+      <Button size="sm" onClick={save} disabled={saving} className="mt-1">
+        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Save sync settings
+      </Button>
+    </div>
+  );
+}
+
 function AppDetailDialog({ app, scopeOptions, onClose, onStatusChanged }: {
   app: any; scopeOptions: ScopeOption[]; onClose: () => void; onStatusChanged: () => void;
 }) {
@@ -217,9 +276,11 @@ function AppDetailDialog({ app, scopeOptions, onClose, onStatusChanged }: {
   const [detail, setDetail] = useState<any>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  const loadDetail = useCallback(() => {
     api.get(`/connected-apps/${app.id}`).then(r => setDetail(r.data));
   }, [app.id]);
+
+  useEffect(() => { loadDetail(); }, [loadDetail]);
 
   const setStatus = async (action: "suspend" | "reactivate" | "revoke") => {
     setBusy(true);
@@ -268,6 +329,12 @@ function AppDetailDialog({ app, scopeOptions, onClose, onStatusChanged }: {
                   </Badge>
                 ))}
               </div>
+            </div>
+            <div className="border-t pt-3">
+              <WebhookConfigSection
+                appId={app.id} webhookUrl={detail.webhookUrl} hasWebhookSecret={detail.hasWebhookSecret}
+                onSaved={loadDetail}
+              />
             </div>
           </div>
         )}

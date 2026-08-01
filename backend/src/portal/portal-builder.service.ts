@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -488,30 +489,40 @@ export class PortalBuilderService {
     return sections;
   }
 
-  async createSectionFromModule(orgId: string, pageId: string, dto: {
-    label: string;
-    moduleSlug: string;
-    moduleId: string;
-    sectionType?: string;
-    relationField?: string;
-    columnIndex?: number;
-    fieldIds: string[];
-  }) {
-    const page = await this.prisma.portalPage.findFirst({ where: { id: pageId, organizationId: orgId } });
-    if (!page) throw new NotFoundException('Page not found');
+  private readonly crmTypeToPortal: Record<string, string> = {
+    TEXT: 'text', TEXTAREA: 'textarea', NUMBER: 'number', DATE: 'date',
+    DATETIME: 'datetime', BOOLEAN: 'boolean', DROPDOWN: 'dropdown',
+    MULTI_SELECT: 'multiselect', FILE: 'upload', LOOKUP: 'lookup',
+    EMAIL: 'text', PHONE: 'text',
+  };
 
-    const mod = await this.prisma.dynamicModule.findFirst({
+  private async createSectionFromModuleTx(
+    tx: Prisma.TransactionClient,
+    orgId: string,
+    pageId: string,
+    dto: {
+      label: string;
+      moduleSlug: string;
+      moduleId: string;
+      sectionType?: string;
+      relationField?: string;
+      columnIndex?: number;
+      fieldIds: string[];
+    },
+    orderOffset: number,
+  ) {
+    const mod = await tx.dynamicModule.findFirst({
       where: { id: dto.moduleId, organizationId: orgId },
-      include: { fields: { where: { isActive: true } } },
+      include: { fields: { where: { isActive: true }, include: { options: { orderBy: { order: 'asc' } } } } },
     });
     if (!mod) throw new NotFoundException('Module not found');
 
-    const siblings = await this.prisma.portalSection.findMany({
+    const siblings = await tx.portalSection.findMany({
       where: { portalPageId: pageId }, orderBy: { order: 'desc' }, take: 1,
     });
-    const nextOrder = siblings.length > 0 ? siblings[0].order + 1 : 0;
+    const nextOrder = (siblings.length > 0 ? siblings[0].order + 1 : 0) + orderOffset;
 
-    const section = await this.prisma.portalSection.create({
+    const section = await tx.portalSection.create({
       data: {
         organizationId: orgId,
         label: dto.label,
@@ -525,25 +536,23 @@ export class PortalBuilderService {
       } as any,
     });
 
-    const crmTypeToPortal: Record<string, string> = {
-      TEXT: 'text', TEXTAREA: 'textarea', NUMBER: 'number', DATE: 'date',
-      DATETIME: 'datetime', BOOLEAN: 'boolean', DROPDOWN: 'dropdown',
-      MULTI_SELECT: 'multiselect', FILE: 'upload', LOOKUP: 'lookup',
-      EMAIL: 'text', PHONE: 'text',
-    };
-
     const selectedFields = dto.fieldIds.length > 0
       ? mod.fields.filter(f => dto.fieldIds.includes(f.id))
       : mod.fields.slice(0, 8);
 
     for (let i = 0; i < selectedFields.length; i++) {
       const f = selectedFields[i];
-      await this.prisma.portalField.create({
+      await tx.portalField.create({
         data: {
           organizationId: orgId,
           label: f.label,
           fieldKey: `${dto.moduleSlug}_${f.name}_${Date.now()}${i}`,
-          fieldType: crmTypeToPortal[f.type] ?? 'text',
+          fieldType: this.crmTypeToPortal[f.type] ?? 'text',
+          placeholder: f.placeholder ?? null,
+          helpText: f.helpText ?? null,
+          defaultValue: f.defaultValue ?? null,
+          options: f.options.map(o => ({ label: o.label, value: o.value, color: o.color })),
+          isRequired: f.isRequired,
           isEditable: true,
           isVisible: true,
           order: i,
@@ -555,11 +564,54 @@ export class PortalBuilderService {
       });
     }
 
-    const created = await this.prisma.portalSection.findFirst({
+    const created = await tx.portalSection.findFirst({
       where: { id: section.id },
       include: { fields: { orderBy: { order: 'asc' } } },
     });
     return created;
+  }
+
+  async createSectionFromModule(orgId: string, pageId: string, dto: {
+    label: string;
+    moduleSlug: string;
+    moduleId: string;
+    sectionType?: string;
+    relationField?: string;
+    columnIndex?: number;
+    fieldIds: string[];
+  }) {
+    const page = await this.prisma.portalPage.findFirst({ where: { id: pageId, organizationId: orgId } });
+    if (!page) throw new NotFoundException('Page not found');
+
+    return this.prisma.$transaction((tx) =>
+      this.createSectionFromModuleTx(tx, orgId, pageId, dto, 0),
+    );
+  }
+
+  async createSectionsFromModule(orgId: string, pageId: string, dto: {
+    sections: Array<{
+      label: string;
+      moduleSlug: string;
+      moduleId: string;
+      sectionType?: string;
+      relationField?: string;
+      columnIndex?: number;
+      fieldIds: string[];
+    }>;
+  }) {
+    const page = await this.prisma.portalPage.findFirst({ where: { id: pageId, organizationId: orgId } });
+    if (!page) throw new NotFoundException('Page not found');
+    if (!dto.sections || dto.sections.length === 0) {
+      throw new BadRequestException('At least one section is required');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const created = [];
+      for (let i = 0; i < dto.sections.length; i++) {
+        created.push(await this.createSectionFromModuleTx(tx, orgId, pageId, dto.sections[i], i));
+      }
+      return created;
+    });
   }
 
   async setPagePrimaryModule(orgId: string, pageId: string, dto: {

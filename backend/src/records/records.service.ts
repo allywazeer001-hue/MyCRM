@@ -7,6 +7,7 @@ import { RelationResolverService } from './relation-resolver.service';
 import { AppGateway } from '../websocket/app.gateway';
 import { getLockInfoForRecordData, partitionLockedFields, resolveStageLock } from '../blueprints/field-lock';
 import { conditionTreeToPrismaWhere } from './integration-filter';
+import { WebhookDispatchService } from '../connected-apps/webhook-dispatch.service';
 @Injectable()
 export class RecordsService {
   constructor(
@@ -16,6 +17,7 @@ export class RecordsService {
     private readonly blueprints: BlueprintsService,
     private readonly resolver: RelationResolverService,
     private readonly gateway: AppGateway,
+    private readonly webhookDispatch: WebhookDispatchService,
   ) {}
 
   async create(moduleId: string, orgId: string, userId: string, data: Record<string, any>) {
@@ -48,6 +50,7 @@ export class RecordsService {
     this.workflows.executeForRecord('RECORD_CREATED', moduleId, orgId, record).catch(() => {});
     this.processService.triggerForRecord(record.id, moduleId, "status", (enrichedData as any).status || "", userId, orgId).catch(() => {});
     this.blueprints.evaluateAutomaticTransitions(record.id, orgId, userId, 'on_create').catch(() => {});
+    this.webhookDispatch.dispatchRecordChange(moduleId, orgId, record.id).catch(() => {});
 
     return record;
   }
@@ -109,7 +112,7 @@ export class RecordsService {
       .sort((a, b) => a.localeCompare(b));
   }
 
-  async findAll(moduleId: string, orgId: string, query: any) {
+  async findAll(moduleId: string, orgId: string, query: any, canSeeConfidential = false) {
     const { page = 1, limit = 25, search, filterGroup, sortField, sortDir, showArchived } = query;
     const where: any = { moduleId, organizationId: orgId, isDeleted: false };
     if (!showArchived || showArchived === 'false') where.isArchived = false;
@@ -158,7 +161,7 @@ export class RecordsService {
       : records;
 
     const moduleFields = await this.prisma.field.findMany({ where: { moduleId, isActive: true }, include: { options: true } });
-    const resolvedData = await this.resolver.resolveRecords(paged, moduleFields);
+    const resolvedData = await this.resolver.resolveRecords(paged, moduleFields, canSeeConfidential);
 
     return {
       data: resolvedData,
@@ -206,7 +209,7 @@ export class RecordsService {
     }
   }
 
-  async findOne(id: string, orgId: string) {
+  async findOne(id: string, orgId: string, canSeeConfidential = false) {
     const record = await this.prisma.record.findFirst({
       where: { id, organizationId: orgId, isDeleted: false },
       include: {
@@ -223,7 +226,7 @@ export class RecordsService {
     });
     if (!record) throw new NotFoundException('Record not found');
     const moduleFields = record.module?.fields ?? await this.prisma.field.findMany({ where: { moduleId: record.moduleId, isActive: true }, include: { options: true } });
-    return this.resolver.resolveRecord(record, moduleFields);
+    return this.resolver.resolveRecord(record, moduleFields, canSeeConfidential);
   }
 
   async update(
@@ -232,6 +235,7 @@ export class RecordsService {
     userId: string,
     data: Record<string, any>,
     lockCtx?: { role?: string; lockOverrideReason?: string },
+    canSeeConfidential = false,
   ) {
     const where: any = orgId ? { id, organizationId: orgId, isDeleted: false } : { id, isDeleted: false };
     const record = await this.prisma.record.findFirst({ where });
@@ -252,6 +256,19 @@ export class RecordsService {
     const submittedData = { ...data };
     if (blueprint?.statusFieldName && blueprint.statusFieldName in submittedData) {
       delete submittedData[blueprint.statusFieldName];
+    }
+
+    // Field-Level Confidentiality: a non-privileged caller's own copy of this
+    // record never had the real value in the first place (it was stripped on
+    // fetch) — so whatever they submit for a confidential field is either
+    // stale or blank. Drop it here rather than trust the client, otherwise
+    // any save from a non-admin viewer silently wipes the real value.
+    if (!canSeeConfidential) {
+      const confidentialFields = await this.prisma.field.findMany({
+        where: { moduleId: record.moduleId, isActive: true, isConfidential: true },
+        select: { name: true },
+      });
+      for (const f of confidentialFields) delete submittedData[f.name];
     }
 
     const existingData = (record.data as Record<string, any>) || {};
@@ -322,6 +339,7 @@ export class RecordsService {
     this.blueprints.evaluateAutomaticTransitions(
       id, auditOrgId, userId, 'on_edit', Object.keys(lockedFilteredData), existingData,
     ).catch(() => {});
+    this.webhookDispatch.dispatchRecordChange(record.moduleId, auditOrgId, id).catch(() => {});
 
     return { ...updated, _lockWarnings: skipped };
   }
@@ -430,7 +448,7 @@ export class RecordsService {
 
   // ── Duplicate record ────────────────────────────────────────────────────────
 
-  async duplicate(id: string, orgId: string, userId: string) {
+  async duplicate(id: string, orgId: string, userId: string, canSeeConfidential = false) {
     const record = await this.prisma.record.findFirst({ where: { id, organizationId: orgId, isDeleted: false } });
     if (!record) throw new NotFoundException('Record not found');
 
@@ -467,7 +485,10 @@ export class RecordsService {
       },
     });
 
-    return newRecord;
+    // The stored copy always carries the real confidential values (storage
+    // is not a view-time concern) — but the RESPONSE must be masked the same
+    // way any other record read is, so this doesn't become a bypass route.
+    return this.resolver.resolveRecord(newRecord, mod?.fields ?? [], canSeeConfidential);
   }
 
   // ── Archive / Lock ───────────────────────────────────────────────────────────
@@ -506,14 +527,14 @@ export class RecordsService {
     return { success: true, isLocked: locked };
   }
 
-  async exportCsv(moduleId: string, orgId: string, filterGroup?: string): Promise<string> {
+  async exportCsv(moduleId: string, orgId: string, filterGroup?: string, canSeeConfidential = false): Promise<string> {
     const mod = await this.prisma.dynamicModule.findFirst({
       where: { id: moduleId, organizationId: orgId },
       include: { fields: { where: { isActive: true }, orderBy: { order: 'asc' } } },
     });
     if (!mod) throw new NotFoundException('Module not found');
 
-    const result = await this.findAll(moduleId, orgId, { page: 1, limit: 5000, filterGroup });
+    const result = await this.findAll(moduleId, orgId, { page: 1, limit: 5000, filterGroup }, canSeeConfidential);
     const fields = mod.fields.filter(f => !['FILE', 'IMAGE', 'SIGNATURE'].includes(f.type));
 
     const esc = (v: any) => {

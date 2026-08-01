@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ConnectedAppsService } from './connected-apps.service';
 import { UpdateScopesDto } from './dto/update-scopes.dto';
+import { UpdateWebhookDto } from './dto/update-webhook.dto';
 
 @ApiTags('connected-apps')
 @ApiBearerAuth()
@@ -30,6 +31,11 @@ export class ConnectedAppsController {
   @Patch(':id/scopes')
   updateScopes(@Param('id') id: string, @Body() dto: UpdateScopesDto, @CurrentUser() user: any) {
     return this.service.updateScopes(user.organizationId, user.role, id, dto.scopes);
+  }
+
+  @Patch(':id/webhook')
+  updateWebhook(@Param('id') id: string, @Body() dto: UpdateWebhookDto, @CurrentUser() user: any) {
+    return this.service.updateWebhookConfig(user.organizationId, user.role, id, dto);
   }
 
   @Post(':id/suspend')

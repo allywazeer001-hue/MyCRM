@@ -1860,6 +1860,27 @@ export default function RecordDetailPage() {
       (evalLayoutRule((field as any).settings, liveData).required)
     );
     const isStageLocked = stageLockedFields.includes(field.name) && !unlockedFields.has(field.name);
+
+    // Field-Level Confidentiality: mirrors the backend's own bypass rule
+    // (RecordsController.canSeeConfidential) — the server already stripped
+    // this value from `data` for anyone who isn't privileged, so this just
+    // decides what placeholder to show instead of leaving it blank.
+    if ((field as any).isConfidential && !perm.isAdmin) {
+      return (
+        <div key={field.id} className={cn("space-y-1.5", FULL_WIDTH_TYPES.includes(field.type) && fullWidthClass)}>
+          <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{field.label}</dt>
+          <dd>
+            <span
+              className="inline-flex items-center gap-1.5 text-xs text-gray-400 italic"
+              title="This field is marked confidential. Contact your supervisor or department head to request access."
+            >
+              <Lock className="w-3 h-3" /> Confidential
+            </span>
+          </dd>
+        </div>
+      );
+    }
+
     return (
       <div key={field.id} className={cn(
         "space-y-1.5",

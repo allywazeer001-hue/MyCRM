@@ -340,6 +340,11 @@ model Field {
   isReadonly        Boolean   @default(false)
   isHidden          Boolean   @default(false)
   isActive          Boolean   @default(true)
+  // Value is stripped server-side (RelationResolverService.resolveRecords)
+  // from every record read for any viewer without an explicit grant — see
+  // Field-Level Confidentiality. Phase 1: only SUPER_ADMIN/ADMIN bypass this;
+  // per-user time-limited grants are a planned follow-up, not built yet.
+  isConfidential    Boolean   @default(false)
   placeholder       String?
   helpText          String?
   defaultValue      String?
@@ -2240,7 +2245,13 @@ model ConnectedApp {
   publicKey          String?            @db.Text
   clientId           String             @unique
   clientSecretHash   String
-  // AES-256-GCM ciphertext, unpopulated/unused until webhooks (Phase 3) exist.
+  // Real-time sync target: set by the CRM admin from values generated on the
+  // external app's own side (e.g. Inventory's Sync Settings screen) — see
+  // ConnectedAppsService.updateWebhookConfig. Not the OAuth redirectUrl.
+  webhookUrl         String?
+  // AES-256-GCM ciphertext of the webhook signing secret pasted in alongside
+  // webhookUrl — decrypted only at delivery time to compute the outgoing
+  // HMAC-SHA256 signature (WebhookDispatchService), never re-displayed.
   webhookSecretEnc   String?
   status             ConnectedAppStatus @default(ACTIVE)
   connectedAt        DateTime           @default(now())
