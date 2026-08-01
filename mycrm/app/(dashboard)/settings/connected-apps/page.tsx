@@ -362,15 +362,7 @@ function AppDetailDialog({ app, scopeOptions, onClose, onStatusChanged }: {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────
 
-function ConnectedAppsTab({ scopeOptions }: { scopeOptions: ScopeOption[] }) {
-  const [apps, setApps] = useState<any[] | null>(null);
-  const [selected, setSelected] = useState<any | null>(null);
-
-  const load = useCallback(() => { api.get("/connected-apps").then(r => setApps(r.data)); }, []);
-  useEffect(() => { load(); }, [load]);
-
-  if (!apps) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
-
+function AppsTable({ apps, emptyText, onSelect }: { apps: any[]; emptyText: string; onSelect: (app: any) => void }) {
   return (
     <div className="bg-white rounded-xl border overflow-hidden">
       <div className="overflow-x-auto">
@@ -402,17 +394,45 @@ function ConnectedAppsTab({ scopeOptions }: { scopeOptions: ScopeOption[] }) {
                 <td className="px-4 py-3 text-gray-600">{formatDate(app.lastSyncAt)}</td>
                 <td className="px-4 py-3 text-gray-600">{formatDate(app.lastApiCallAt)}</td>
                 <td className="px-4 py-3 text-right">
-                  <Button size="sm" variant="outline" onClick={() => setSelected(app)}>
+                  <Button size="sm" variant="outline" onClick={() => onSelect(app)}>
                     <Eye className="w-3.5 h-3.5" /> Details
                   </Button>
                 </td>
               </tr>
             ))}
             {apps.length === 0 && (
-              <tr><td colSpan={6} className="text-center py-10 text-gray-400 text-sm">No applications have connected yet.</td></tr>
+              <tr><td colSpan={6} className="text-center py-10 text-gray-400 text-sm">{emptyText}</td></tr>
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function ConnectedAppsTab({ scopeOptions }: { scopeOptions: ScopeOption[] }) {
+  const [apps, setApps] = useState<any[] | null>(null);
+  const [selected, setSelected] = useState<any | null>(null);
+
+  const load = useCallback(() => { api.get("/connected-apps").then(r => setApps(r.data)); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (!apps) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
+
+  const granted = apps.filter(app => app.status !== "REVOKED");
+  const revoked = apps.filter(app => app.status === "REVOKED");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">Granted Access</h2>
+        <AppsTable apps={granted} emptyText="No applications have connected yet." onSelect={setSelected} />
+      </div>
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+          <Ban className="w-3.5 h-3.5 text-gray-400" /> Revoked Access
+        </h2>
+        <AppsTable apps={revoked} emptyText="No revoked applications." onSelect={setSelected} />
       </div>
       {selected && (
         <AppDetailDialog app={selected} scopeOptions={scopeOptions} onClose={() => setSelected(null)} onStatusChanged={load} />

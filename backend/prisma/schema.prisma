@@ -2225,13 +2225,19 @@ model ConnectionRequest {
   reviewedByUserId String?
   reviewedAt       DateTime?
   rejectionReason  String?
-  connectedAppId   String?                 @unique
+  // Deliberately NOT unique: an org can only ever have one live ConnectedApp
+  // per external app (see ConnectedAppsService.approveRequest), but every
+  // approve/renew still creates its own ConnectionRequest row against that
+  // same app — this is the one-to-many history of that, not the connection
+  // itself.
+  connectedAppId   String?
   createdAt        DateTime                @default(now())
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   connectedApp ConnectedApp? @relation(fields: [connectedAppId], references: [id])
 
   @@index([organizationId, status])
+  @@index([connectedAppId])
   @@map("connection_requests")
 }
 
@@ -2264,9 +2270,11 @@ model ConnectedApp {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  connectionRequest ConnectionRequest?
-  scopes            ConnectedAppScope[]
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // One-to-many: every past request that led to (or renewed) this single
+  // connection — the connection itself never duplicates, the request log can.
+  connectionRequests ConnectionRequest[]
+  scopes             ConnectedAppScope[]
   authCodes         ConnectedAppAuthCode[]
   tokens            ConnectedAppToken[]
 

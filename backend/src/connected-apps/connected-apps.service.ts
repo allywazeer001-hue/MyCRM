@@ -116,23 +116,57 @@ export class ConnectedAppsService {
     const pairingExpiresAt = new Date(Date.now() + PAIRING_CODE_TTL_MS);
 
     await this.prisma.$transaction(async tx => {
-      const app = await tx.connectedApp.create({
-        data: {
-          organizationId: orgId,
-          name: request.appName,
-          logoUrl: request.appLogoUrl,
-          developerName: request.developerName,
-          redirectUrl: request.redirectUrl,
-          publicKey: request.publicKey,
-          clientId,
-          clientSecretHash: await bcrypt.hash(clientSecret.token, 10),
-          webhookSecretEnc: encrypt(webhookSecret.token),
-          createdByUserId: adminUserId,
-          scopes: {
-            create: scopes.map(s => ({ scopeKey: s.scopeKey, access: s.access })),
-          },
-        },
+      // One ConnectedApp per organization per external app (matched on
+      // redirectUrl, its most stable identity) — approving a request from an
+      // app that's connected here before, at any status including REVOKED,
+      // renews that same row (fresh credentials, fresh scopes, back to
+      // ACTIVE) instead of accumulating a duplicate. Revoking never deletes
+      // this row, so a later re-request always finds it and renews in place.
+      const existing = await tx.connectedApp.findFirst({
+        where: { organizationId: orgId, redirectUrl: request.redirectUrl },
       });
+
+      const sharedData = {
+        name: request.appName,
+        logoUrl: request.appLogoUrl,
+        developerName: request.developerName,
+        publicKey: request.publicKey,
+        clientId,
+        clientSecretHash: await bcrypt.hash(clientSecret.token, 10),
+        webhookSecretEnc: encrypt(webhookSecret.token),
+        createdByUserId: adminUserId,
+      };
+
+      let app;
+      if (existing) {
+        await tx.connectedAppScope.deleteMany({ where: { connectedAppId: existing.id } });
+        // Renewing invalidates whatever session the old credentials held —
+        // the app must redeem the new pairing code to get a working token
+        // pair again, same as a first-time connection.
+        await tx.connectedAppToken.updateMany({
+          where: { connectedAppId: existing.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        app = await tx.connectedApp.update({
+          where: { id: existing.id },
+          data: {
+            ...sharedData,
+            status: 'ACTIVE',
+            connectedAt: new Date(),
+            scopes: { create: scopes.map(s => ({ scopeKey: s.scopeKey, access: s.access })) },
+          },
+        });
+      } else {
+        app = await tx.connectedApp.create({
+          data: {
+            ...sharedData,
+            organizationId: orgId,
+            redirectUrl: request.redirectUrl,
+            scopes: { create: scopes.map(s => ({ scopeKey: s.scopeKey, access: s.access })) },
+          },
+        });
+      }
+
       // The pairing code is what the admin actually sees; the client secret
       // it carries (encrypted) is only ever handed back once, at redemption
       // time via POST /connected-apps/pair — never displayed here.
