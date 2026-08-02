@@ -16,10 +16,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { BRAND } from "@/lib/core-brand";
 
-// Same gradient/stops as components/announcement-banner.tsx, reoriented
-// top-to-bottom for this tall/narrow surface instead of the banner's
-// left-to-right strip.
-const SIDEBAR_GRADIENT = "linear-gradient(180deg, #1e1b4b 0%, #3730a3 55%, #2563eb 100%)";
+// First two stops of the announcement-banner gradient (components/announcement-banner.tsx),
+// third stop (#2563eb) dropped per feedback; reoriented top-to-bottom for
+// this tall/narrow surface instead of the banner's left-to-right strip.
+const SIDEBAR_GRADIENT = "linear-gradient(180deg, #1e1b4b 0%, #3730a3 100%)";
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
