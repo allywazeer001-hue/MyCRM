@@ -316,7 +316,7 @@ export default function LandingPage() {
       {/* ── Nav ── */}
       <nav className="relative z-10 flex items-center justify-between px-6 md:px-14 py-5 border-b border-white/[0.05]">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-900/60">
+          <div className="w-9 h-9 bg-gradient-to-r from-indigo-950 to-indigo-800 rounded-xl flex items-center justify-center shadow-xl shadow-indigo-900/60">
             <LogoMark size={18} className="text-white" />
           </div>
           <span className="font-bold text-lg tracking-tight">{BRAND.name}</span>
@@ -328,7 +328,7 @@ export default function LandingPage() {
           <Link href="/login" className="text-sm text-white/50 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all">
             Sign in
           </Link>
-          <Link href="/register" className="text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-900/50 flex items-center gap-1.5">
+          <Link href="/register" className="text-sm font-semibold bg-gradient-to-r from-indigo-950 to-indigo-800 hover:brightness-110 text-white px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-900/50 flex items-center gap-1.5">
             Get Started <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -384,7 +384,7 @@ export default function LandingPage() {
               className="flex flex-col sm:flex-row gap-4"
               style={{ opacity: 0, animation: "fadeSlideIn 0.7s ease 0.5s forwards" }}
             >
-              <Link href="/register" className="inline-flex items-center gap-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-4 rounded-xl text-base transition-all shadow-2xl shadow-blue-900/60 hover:-translate-y-0.5">
+              <Link href="/register" className="inline-flex items-center gap-2.5 bg-gradient-to-r from-indigo-950 to-indigo-800 hover:brightness-110 text-white font-bold px-8 py-4 rounded-xl text-base transition-all shadow-2xl shadow-indigo-900/60 hover:-translate-y-0.5">
                 {config.heroCta1} <ArrowRight className="w-4 h-4" />
               </Link>
               <Link href="/login" className="inline-flex items-center gap-2 bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] hover:border-white/[0.14] text-white/70 hover:text-white font-semibold px-8 py-4 rounded-xl text-base transition-all">
@@ -414,7 +414,7 @@ export default function LandingPage() {
                 <div className="absolute -inset-4 bg-blue-500/10 rounded-3xl blur-2xl" />
                 <DashboardMockup />
                 {/* Floating badge */}
-                <div className="absolute -top-3 -right-3 bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg animate-bounce">
+                <div className="absolute -top-3 -right-3 bg-gradient-to-r from-indigo-950 to-indigo-800 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg animate-bounce">
                   Live Data
                 </div>
               </div>
@@ -666,8 +666,8 @@ export default function LandingPage() {
               rel="noopener noreferrer"
               className="shrink-0 inline-flex items-center gap-2 font-bold text-sm px-6 py-3 rounded-xl transition-all hover:-translate-y-0.5"
               style={{
-                background: "rgba(37,99,235,0.9)",
-                boxShadow: "0 0 0 1px rgba(59,130,246,0.4)",
+                background: "linear-gradient(90deg, rgba(30,27,75,0.9), rgba(55,48,163,0.9))",
+                boxShadow: "0 0 0 1px rgba(55,48,163,0.4)",
                 color: "#fff",
               }}
             >

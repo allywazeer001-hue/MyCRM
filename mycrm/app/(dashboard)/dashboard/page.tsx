@@ -235,7 +235,7 @@ function OrgSummaryView() {
     <div className="space-y-6">
       {/* Org name */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-950 to-indigo-800 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
           {orgName[0]?.toUpperCase()}
         </div>
         <div>
