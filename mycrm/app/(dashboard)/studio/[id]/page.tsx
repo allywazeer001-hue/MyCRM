@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Plus, Minus, GripVertical, X, Settings, Eye, Save, Loader2,
   ChevronDown, ChevronUp, Search, Workflow, AlertCircle, Trash2,
-  ChevronRight, ArrowRight, CheckCircle2, Info, Globe, LayoutGrid, LayoutTemplate,
+  ChevronRight, ArrowRight, CheckCircle2, Info, Globe, LayoutTemplate,
 } from "lucide-react";
 import {
   DndContext, DragEndEvent, DragStartEvent, DragOverEvent,
@@ -342,6 +342,7 @@ function ModulePropertiesPanel({
           iconClassName="bg-blue-100 text-blue-600"
           title="Portal Access"
           summary={portalEnabled === null ? undefined : portalEnabled ? "Enabled" : "Disabled"}
+          defaultOpen={false}
         >
           <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
             <div>
@@ -362,49 +363,20 @@ function ModulePropertiesPanel({
           )}
         </CollapsibleSection>
 
-        {/* Kanban grouping field */}
-        <CollapsibleSection
-          icon={LayoutGrid}
-          iconClassName="bg-violet-100 text-violet-600"
-          title="Kanban View"
-          summary={
-            kanbanSaving ? "Saving…"
-            : kanbanEligibleFields.length === 0 ? "No eligible fields"
-            : kanbanFieldId ? (kanbanEligibleFields.find(f => f.id === kanbanFieldId)?.label ?? "Auto-detect")
-            : "Auto-detect"
-          }
-        >
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 space-y-2">
-            <p className="text-sm font-medium text-gray-700">Group columns by</p>
-            {kanbanEligibleFields.length === 0 ? (
-              <p className="text-xs text-gray-400">Add a Status or Dropdown field to enable Kanban view.</p>
-            ) : (
-              <>
-                <Select value={kanbanFieldId || "__auto__"} onValueChange={handleKanbanFieldChange}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__auto__">Auto-detect (first Status/Dropdown field)</SelectItem>
-                    {kanbanEligibleFields.map(f => (
-                      <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-400">Which field's values become the Kanban board's columns.</p>
-              </>
-            )}
-          </div>
-        </CollapsibleSection>
-
-        {/* Record Layout — Tabs (shared by Standard's custom tabs and Split
-            Panel's section tabs), style, and Main Tab (Split Panel only) */}
+        {/* Module Layout — Layout (record detail tabs/style/main) + View (Kanban grouping) */}
         <CollapsibleSection
           icon={LayoutTemplate}
           iconClassName="bg-amber-100 text-amber-600"
-          title="Record Layout"
-          summary={((layoutConfig as any).recordDetailStyle ?? "standard") === "split-panel" ? "Split Panel" : "Standard"}
+          title="Module Layout"
+          summary={`${((layoutConfig as any).recordDetailStyle ?? "standard") === "split-panel" ? "Split Panel" : "Standard"} · ${
+            kanbanSaving ? "Saving…"
+            : kanbanEligibleFields.length === 0 ? "No Kanban"
+            : kanbanFieldId ? (kanbanEligibleFields.find(f => f.id === kanbanFieldId)?.label ?? "Auto-detect")
+            : "Auto-detect"
+          }`}
+          defaultOpen={false}
         >
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Layout</p>
           <div className="space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
             <p className="text-sm font-medium text-gray-700">Tabs</p>
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -522,6 +494,29 @@ function ModulePropertiesPanel({
               </div>
             );
           })()}
+
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-1">View</p>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 space-y-2">
+            <p className="text-sm font-medium text-gray-700">Kanban — group columns by</p>
+            {kanbanEligibleFields.length === 0 ? (
+              <p className="text-xs text-gray-400">Add a Status or Dropdown field to enable Kanban view.</p>
+            ) : (
+              <>
+                <Select value={kanbanFieldId || "__auto__"} onValueChange={handleKanbanFieldChange}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto__">Auto-detect (first Status/Dropdown field)</SelectItem>
+                    {kanbanEligibleFields.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-400">Which field's values become the Kanban board's columns.</p>
+              </>
+            )}
+          </div>
         </CollapsibleSection>
 
         <Separator />
@@ -589,6 +584,37 @@ function isConditionGroup(n: ModuleRuleConditionNode): n is ModuleRuleConditionG
 // Total leaf-condition count across a whole tree — used for the collapsed rule summary.
 function countConditionLeaves(nodes: ModuleRuleConditionNode[]): number {
   return nodes.reduce((sum, n) => sum + (isConditionGroup(n) ? countConditionLeaves(n.children) : 1), 0);
+}
+
+// Human-readable "field operator value" text for one leaf condition — looks up
+// the field's label and, for dropdown/status/radio/multi-select fields, the
+// option's label instead of its raw stored value, so the summary reads the
+// way an admin thinks about it rather than showing internal option values.
+function summarizeConditionLeaf(cond: ModuleRuleCondition, fields: Field[]): string {
+  const field = fields.find(f => f.name === cond.whenField);
+  const fieldLabel = field?.label ?? cond.whenField ?? "(field)";
+  const opLabel = OP_OPTS.find(o => o.value === cond.operator)?.label ?? cond.operator;
+  const options: any[] = field && ["DROPDOWN", "STATUS", "RADIO", "MULTI_SELECT"].includes(field.type) ? (field as any).options ?? [] : [];
+  const labelFor = (v: string) => options.find(o => (o.value || o.label) === v)?.label ?? v;
+
+  if (cond.operator === "is_empty" || cond.operator === "not_empty") return `${fieldLabel} ${opLabel}`;
+  if (cond.operator === "in" || cond.operator === "not_in") {
+    const vals = (cond.whenValues ?? []).map(labelFor);
+    return `${fieldLabel} ${opLabel} ${vals.length ? vals.join(", ") : "(none)"}`;
+  }
+  return `${fieldLabel} ${opLabel} ${cond.whenValue ? labelFor(cond.whenValue) : "(empty)"}`;
+}
+
+// Recursively renders a condition tree as one summary line, e.g.
+// "Status equals Active AND (Priority is any of High, Urgent OR Owner is empty)".
+function summarizeConditions(nodes: ModuleRuleConditionNode[], logic: ModuleRuleLogic, fields: Field[]): string {
+  if (nodes.length === 0) return "No conditions yet";
+  const parts = nodes.map(n =>
+    isConditionGroup(n)
+      ? `(${summarizeConditions(n.children, n.operator, fields)})`
+      : summarizeConditionLeaf(n, fields)
+  );
+  return parts.join(` ${logic} `);
 }
 
 function newConditionGroup(): ModuleRuleConditionGroup {
@@ -887,6 +913,18 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange, defaultF
       return next;
     });
 
+  // Independent of the whole-rule collapse above — lets the "When" block
+  // itself shrink into a one-line summary once conditions are configured,
+  // so the panel stays readable while the user moves on to "Then" (actions)
+  // instead of the full condition tree staying expanded the whole time.
+  const [collapsedConditionIds, setCollapsedConditionIds] = useState<Set<string>>(new Set());
+  const toggleConditionsCollapsed = (ruleId: string) =>
+    setCollapsedConditionIds(prev => {
+      const next = new Set(prev);
+      next.has(ruleId) ? next.delete(ruleId) : next.add(ruleId);
+      return next;
+    });
+
   const save = (newRules: ModuleLayoutRule[]) =>
     onLayoutChange({ ...layoutConfig, rules: newRules } as any);
 
@@ -1035,24 +1073,44 @@ function ModuleLayoutRulesPanel({ fields, layoutConfig, onLayoutChange, defaultF
             {!collapsed && (
             <div className="p-3 space-y-3">
 
-              {/* ── WHEN (conditions) ── */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">When</p>
+              {/* ── WHEN (conditions) — collapses to a one-line summary independently
+                     of the whole-rule collapse above, so the block shrinks once
+                     configured instead of staying expanded while the user works
+                     on "Then" below. ── */}
+              {(() => {
+                const conditionsCollapsed = collapsedConditionIds.has(rule.id);
+                return (
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleConditionsCollapsed(rule.id)}
+                      className="w-full flex items-center gap-1.5 text-left"
+                    >
+                      <ChevronDown className={cn("w-3 h-3 text-gray-400 shrink-0 transition-transform", conditionsCollapsed && "-rotate-90")} />
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">When</p>
+                      {conditionsCollapsed && (
+                        <p className="text-[11px] text-gray-500 truncate">— {summarizeConditions(rule.conditions, rule.conditionLogic, fields)}</p>
+                      )}
+                    </button>
 
-                <ConditionNodeList
-                  ruleId={rule.id}
-                  groupId={null}
-                  nodes={rule.conditions}
-                  logic={rule.conditionLogic}
-                  fields={fields}
-                  depth={0}
-                  onUpdateLogic={(groupId, logic) => updateGroupLogic(rule.id, groupId, logic)}
-                  onAddCondition={addCondition}
-                  onAddGroup={addConditionGroup}
-                  onUpdateNode={updateConditionNode}
-                  onRemoveNode={removeConditionNode}
-                />
-              </div>
+                    {!conditionsCollapsed && (
+                      <ConditionNodeList
+                        ruleId={rule.id}
+                        groupId={null}
+                        nodes={rule.conditions}
+                        logic={rule.conditionLogic}
+                        fields={fields}
+                        depth={0}
+                        onUpdateLogic={(groupId, logic) => updateGroupLogic(rule.id, groupId, logic)}
+                        onAddCondition={addCondition}
+                        onAddGroup={addConditionGroup}
+                        onUpdateNode={updateConditionNode}
+                        onRemoveNode={removeConditionNode}
+                      />
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* ── THEN (actions) ── */}
               <div className="space-y-1.5 pt-2 border-t border-gray-100">
