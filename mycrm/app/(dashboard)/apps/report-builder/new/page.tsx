@@ -524,22 +524,31 @@ export default function NewReportPage() {
         </div>
       </div>
 
-      {/* Step indicator */}
+      {/* Step indicator — in Edit mode every step is already populated (the
+          existing report's module/columns/filters/etc. all load up front),
+          so jumping straight to any step makes sense; in Create mode each
+          step still gates on the previous one being filled in. */}
       <div className="flex items-center gap-0 overflow-x-auto pb-1">
         {STEPS.map(({ label, Icon }, i) => {
           const n = i + 1;
           const done = step > n;
           const active = step === n;
+          const clickable = !!editId && n !== step;
+          const chip = (
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              active  ? "bg-brand text-white" :
+              done    ? "text-blue-600" :
+                        "text-gray-400"
+            } ${clickable ? "hover:bg-gray-100 cursor-pointer" : ""}`}>
+              {done ? <Check className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{label}</span>
+            </div>
+          );
           return (
             <div key={label} className="flex items-center shrink-0">
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                active  ? "bg-brand text-white" :
-                done    ? "text-blue-600" :
-                          "text-gray-400"
-              }`}>
-                {done ? <Check className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">{label}</span>
-              </div>
+              {clickable ? (
+                <button type="button" onClick={() => setStep(n)}>{chip}</button>
+              ) : chip}
               {i < STEPS.length - 1 && (
                 <ChevronRight className={`w-3.5 h-3.5 mx-0.5 ${done ? "text-blue-300" : "text-gray-200"}`} />
               )}

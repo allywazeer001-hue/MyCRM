@@ -10,22 +10,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ConditionGroup, normalizeConditionTreeFromParts, summarizeTree } from "@/lib/condition-tree";
+import { ConditionTreeBuilder } from "@/components/workflows/ConditionTreeBuilder";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type FieldCondition = {
-  id: string; field: string;
-  operator: string; value: string;
-};
 type FieldAction = {
   id: string; type: string; targetField: string; value?: string;
 };
 type Rule = {
   id?: string; name: string; description?: string;
   priority: number; isEnabled: boolean;
-  logic: "AND" | "OR";
-  conditions: FieldCondition[]; actions: FieldAction[];
+  // Nested AND/OR condition tree, same shape/component Workflow rule groups use
+  // (see lib/condition-tree.ts) — lets a rule mark and group its own conditions
+  // instead of being stuck with one flat AND/OR across everything.
+  conditions: ConditionGroup; actions: FieldAction[];
   stopOnMatch: boolean; runOnLoad: boolean;
 };
 type FieldOption = { id: string; label: string; value: string };
@@ -45,6 +45,7 @@ const OPERATORS = [
   { value: "gt",           label: "Greater than" },
   { value: "lt",           label: "Less than" },
 ];
+const NO_VALUE_OPS = ["empty", "not_empty"];
 
 const ACTION_TYPES = [
   { value: "set_value",      label: "Set value", needsValue: true },
@@ -57,12 +58,11 @@ const ACTION_TYPES = [
   { value: "remove_required",label: "Remove required", needsValue: false },
 ];
 
-const NO_VALUE_OPS = new Set(["empty", "not_empty"]);
-
 function emptyRule(): Omit<Rule, "id"> {
   return {
     name: "New Rule", description: "", priority: 0, isEnabled: true,
-    logic: "AND", conditions: [], actions: [], stopOnMatch: false, runOnLoad: true,
+    conditions: { type: "group", operator: "AND", children: [] },
+    actions: [], stopOnMatch: false, runOnLoad: true,
   };
 }
 
@@ -98,54 +98,6 @@ function Select({ value, onChange, children, className }: {
     >
       {children}
     </select>
-  );
-}
-
-// ── ConditionRow ──────────────────────────────────────────────────────────────
-
-function ConditionRow({
-  cond, fields, onChange, onRemove,
-}: {
-  cond: FieldCondition; fields: Field[];
-  onChange: (c: FieldCondition) => void; onRemove: () => void;
-}) {
-  const needsValue = !NO_VALUE_OPS.has(cond.operator);
-  const selectedField = fields.find(f => f.name === cond.field);
-  const fieldOptions  = selectedField?.options ?? [];
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <Select value={cond.field} onChange={v => onChange({ ...cond, field: v, value: "" })} className="flex-1 min-w-[120px]">
-        <option value="">Select field…</option>
-        {fields.map(f => <option key={f.id} value={f.name}>{f.label}</option>)}
-      </Select>
-
-      <Select value={cond.operator} onChange={v => onChange({ ...cond, operator: v })} className="flex-1 min-w-[130px]">
-        {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </Select>
-
-      {needsValue && (
-        fieldOptions.length > 0
-          ? (
-            <Select value={cond.value} onChange={v => onChange({ ...cond, value: v })} className="flex-1 min-w-[100px]">
-              <option value="">Select value…</option>
-              {fieldOptions.map(o => <option key={o.id} value={o.value}>{o.label}</option>)}
-            </Select>
-          )
-          : (
-            <Input
-              value={cond.value}
-              onChange={e => onChange({ ...cond, value: e.target.value })}
-              placeholder="Value…"
-              className="h-8 text-xs flex-1 min-w-[100px]"
-            />
-          )
-      )}
-
-      <button onClick={onRemove} className="p-1 text-gray-300 hover:text-red-400 transition-colors">
-        <X className="w-3.5 h-3.5" />
-      </button>
-    </div>
   );
 }
 
@@ -208,23 +160,18 @@ function RuleCard({
   saving: boolean;
 }) {
   const [expanded, setExpanded] = useState(!rule.id);
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { label: string; value: string }[]>>({});
 
-  const addCondition = () => onChange({
-    ...rule,
-    conditions: [...rule.conditions, { id: uid(), field: "", operator: "equals", value: "" }],
-  });
+  const loadDynamicOptions = (nodeId: string, fieldName: string) => {
+    const field = fields.find(f => f.name === fieldName);
+    if (field?.options?.length) {
+      setDynamicOptions(prev => ({ ...prev, [nodeId]: field.options!.map(o => ({ label: o.label, value: o.value })) }));
+    }
+  };
 
   const addAction = () => onChange({
     ...rule,
     actions: [...rule.actions, { id: uid(), type: "set_value", targetField: "", value: "" }],
-  });
-
-  const updateCond = (idx: number, c: FieldCondition) => onChange({
-    ...rule, conditions: rule.conditions.map((x, i) => i === idx ? c : x),
-  });
-
-  const removeCond = (idx: number) => onChange({
-    ...rule, conditions: rule.conditions.filter((_, i) => i !== idx),
   });
 
   const updateAction = (idx: number, a: FieldAction) => onChange({
@@ -235,37 +182,42 @@ function RuleCard({
     ...rule, actions: rule.actions.filter((_, i) => i !== idx),
   });
 
+  const conditionCount = rule.conditions.children?.length ?? 0;
+  const summary = conditionCount > 0 ? summarizeTree(rule.conditions, fields) : "No conditions — rule will never trigger";
+
   return (
     <div className={cn(
       "border rounded-xl overflow-hidden bg-white transition-all",
       rule.isEnabled ? "border-gray-200" : "border-gray-100 opacity-60",
     )}>
-      {/* Header */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 select-none"
-        onClick={() => setExpanded(e => !e)}
-      >
+      {/* Header — name is always editable here, not gated behind expanding */}
+      <div className="flex items-center gap-2 px-4 py-3 select-none">
         <GripVertical className="w-3.5 h-3.5 text-gray-300 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">{rule.name || "Untitled rule"}</p>
-          {!expanded && (
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              {rule.conditions.length} condition{rule.conditions.length !== 1 ? "s" : ""} · {rule.actions.length} action{rule.actions.length !== 1 ? "s" : ""}
-            </p>
-          )}
+        <Input
+          value={rule.name}
+          onChange={e => onChange({ ...rule, name: e.target.value })}
+          className="h-8 text-sm font-medium max-w-[240px]"
+          placeholder="Rule name"
+        />
+        {!expanded && (
+          <p className="text-[11px] text-gray-400 truncate flex-1 min-w-0" title={summary}>
+            {summary}
+          </p>
+        )}
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => onChange({ ...rule, isEnabled: !rule.isEnabled })}
+            className="p-1 rounded-md hover:bg-gray-100 transition-colors"
+            title={rule.isEnabled ? "Disable" : "Enable"}
+          >
+            {rule.isEnabled
+              ? <ToggleRight className="w-4 h-4 text-blue-500" />
+              : <ToggleLeft className="w-4 h-4 text-gray-300" />}
+          </button>
+          <button onClick={() => setExpanded(e => !e)} className="p-1 rounded-md hover:bg-gray-100 transition-colors">
+            {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+          </button>
         </div>
-
-        <button
-          onClick={e => { e.stopPropagation(); onChange({ ...rule, isEnabled: !rule.isEnabled }); }}
-          className="p-1 rounded-md hover:bg-gray-100 transition-colors"
-          title={rule.isEnabled ? "Disable" : "Enable"}
-        >
-          {rule.isEnabled
-            ? <ToggleRight className="w-4 h-4 text-blue-500" />
-            : <ToggleLeft className="w-4 h-4 text-gray-300" />}
-        </button>
-
-        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />}
       </div>
 
       {/* Body */}
@@ -274,12 +226,12 @@ function RuleCard({
           {/* Basic info */}
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Name</label>
+              <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Description</label>
               <Input
-                value={rule.name}
-                onChange={e => onChange({ ...rule, name: e.target.value })}
+                value={rule.description ?? ""}
+                onChange={e => onChange({ ...rule, description: e.target.value })}
                 className="h-8 text-sm"
-                placeholder="Rule name"
+                placeholder="Optional description"
               />
             </div>
             <div className="w-20">
@@ -291,16 +243,6 @@ function RuleCard({
                 className="h-8 text-sm"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Description</label>
-            <Input
-              value={rule.description ?? ""}
-              onChange={e => onChange({ ...rule, description: e.target.value })}
-              className="h-8 text-sm"
-              placeholder="Optional description"
-            />
           </div>
 
           {/* Options row */}
@@ -325,45 +267,20 @@ function RuleCard({
             </label>
           </div>
 
-          {/* Conditions */}
+          {/* Conditions — nested AND/OR groups, mark-and-group like Workflow rules */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">Conditions</span>
-                <Select
-                  value={rule.logic}
-                  onChange={v => onChange({ ...rule, logic: v as "AND" | "OR" })}
-                  className="h-6 text-[10px] w-16"
-                >
-                  <option value="AND">ALL (AND)</option>
-                  <option value="OR">ANY (OR)</option>
-                </Select>
-              </div>
-              <button
-                onClick={addCondition}
-                className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 transition-colors"
-              >
-                <Plus className="w-3 h-3" /> Add
-              </button>
-            </div>
-
-            {rule.conditions.length === 0 ? (
-              <p className="text-xs text-gray-400 py-2 text-center border border-dashed border-gray-200 rounded-lg">
-                No conditions — rule will never trigger
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {rule.conditions.map((cond, i) => (
-                  <ConditionRow
-                    key={cond.id}
-                    cond={cond}
-                    fields={fields}
-                    onChange={c => updateCond(i, c)}
-                    onRemove={() => removeCond(i)}
-                  />
-                ))}
-              </div>
-            )}
+            <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-2 block">Conditions</span>
+            <ConditionTreeBuilder
+              group={rule.conditions}
+              root={rule.conditions}
+              onChange={next => onChange({ ...rule, conditions: next })}
+              fields={fields}
+              isRoot
+              loadDynamicOptions={loadDynamicOptions}
+              dynamicOptions={dynamicOptions}
+              operators={OPERATORS}
+              noValueOperators={NO_VALUE_OPS}
+            />
           </div>
 
           {/* Actions */}
@@ -447,7 +364,11 @@ export default function FieldRulesModulePage() {
         setFields(Array.isArray(mod.fields) ? mod.fields : []);
       }
       if (rulesRes.status === "fulfilled") {
-        setRules(Array.isArray(rulesRes.value.data) ? rulesRes.value.data : []);
+        const raw = Array.isArray(rulesRes.value.data) ? rulesRes.value.data : [];
+        // Rules saved before nested condition groups existed have a flat
+        // conditions[] array plus a separate sibling `logic` field — bridge
+        // those into the tree shape ConditionTreeBuilder expects.
+        setRules(raw.map((r: any) => ({ ...r, conditions: normalizeConditionTreeFromParts(r.conditions, r.logic) })));
       }
     } finally {
       setLoading(false);

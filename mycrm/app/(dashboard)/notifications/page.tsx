@@ -12,19 +12,21 @@ import { cn } from "@/lib/utils";
 type Tab = "unread" | "all" | "system";
 
 const TYPE_STYLES: Record<string, string> = {
-  INFO:     "bg-blue-50 border-blue-200 text-blue-700",
-  SUCCESS:  "bg-green-50 border-green-200 text-green-700",
-  WARNING:  "bg-yellow-50 border-yellow-200 text-yellow-700",
-  ERROR:    "bg-red-50 border-red-200 text-red-700",
-  WORKFLOW: "bg-purple-50 border-purple-200 text-purple-700",
-  SYSTEM:   "bg-gray-50 border-gray-200 text-gray-700",
+  INFO:               "bg-blue-50 border-blue-200 text-blue-700",
+  SUCCESS:            "bg-green-50 border-green-200 text-green-700",
+  WARNING:            "bg-yellow-50 border-yellow-200 text-yellow-700",
+  ERROR:              "bg-red-50 border-red-200 text-red-700",
+  WORKFLOW:           "bg-purple-50 border-purple-200 text-purple-700",
+  SYSTEM:             "bg-gray-50 border-gray-200 text-gray-700",
+  CONNECTION_REQUEST: "bg-indigo-50 border-indigo-200 text-indigo-700",
 };
 
 const TYPE_DOT: Record<string, string> = {
-  SUCCESS:  "bg-emerald-500",
-  WARNING:  "bg-amber-500",
-  ERROR:    "bg-red-500",
-  WORKFLOW: "bg-purple-500",
+  SUCCESS:            "bg-emerald-500",
+  WARNING:            "bg-amber-500",
+  ERROR:              "bg-red-500",
+  WORKFLOW:           "bg-purple-500",
+  CONNECTION_REQUEST: "bg-indigo-500",
 };
 
 const TABS: { id: Tab; label: string }[] = [
@@ -50,7 +52,7 @@ export default function NotificationsPage() {
 
   const filtered = notifications.filter((n) => {
     if (tab === "unread") return !n.isRead;
-    if (tab === "system") return n.type === "SYSTEM" || n.type === "ERROR" || n.type === "WARNING";
+    if (tab === "system") return n.type === "SYSTEM" || n.type === "ERROR" || n.type === "WARNING" || n.type === "CONNECTION_REQUEST";
     return true;
   });
 
@@ -92,7 +94,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-[880px] mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

@@ -22,6 +22,7 @@ import { DependentGlobalListInput, GlobalListInput } from "@/components/ui/depen
 import { IntegrationFieldInput } from "@/components/records/integration-field-input";
 import { applyIntegrationMapping } from "@/lib/integration-mapping";
 import { ModuleIcon } from "@/components/ui/module-icon";
+import { MultiSelectDropdown } from "@/components/ui/multi-select-dropdown";
 import { useGlobalListDependency } from "@/hooks/use-global-list-dependency";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
 import { DateFieldInput } from "@/components/ui/date-field-input";
@@ -344,7 +345,7 @@ function renderDynamicFieldInput({ field, value, onChange, externalOptions }: { 
       return <Select value={(Array.isArray(value) ? value[0] : value) || ""} onValueChange={onChange}><SelectTrigger><SelectValue placeholder={field.placeholder || "--select--"} /></SelectTrigger><SelectContent>{field.options?.map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;
     }
     case "RADIO": return <div className="flex flex-col gap-2">{field.options?.map((opt, i) => <label key={opt.id ?? `${opt.value}-${i}`} className="flex items-center gap-2.5 cursor-pointer"><input type="radio" name={field.name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} className="w-4 h-4 accent-blue-600" /><span className="text-sm text-gray-700">{opt.label}</span></label>)}</div>;
-    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map((o, i) => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.id ?? `${o.value}-${i}`} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-brand text-white border-brand" : "bg-white text-gray-700 border-gray-200 hover:border-brand/50"}`}>{o.label}</button>; })}</div>;
+    case "MULTI_SELECT": return <MultiSelectDropdown options={(field.options ?? []).map(o => ({ label: o.label, value: o.value }))} value={Array.isArray(value) ? value : []} onChange={onChange} placeholder={field.placeholder || "Select…"} />;
     case "NUMBER": case "DECIMAL": case "CURRENCY": return <Input type="number" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} step={field.type === "DECIMAL" ? "0.01" : "1"} />;
     case "DATE": case "DATETIME": return <DateFieldInput field={field} value={value} onChange={onChange} />;
     case "EMAIL": return <Input type="email" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "email@example.com"} />;

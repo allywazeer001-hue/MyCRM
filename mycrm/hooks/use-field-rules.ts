@@ -1,20 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { ConditionGroup, ConditionNode, normalizeConditionTreeFromParts } from "@/lib/condition-tree";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-export type FieldCondition = {
-  id: string;
-  field: string;
-  operator:
-    | "equals" | "not_equals"
-    | "contains" | "not_contains"
-    | "starts_with" | "ends_with"
-    | "empty" | "not_empty"
-    | "gt" | "lt" | "gte" | "lte";
-  value: string;
-};
 
 export type FieldAction = {
   id: string;
@@ -33,8 +22,10 @@ export type FieldRule = {
   description?: string;
   priority: number;
   isEnabled: boolean;
-  logic: "AND" | "OR";
-  conditions: FieldCondition[];
+  // Nested AND/OR condition tree — see lib/condition-tree.ts. Rules saved before
+  // this existed are a flat array (with a sibling `logic` field); normalized to
+  // this shape via normalizeConditionTree() wherever they're loaded.
+  conditions: ConditionGroup;
   actions: FieldAction[];
   stopOnMatch: boolean;
   runOnLoad: boolean;
@@ -50,7 +41,7 @@ export type RuleEffects = {
 
 // ── Condition evaluator ────────────────────────────────────────────────────────
 
-function testCondition(cond: FieldCondition, data: Record<string, any>): boolean {
+function testCondition(cond: { field: string; operator: string; value?: string }, data: Record<string, any>): boolean {
   const raw = data?.[cond.field];
   const val = raw == null ? "" : String(raw).trim();
   const cmp = (cond.value ?? "").toLowerCase();
@@ -72,11 +63,24 @@ function testCondition(cond: FieldCondition, data: Record<string, any>): boolean
   }
 }
 
+// Recursively evaluates a nested AND/OR condition tree (NOT/XOR are reserved —
+// not produced by this editor's UI — and fall back to AND semantics rather
+// than throwing, since this runs live as someone types in a form).
+function evaluateNode(node: ConditionNode, data: Record<string, any>): boolean {
+  if (node.type === "condition") return testCondition(node, data);
+  if (node.type !== "group") return false;
+
+  const children = node.children ?? [];
+  if (children.length === 0) return true;
+
+  if (node.operator === "OR") return children.some(c => evaluateNode(c, data));
+  return children.every(c => evaluateNode(c, data));
+}
+
 function ruleMatches(rule: FieldRule, data: Record<string, any>): boolean {
-  if (!rule.conditions.length) return false;
-  return rule.logic === "OR"
-    ? rule.conditions.some(c => testCondition(c, data))
-    : rule.conditions.every(c => testCondition(c, data));
+  const tree = rule.conditions;
+  if (!tree || !tree.children || tree.children.length === 0) return false;
+  return evaluateNode(tree, data);
 }
 
 export function evaluateRules(rules: FieldRule[], data: Record<string, any>): RuleEffects {
@@ -146,7 +150,13 @@ export function useFieldRules(moduleId: string | undefined) {
     loadedFor.current = moduleId;
 
     api.get(`/modules/${moduleId}/field-rules`)
-      .then(res => setRules(Array.isArray(res.data) ? res.data : []))
+      .then(res => {
+        const raw = Array.isArray(res.data) ? res.data : [];
+        // Rules saved before nested groups existed store a flat conditions[]
+        // array plus a separate sibling `logic` field — bridge those into the
+        // same tree shape new rules use, so both evaluate identically here.
+        setRules(raw.map((r: any) => ({ ...r, conditions: normalizeConditionTreeFromParts(r.conditions, r.logic) })));
+      })
       .catch(() => setRules([]));
   }, [moduleId]);
 
