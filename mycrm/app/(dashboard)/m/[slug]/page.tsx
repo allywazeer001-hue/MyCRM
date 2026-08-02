@@ -1281,7 +1281,13 @@ function KanbanView({ records, mod, slug, onRecordMove, cardFieldIds }: {
   const [activeRecord, setActiveRecord] = useState<CrmRecord | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const statusField: Field | undefined = mod?.fields?.find((f: Field) => ["STATUS", "DROPDOWN"].includes(f.type));
+  // Prefer the field explicitly configured in Studio (settings.kanbanGroupByFieldId);
+  // fall back to the first Status/Dropdown field if unset, or if that field was
+  // since deleted/retyped, so existing modules keep behaving exactly as before.
+  const configuredKanbanFieldId = mod?.settings?.kanbanGroupByFieldId;
+  const statusField: Field | undefined =
+    (configuredKanbanFieldId && mod?.fields?.find((f: Field) => f.id === configuredKanbanFieldId && ["STATUS", "DROPDOWN"].includes(f.type)))
+    || mod?.fields?.find((f: Field) => ["STATUS", "DROPDOWN"].includes(f.type));
   if (!statusField) {
     return (
       <div className="text-center py-16 text-gray-500">

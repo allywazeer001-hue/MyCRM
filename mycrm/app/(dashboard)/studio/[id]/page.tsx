@@ -226,7 +226,7 @@ function CanvasDropZone({ isOver }: { isOver: boolean }) {
 
 
 function ModulePropertiesPanel({
-  activeModule, moduleId, saving, onSave, onUpdate, layoutConfig, onLayoutChange,
+  activeModule, moduleId, saving, onSave, onUpdate, layoutConfig, onLayoutChange, fields,
 }: {
   activeModule: any;
   moduleId: string;
@@ -235,10 +235,36 @@ function ModulePropertiesPanel({
   onUpdate: (patch: any) => void;
   layoutConfig: LayoutConfig;
   onLayoutChange: (cfg: LayoutConfig) => void;
+  fields: Field[];
 }) {
   const [portalEnabled, setPortalEnabled] = useState<boolean | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [kanbanFieldId, setKanbanFieldId] = useState<string>(activeModule?.settings?.kanbanGroupByFieldId || "");
+  const [kanbanSaving, setKanbanSaving] = useState(false);
+
+  useEffect(() => {
+    setKanbanFieldId(activeModule?.settings?.kanbanGroupByFieldId || "");
+  }, [activeModule?.id, activeModule?.settings?.kanbanGroupByFieldId]);
+
+  const kanbanEligibleFields = fields.filter(f => ["STATUS", "DROPDOWN"].includes(f.type));
+
+  const handleKanbanFieldChange = async (value: string) => {
+    const fieldId = value === "__auto__" ? "" : value;
+    setKanbanFieldId(fieldId);
+    setKanbanSaving(true);
+    try {
+      const currentSettings = activeModule?.settings || {};
+      await api.patch(`/modules/${moduleId}`, {
+        settings: { ...currentSettings, kanbanGroupByFieldId: fieldId || null },
+      });
+      const { setActiveModule } = useModulesStore.getState();
+      if (activeModule) {
+        setActiveModule({ ...activeModule, settings: { ...currentSettings, kanbanGroupByFieldId: fieldId || null } } as any);
+      }
+    } catch {}
+    setKanbanSaving(false);
+  };
 
   // Load current portal status for this module
   useEffect(() => {
@@ -331,6 +357,37 @@ function ModulePropertiesPanel({
               <a href="/settings/portal" className="underline font-medium">Settings → Portal Settings</a>.
             </div>
           )}
+        </div>
+
+        <Separator />
+
+        {/* Kanban grouping field */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Kanban View</p>
+            {kanbanSaving && <span className="text-xs text-gray-400">Saving…</span>}
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 space-y-2">
+            <p className="text-sm font-medium text-gray-700">Group columns by</p>
+            {kanbanEligibleFields.length === 0 ? (
+              <p className="text-xs text-gray-400">Add a Status or Dropdown field to enable Kanban view.</p>
+            ) : (
+              <>
+                <Select value={kanbanFieldId || "__auto__"} onValueChange={handleKanbanFieldChange}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto__">Auto-detect (first Status/Dropdown field)</SelectItem>
+                    {kanbanEligibleFields.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-400">Which field's values become the Kanban board's columns.</p>
+              </>
+            )}
+          </div>
         </div>
 
         <Separator />
@@ -2170,6 +2227,7 @@ function StudioEditorPageInner() {
                 }}
                 layoutConfig={layoutConfig}
                 onLayoutChange={cfg => setLayoutConfig(cfg)}
+                fields={fields}
               />
             )}
           </div>
