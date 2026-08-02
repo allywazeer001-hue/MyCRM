@@ -16,6 +16,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { BRAND } from "@/lib/core-brand";
 
+// Same gradient/stops as components/announcement-banner.tsx, reoriented
+// top-to-bottom for this tall/narrow surface instead of the banner's
+// left-to-right strip.
+const SIDEBAR_GRADIENT = "linear-gradient(180deg, #1e1b4b 0%, #3730a3 55%, #2563eb 100%)";
+
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
 const coreNavItems = [
@@ -391,8 +396,9 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
     <>
       {/* Desktop sidebar — always in flow, collapsible */}
       <aside
+        style={{ background: SIDEBAR_GRADIENT }}
         className={cn(
-          "hidden lg:flex flex-col bg-gradient-to-b from-blue-600 to-blue-800 border-r border-white/10 shrink-0",
+          "hidden lg:flex flex-col border-r border-white/10 shrink-0",
           "shadow-xl",
           "transition-all duration-300 ease-in-out",
           collapsed ? "w-16" : "w-60"
@@ -403,8 +409,9 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
 
       {/* Mobile sidebar — fixed overlay, slides in/out */}
       <aside
+        style={{ background: SIDEBAR_GRADIENT }}
         className={cn(
-          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-gradient-to-b from-blue-600 to-blue-800 border-r border-white/10",
+          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col border-r border-white/10",
           "w-72 transition-transform duration-300 ease-in-out",
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
         )}
