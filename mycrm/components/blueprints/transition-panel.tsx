@@ -1033,8 +1033,8 @@ export function TransitionPanel({
                     className={cn(
                       "inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-all",
                       restrictModes.includes(m.value)
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "bg-white text-gray-500 border-gray-200 hover:border-blue-300",
+                        ? "bg-brand text-white border-brand"
+                        : "bg-white text-gray-500 border-gray-200 hover:border-brand/50",
                     )}
                   >
                     {restrictModes.includes(m.value) && <Check className="w-2.5 h-2.5 shrink-0" />}

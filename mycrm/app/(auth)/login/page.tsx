@@ -234,7 +234,7 @@ function LoginPageInner() {
 
             {/* Logo */}
             <div className="cb-slide-right flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
+              <div className="w-9 h-9 bg-brand rounded-xl flex items-center justify-center shadow-lg shadow-brand-dark/50">
                 <LogoMark size={20} className="text-white" />
               </div>
               <span className="text-white font-bold text-lg tracking-tight">{BRAND.name}</span>
@@ -293,7 +293,7 @@ function LoginPageInner() {
 
             {/* Mobile brand header */}
             <div className="flex items-center justify-center gap-2.5 mb-8 lg:hidden">
-              <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
+              <div className="w-9 h-9 bg-brand rounded-xl flex items-center justify-center">
                 <LogoMark size={18} className="text-white" />
               </div>
               <span className="font-bold text-gray-900 text-lg">{BRAND.name}</span>

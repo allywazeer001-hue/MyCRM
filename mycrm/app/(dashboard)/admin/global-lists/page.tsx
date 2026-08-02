@@ -645,7 +645,7 @@ function TreeItem({
       {addingSibling && (
         <div className="flex items-center gap-1.5 py-1" style={{ paddingLeft: depth * INDENT + 28 }}>
           <Input value={newSiblingLabel} onChange={e => setNewSiblingLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addSibling(); if (e.key === "Escape") { setAddingSibling(false); setNewSiblingLabel(""); } }} placeholder={"New item at same level…"} className="h-7 text-xs w-48" autoFocus />
-          <button onClick={addSibling} disabled={siblingSaving || !newSiblingLabel.trim()} className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded">
+          <button onClick={addSibling} disabled={siblingSaving || !newSiblingLabel.trim()} className="flex items-center gap-1 px-2 py-1 bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-xs font-medium rounded">
             {siblingSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}Save
           </button>
           <button onClick={() => { setAddingSibling(false); setNewSiblingLabel(""); }} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
@@ -931,7 +931,7 @@ function CardView({ tree, levelDefs, listId, onRefresh, onLevelDefsChange }: {
             <ChevronRight className="w-3 h-3 text-gray-400" />
             <button
               onClick={() => setSelectedPath(selectedPath.slice(0, i + 1))}
-              className={cn("font-medium hover:underline", i === breadcrumb.length - 1 ? "text-blue-700" : "text-gray-700")}
+              className={cn("font-medium hover:underline", i === breadcrumb.length - 1 ? "text-brand" : "text-gray-700")}
             >{crumb}</button>
           </span>
         ))}
@@ -1337,7 +1337,7 @@ export default function GlobalListsPage() {
                     title="Click to open · Double-click to rename"
                     className={cn(
                       "w-full flex items-center justify-between px-3 py-2 rounded-md text-left text-sm transition-colors cursor-pointer group",
-                      activeList?.id === l.id ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
+                      activeList?.id === l.id ? "bg-brand/5 text-brand" : "hover:bg-gray-50 text-gray-700"
                     )}
                   >
                     <div className="min-w-0 flex-1">
@@ -1437,10 +1437,10 @@ export default function GlobalListsPage() {
                 <div className="flex items-center gap-2 shrink-0">
                   {/* View mode toggle */}
                   <div className="flex rounded-md border border-gray-200 overflow-hidden">
-                    <button onClick={() => setViewMode("tree")} className={cn("px-2.5 py-1.5 flex items-center gap-1 text-xs font-medium transition-colors", viewMode === "tree" ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
+                    <button onClick={() => setViewMode("tree")} className={cn("px-2.5 py-1.5 flex items-center gap-1 text-xs font-medium transition-colors", viewMode === "tree" ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
                       <List className="w-3.5 h-3.5" />Tree
                     </button>
-                    <button onClick={() => setViewMode("cards")} className={cn("px-2.5 py-1.5 flex items-center gap-1 text-xs font-medium transition-colors border-l border-gray-200", viewMode === "cards" ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
+                    <button onClick={() => setViewMode("cards")} className={cn("px-2.5 py-1.5 flex items-center gap-1 text-xs font-medium transition-colors border-l border-gray-200", viewMode === "cards" ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
                       <LayoutGrid className="w-3.5 h-3.5" />Cards
                     </button>
                   </div>

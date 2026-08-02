@@ -143,7 +143,7 @@ function MiniCalendar({
             <button key={key} onClick={() => onSelect(day)}
               className={cn(
                 "relative flex flex-col items-center justify-center rounded-lg py-1.5 text-[11px] font-medium transition-colors",
-                isSel   ? "bg-blue-600 text-white shadow-sm" :
+                isSel   ? "bg-brand text-white shadow-sm" :
                 isToday ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" :
                           "hover:bg-gray-100 text-gray-600",
               )}>
@@ -1288,13 +1288,13 @@ export default function WorkspacePage() {
                     onClick={() => { setDateFilter(null); setFilter(f.key); }}
                     className={cn(
                       "relative flex items-center gap-1.5 px-3 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors",
-                      isActive ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700",
+                      isActive ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700",
                     )}>
                     {f.label}
                     {(badge ?? 0) > 0 && (
                       <span className={cn(
                         "text-[9px] rounded-full px-1.5 py-px font-bold leading-none",
-                        isActive ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500",
+                        isActive ? "bg-blue-100 text-brand" : "bg-gray-100 text-gray-500",
                       )}>
                         {badge}
                       </span>

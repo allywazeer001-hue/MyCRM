@@ -102,7 +102,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
         onClick={() => onChange(!checked)}
         className={[
           "relative w-10 h-5.5 rounded-full transition-all duration-200 flex-shrink-0",
-          checked ? "bg-blue-600" : "bg-white/10",
+          checked ? "bg-brand" : "bg-white/10",
         ].join(" ")}
         style={{ height: 22, width: 40 }}
       >
@@ -494,7 +494,7 @@ export default function LandAdminPage() {
     return (
       <div className="min-h-screen bg-[#080e1d] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center">
             <LogoMark size={20} />
           </div>
           <p className="text-white/30 text-sm">Verifying access…</p>
@@ -520,7 +520,7 @@ export default function LandAdminPage() {
               : "Sign in with your platform administrator account to access landing page settings."}
           </p>
           <div className="space-y-2.5">
-            <Link href="/login?redirect=/land-admin" className="flex items-center justify-center w-full px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-all">
+            <Link href="/login?redirect=/land-admin" className="flex items-center justify-center w-full px-5 py-2.5 bg-brand hover:bg-brand-dark text-white text-sm font-bold rounded-xl transition-all">
               Sign in as Platform Admin
             </Link>
             <Link href="/" className="flex items-center justify-center w-full px-5 py-2.5 border border-white/10 hover:border-white/20 text-white/50 hover:text-white text-sm font-semibold rounded-xl transition-all">
@@ -567,7 +567,7 @@ export default function LandAdminPage() {
             Reset
           </button>
           <button onClick={handleSave}
-            className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/40">
+            className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-dark transition-all shadow-lg shadow-blue-900/40">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 16 16">
               <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
@@ -588,7 +588,7 @@ export default function LandAdminPage() {
               className={[
                 "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left w-full",
                 activeSection === s.id
-                  ? "bg-blue-600/15 text-blue-300"
+                  ? "bg-brand/15 text-blue-300"
                   : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]",
               ].join(" ")}
             >
@@ -677,7 +677,7 @@ export default function LandAdminPage() {
                             className={[
                               "flex flex-col items-center gap-1.5 py-2.5 rounded-xl border text-[10px] font-semibold transition-all",
                               active
-                                ? "bg-blue-600/15 border-blue-500/40 text-blue-300"
+                                ? "bg-brand/15 border-blue-500/40 text-blue-300"
                                 : "border-white/[0.08] text-white/40 hover:border-white/20 hover:text-white/70",
                             ].join(" ")}
                           >
@@ -773,7 +773,7 @@ export default function LandAdminPage() {
                           className={[
                             "py-2.5 rounded-xl border text-sm font-semibold capitalize transition-all",
                             config.heroAlign === v
-                              ? "bg-blue-600/15 border-blue-500/40 text-blue-300"
+                              ? "bg-brand/15 border-blue-500/40 text-blue-300"
                               : "border-white/[0.08] text-white/40 hover:border-white/20 hover:text-white/70",
                           ].join(" ")}>
                           {v}
@@ -854,7 +854,7 @@ export default function LandAdminPage() {
 
                     <div className="flex gap-2.5">
                       <button onClick={saveAnnouncement} disabled={announcementSaving}
-                        className="flex-1 flex items-center justify-center gap-1.5 text-sm font-bold text-white px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all shadow-lg shadow-blue-900/40">
+                        className="flex-1 flex items-center justify-center gap-1.5 text-sm font-bold text-white px-4 py-2.5 rounded-xl bg-brand hover:bg-brand-dark disabled:opacity-50 transition-all shadow-lg shadow-blue-900/40">
                         {announcementSaving ? "Publishing…" : announcementSaved ? "Published ✓" : "Publish banner"}
                       </button>
                       <button onClick={unpublishAnnouncement} disabled={unpublishing || !announcement.isActive}

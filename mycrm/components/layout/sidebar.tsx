@@ -16,10 +16,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { BRAND } from "@/lib/core-brand";
 
-// First two stops of the announcement-banner gradient (components/announcement-banner.tsx),
-// third stop (#2563eb) dropped per feedback; reoriented top-to-bottom for
-// this tall/narrow surface instead of the banner's left-to-right strip.
-const SIDEBAR_GRADIENT = "linear-gradient(180deg, #1e1b4b 0%, #3730a3 100%)";
+// Central brand tokens (app/globals.css @theme) — first two stops of the
+// announcement-banner gradient, reoriented top-to-bottom for this tall/narrow
+// surface instead of the banner's left-to-right strip.
+const SIDEBAR_GRADIENT = "linear-gradient(180deg, var(--color-brand-dark) 0%, var(--color-brand) 100%)";
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
@@ -84,14 +84,17 @@ function NavLink({
       <div
         title={collapsed ? label : undefined}
         className={cn(
-          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none",
+          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ease-out cursor-pointer select-none",
           active
             ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"
-            : "text-blue-100/80 hover:bg-white/10 hover:text-white"
+            : "text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5 hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
         )}
       >
         {active && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white rounded-r-full shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
+        )}
+        {!active && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-0 group-hover:h-5 bg-white/40 rounded-r-full transition-all duration-200 ease-out" />
         )}
         <span className="cb-nav-icon shrink-0">
           <Icon className={cn(
@@ -156,14 +159,17 @@ function NavDropdown({
       <button
         onClick={() => setOpen(o => !o)}
         className={cn(
-          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none w-full",
+          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ease-out cursor-pointer select-none w-full",
           active
             ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"
-            : "text-blue-100/80 hover:bg-white/10 hover:text-white"
+            : "text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5 hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
         )}
       >
         {active && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white rounded-r-full shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
+        )}
+        {!active && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-0 group-hover:h-5 bg-white/40 rounded-r-full transition-all duration-200 ease-out" />
         )}
         <Icon className={cn(
           "w-[18px] h-[18px] shrink-0 transition-colors",

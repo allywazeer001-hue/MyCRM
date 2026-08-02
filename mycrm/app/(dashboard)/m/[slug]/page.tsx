@@ -302,7 +302,7 @@ function FilterPanel({
             {(["AND", "OR"] as const).map(l => (
               <button key={l} onClick={() => onLogicChange(l)}
                 className={cn("px-3 py-1 text-xs font-medium transition-colors",
-                  logic === l ? "bg-blue-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
+                  logic === l ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50")}>
                 {l}
               </button>
             ))}
@@ -585,7 +585,7 @@ function ColumnPicker({ fields, visibleIds, onChange, label = "Columns", icon: I
                 >
                   <div className={cn(
                     "w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors",
-                    isVisible ? "bg-blue-600 border-blue-600" : "border-gray-300"
+                    isVisible ? "bg-brand border-brand" : "border-gray-300"
                   )}>
                     {isVisible && <Check className="w-3 h-3 text-white" />}
                   </div>
@@ -1018,13 +1018,13 @@ function ListView({ records, mod, slug }: {
                 onClick={() => setSelectedId(isSelected ? null : record.id)}
                 className={cn(
                   "w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors",
-                  isSelected && "bg-blue-50 hover:bg-blue-50"
+                  isSelected && "bg-brand/5 hover:bg-brand/5"
                 )}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={cn(
                     "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-sm",
-                    isSelected ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-500"
+                    isSelected ? "bg-brand text-white" : "bg-gray-100 text-gray-500"
                   )}>
                     {mod?.icon ? <ModuleIcon icon={mod.icon} slug={slug} className="w-4 h-4" /> : <span className="font-bold text-xs">{idx + 1}</span>}
                   </div>
@@ -1576,7 +1576,7 @@ function ImportDialog({ mod, open, onClose, onSuccess }: {
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors",
-                dragOver ? "border-blue-500 bg-blue-50" : file ? "border-green-400 bg-green-50" : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/30"
+                dragOver ? "border-brand bg-brand/5" : file ? "border-green-400 bg-green-50" : "border-gray-200 hover:border-brand/50 hover:bg-brand/5"
               )}
             >
               <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
@@ -2880,7 +2880,7 @@ export default function ModuleRecordsPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       {selected.length > 0 && (
-                        <span className="inline-flex items-center gap-1 bg-blue-600 text-white rounded px-2 py-0.5 text-[11px] font-medium">
+                        <span className="inline-flex items-center gap-1 bg-brand text-white rounded px-2 py-0.5 text-[11px] font-medium">
                           {selected.length} selected
                         </span>
                       )}
@@ -2973,7 +2973,7 @@ export default function ModuleRecordsPage() {
                         <tr key={record.id}
                           className={cn(
                             "hover:bg-gray-50/80 transition-colors group",
-                            selected.includes(record.id) && "bg-blue-50/40",
+                            selected.includes(record.id) && "bg-brand/5",
                             record.isArchived && "opacity-60",
                           )}>
                           <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
@@ -2987,7 +2987,7 @@ export default function ModuleRecordsPage() {
                                 className={cn(
                                   "px-4 relative",
                                   cellPy,
-                                  isEditing ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "",
+                                  isEditing ? "bg-brand/5 ring-1 ring-inset ring-brand/40" : "",
                                   !isEditing && isEditable ? "cursor-pointer hover:bg-blue-50/40 group/cell" : "",
                                   !isEditing && !isEditable ? "cursor-pointer" : "",
                                 )}
@@ -3213,7 +3213,7 @@ export default function ModuleRecordsPage() {
                 <Button
                   size="sm"
                   onClick={() => setMassUpdateOpen(true)}
-                  className="gap-1.5 bg-blue-600 hover:bg-blue-500 text-white border-0 h-8 text-xs"
+                  className="gap-1.5 bg-brand hover:bg-brand-dark text-white border-0 h-8 text-xs"
                 >
                   <Pencil className="w-3.5 h-3.5" /> Mass Update
                 </Button>

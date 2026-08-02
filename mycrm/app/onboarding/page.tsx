@@ -275,7 +275,7 @@ export default function OnboardingPage() {
               <div className="flex items-center gap-3 mb-4">
                 <div className={cn(
                   "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors duration-300",
-                  industry ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-400"
+                  industry ? "bg-brand text-white" : "bg-gray-200 text-gray-400"
                 )}>2</div>
                 <div>
                   <p className={cn("text-sm font-bold transition-colors duration-300", industry ? "text-gray-900" : "text-gray-400")}>
@@ -299,14 +299,14 @@ export default function OnboardingPage() {
                   className={cn(
                     "relative flex flex-col items-start p-6 rounded-2xl border-2 text-left transition-all duration-200",
                     mode === "blueprint"
-                      ? "border-blue-500 bg-blue-50 shadow-md shadow-blue-100"
+                      ? "border-brand bg-brand/5 shadow-md shadow-blue-100"
                       : industry?.hasBlueprint
-                        ? "border-gray-200 bg-white hover:border-blue-200 hover:shadow-sm"
+                        ? "border-gray-200 bg-white hover:border-brand/50 hover:shadow-sm"
                         : "border-gray-200 bg-gray-50 opacity-50 cursor-not-allowed",
                   )}
                 >
                   {mode === "blueprint" && (
-                    <div className="absolute top-4 right-4 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                    <div className="absolute top-4 right-4 w-5 h-5 bg-brand rounded-full flex items-center justify-center">
                       <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                     </div>
                   )}

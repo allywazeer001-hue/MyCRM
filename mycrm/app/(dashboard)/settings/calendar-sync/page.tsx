@@ -252,7 +252,7 @@ export default function CalendarSyncPage() {
             </div>
           ) : (
             <button onClick={handleConnect} disabled={!status?.configured}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand text-white rounded-lg hover:bg-brand-dark transition disabled:opacity-50 disabled:cursor-not-allowed">
               <Link2 className="w-4 h-4" /> Connect
             </button>
           )}
@@ -358,8 +358,8 @@ export default function CalendarSyncPage() {
                   <button key={r.value} onClick={() => toggleReminder(r.value)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-full border transition
                       ${active
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "bg-white text-gray-700 border-gray-200 hover:border-blue-400 hover:text-blue-600"}`}>
+                        ? "bg-brand text-white border-brand"
+                        : "bg-white text-gray-700 border-gray-200 hover:border-brand/50 hover:text-brand"}`}>
                     {r.label}
                   </button>
                 );
@@ -370,7 +370,7 @@ export default function CalendarSyncPage() {
           {/* Save button */}
           <div className="flex justify-end">
             <button onClick={handleSaveSettings} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition disabled:opacity-60">
+              className="flex items-center gap-2 px-5 py-2.5 bg-brand text-white text-sm font-medium rounded-xl hover:bg-brand-dark transition disabled:opacity-60">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Save Settings
             </button>

@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* ── Central brand color tokens ────────────────────────────────────────────
+   The ONLY place the brand palette is defined. Change these two hex values
+   to re-theme every button, badge, active/selected state, and gradient
+   surface across the whole app — everything else references these via the
+   auto-generated bg-brand/text-brand/border-brand/ring-brand/bg-brand-dark
+   utilities (or var(--color-brand)/var(--color-brand-dark) in the few spots
+   that need a raw CSS value, e.g. inline gradient styles). */
+@theme {
+  --color-brand: #3730a3;      /* indigo-800 — solid default: buttons, badges, active/selected states */
+  --color-brand-dark: #1e1b4b; /* indigo-950 — gradient dark end, used on hover */
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

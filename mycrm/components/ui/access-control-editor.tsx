@@ -85,7 +85,7 @@ export function AccessControlEditor({
           onClick={() => emit({ isPublic: !isPublic })}
           className={cn(
             "w-10 h-5 rounded-full transition-colors flex items-center shrink-0",
-            isPublic ? "bg-blue-600" : "bg-gray-200"
+            isPublic ? "bg-brand" : "bg-gray-200"
           )}
         >
           <div className={cn(
@@ -94,7 +94,7 @@ export function AccessControlEditor({
           )} />
         </div>
         <div className="flex items-center gap-2">
-          {isPublic ? <Globe className="w-4 h-4 text-blue-500" /> : <Lock className="w-4 h-4 text-gray-400" />}
+          {isPublic ? <Globe className="w-4 h-4 text-brand" /> : <Lock className="w-4 h-4 text-gray-400" />}
           <div>
             <p className="font-medium text-gray-800">{isPublic ? "Everyone in organization" : "Restricted access"}</p>
             <p className="text-xs text-gray-400">

@@ -715,8 +715,8 @@ export default function ReportViewerPage() {
                       onClick={() => setPage(n)}
                       className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors ${
                         page === n
-                          ? "bg-blue-600 text-white"
-                          : "border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600"
+                          ? "bg-brand text-white"
+                          : "border border-gray-200 text-gray-500 hover:border-brand/50 hover:text-brand"
                       }`}
                     >
                       {n}

@@ -111,7 +111,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-[420px]">
 
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
+          <div className="w-9 h-9 bg-brand rounded-xl flex items-center justify-center">
             <LogoMark size={18} className="text-white" />
           </div>
           <span className="font-bold text-gray-900 text-lg">{BRAND.name}</span>

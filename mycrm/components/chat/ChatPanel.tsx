@@ -121,7 +121,7 @@ function NewGroupModal({ onClose }: { onClose: () => void }) {
         <button
           onClick={submit}
           disabled={!name.trim() || selected.length < 1 || saving}
-          className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg disabled:opacity-40 hover:bg-blue-700 transition-colors"
+          className="px-3 py-1 text-xs font-semibold bg-brand text-white rounded-lg disabled:opacity-40 hover:bg-brand-dark transition-colors"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Create"}
         </button>
@@ -146,7 +146,7 @@ function NewGroupModal({ onClose }: { onClose: () => void }) {
             const c = contacts.find(x => x.id === id);
             if (!c) return null;
             return (
-              <span key={id} className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+              <span key={id} className="flex items-center gap-1 px-2 py-0.5 bg-brand/5 text-brand rounded-full text-xs font-medium">
                 {c.firstName}
                 <button onClick={() => setSelected(s => s.filter(x => x !== id))}><X className="w-3 h-3" /></button>
               </span>
@@ -162,7 +162,7 @@ function NewGroupModal({ onClose }: { onClose: () => void }) {
             className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 transition-colors">
             <UserAvatar src={c.avatar} name={`${c.firstName} ${c.lastName}`} size="sm" />
             <span className="flex-1 text-sm text-gray-800 text-left">{c.firstName} {c.lastName}</span>
-            {selected.includes(c.id) && <Check className="w-4 h-4 text-blue-600" />}
+            {selected.includes(c.id) && <Check className="w-4 h-4 text-brand" />}
           </button>
         ))}
       </div>
@@ -353,7 +353,7 @@ function ConversationView() {
         <button
           onClick={handleSend}
           disabled={!text.trim() || sending}
-          className="p-2 bg-blue-600 rounded-xl text-white hover:bg-blue-700 disabled:opacity-40 transition-colors shrink-0"
+          className="p-2 bg-brand rounded-xl text-white hover:bg-brand-dark disabled:opacity-40 transition-colors shrink-0"
         >
           {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
@@ -418,12 +418,12 @@ function ConversationsList() {
       <div className="flex px-3 border-b border-gray-100 mb-0.5">
         <button onClick={() => setTab("chats")}
           className={cn("flex-1 pb-1.5 text-xs font-semibold capitalize transition-colors border-b-2",
-            tab === "chats" ? "text-blue-600 border-blue-600" : "text-gray-400 border-transparent hover:text-gray-600")}>
+            tab === "chats" ? "text-brand border-brand" : "text-gray-400 border-transparent hover:text-gray-600")}>
           Chats
         </button>
         <button onClick={switchToContacts}
           className={cn("flex-1 pb-1.5 text-xs font-semibold capitalize transition-colors border-b-2",
-            tab === "contacts" ? "text-blue-600 border-blue-600" : "text-gray-400 border-transparent hover:text-gray-600")}>
+            tab === "contacts" ? "text-brand border-brand" : "text-gray-400 border-transparent hover:text-gray-600")}>
           Contacts {contacts.length > 0 && <span className="ml-1 text-[10px] text-gray-400">({contacts.length})</span>}
         </button>
       </div>
@@ -555,7 +555,7 @@ export function ChatPanel() {
       <button onClick={toggleOpen}
         className={cn(
           "relative w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition-all",
-          isOpen ? "bg-gray-700 hover:bg-gray-800" : "bg-blue-600 hover:bg-blue-700",
+          isOpen ? "bg-gray-700 hover:bg-gray-800" : "bg-brand hover:bg-brand-dark",
         )}>
         {isOpen ? <X className="w-5 h-5 text-white" /> : <MessageCircle className="w-5 h-5 text-white" />}
         {!isOpen && totalUnread > 0 && (

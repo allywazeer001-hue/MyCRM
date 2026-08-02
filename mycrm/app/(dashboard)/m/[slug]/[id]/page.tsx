@@ -233,7 +233,7 @@ function RemarksSection({
             />
             <div className="flex items-center gap-2">
               <button type="button" onClick={post} disabled={!text.trim()}
-                className="px-3 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors">
+                className="px-3 py-1 text-xs font-semibold bg-brand hover:bg-brand-dark text-white rounded-lg disabled:opacity-40 transition-colors">
                 Post
               </button>
               <button type="button" onClick={() => { setOpen(false); setText(""); }}
@@ -1197,7 +1197,7 @@ function SplitPanelRecordView({
                   className={cn(
                     "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5",
                     activeTab === t.id
-                      ? "border-blue-600 text-blue-600"
+                      ? "border-brand text-brand"
                       : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   )}
                 >
@@ -1387,8 +1387,8 @@ function InlineFieldEditor({
                 className={cn(
                   "px-2.5 py-0.5 rounded-full text-xs border transition-colors",
                   active
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                    ? "bg-brand text-white border-brand"
+                    : "bg-white text-gray-600 border-gray-200 hover:border-brand/50"
                 )}
               >
                 {o.label}
@@ -1411,8 +1411,8 @@ function InlineFieldEditor({
               className={cn(
                 "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
                 value === o.value
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-brand/50 hover:bg-brand/5"
               )}
             >
               {o.label}
@@ -1924,7 +1924,7 @@ export default function RecordDetailPage() {
               <button
                 onClick={() => saveFieldEdit(field)}
                 title="Save"
-                className="w-6 h-6 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shrink-0 transition-colors"
+                className="w-6 h-6 flex items-center justify-center bg-brand hover:bg-brand-dark text-white rounded-full shrink-0 transition-colors"
               >
                 <Save className="w-3 h-3" />
               </button>
@@ -2239,7 +2239,7 @@ export default function RecordDetailPage() {
               className={cn(
                 "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5",
                 activeTab === tab
-                  ? "border-blue-600 text-blue-600"
+                  ? "border-brand text-brand"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               )}
             >
@@ -2257,7 +2257,7 @@ export default function RecordDetailPage() {
               className={cn(
                 "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors",
                 activeTab === t.id
-                  ? "border-blue-600 text-blue-600"
+                  ? "border-brand text-brand"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               )}
             >
@@ -2271,7 +2271,7 @@ export default function RecordDetailPage() {
               className={cn(
                 "px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5",
                 activeTab === tab.module.id
-                  ? "border-blue-600 text-blue-600"
+                  ? "border-brand text-brand"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               )}
             >

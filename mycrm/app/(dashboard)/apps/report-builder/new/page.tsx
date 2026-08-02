@@ -533,7 +533,7 @@ export default function NewReportPage() {
           return (
             <div key={label} className="flex items-center shrink-0">
               <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                active  ? "bg-blue-600 text-white" :
+                active  ? "bg-brand text-white" :
                 done    ? "text-blue-600" :
                           "text-gray-400"
               }`}>
@@ -567,8 +567,8 @@ export default function NewReportPage() {
                     onClick={() => selectModule(mod)}
                     className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                       selectedModule?.id === mod.id
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
+                        ? "border-brand bg-brand/5"
+                        : "border-gray-200 hover:border-brand/50 hover:bg-gray-50"
                     }`}
                   >
                     <span className="shrink-0"><ModuleIcon icon={mod.icon} slug={mod.slug} className="w-6 h-6" /></span>
@@ -579,7 +579,7 @@ export default function NewReportPage() {
                       )}
                     </div>
                     {selectedModule?.id === mod.id && (
-                      <Check className="w-4 h-4 text-blue-600 ml-auto shrink-0" />
+                      <Check className="w-4 h-4 text-brand ml-auto shrink-0" />
                     )}
                   </button>
                 ))}
@@ -612,8 +612,8 @@ export default function NewReportPage() {
                         disabled={selected}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${
                           selected
-                            ? "bg-blue-50 border-blue-200 text-blue-600 cursor-default"
-                            : "bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 text-gray-800"
+                            ? "bg-brand/5 border-blue-200 text-brand cursor-default"
+                            : "bg-white border-gray-200 hover:border-brand/50 hover:bg-brand/5 text-gray-800"
                         }`}
                       >
                         <div className="flex-1 min-w-0">
@@ -621,7 +621,7 @@ export default function NewReportPage() {
                           <p className="text-[10px] text-gray-400">{f.type}</p>
                         </div>
                         {selected
-                          ? <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                          ? <Check className="w-3.5 h-3.5 text-brand shrink-0" />
                           : <Plus className="w-3.5 h-3.5 text-gray-300 shrink-0" />}
                       </button>
                     );
@@ -685,7 +685,7 @@ export default function NewReportPage() {
               <button
                 onClick={addFilter}
                 disabled={fields.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-40"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand hover:bg-brand-dark text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-40"
               >
                 <Plus className="w-3 h-3" />Add Filter
               </button>
@@ -867,8 +867,8 @@ export default function NewReportPage() {
                     onClick={() => setPageSize(n)}
                     className={`px-4 py-1.5 text-sm rounded-xl border transition-colors ${
                       pageSize === n
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "border-gray-200 text-gray-600 hover:border-blue-300"
+                        ? "bg-brand text-white border-brand"
+                        : "border-gray-200 text-gray-600 hover:border-brand/50"
                     }`}
                   >
                     {n}
@@ -957,7 +957,7 @@ export default function NewReportPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={() => setShowChart(v => !v)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors ${showChart ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 text-gray-600 hover:border-blue-300"}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors ${showChart ? "bg-brand text-white border-brand" : "border-gray-200 text-gray-600 hover:border-brand/50"}`}
                     >
                       <BarChart2 className="w-3.5 h-3.5" /> {showChart ? "Hide Chart" : "Show Chart"}
                     </button>
@@ -1175,7 +1175,7 @@ export default function NewReportPage() {
           <button
             onClick={() => canNext() && setStep(s => s + 1)}
             disabled={!canNext()}
-            className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-5 py-2 bg-brand hover:bg-brand-dark text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>
@@ -1212,7 +1212,7 @@ export default function NewReportPage() {
             <button
               onClick={handleSave}
               disabled={!reportName.trim() || saving}
-              className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-5 py-2 bg-brand hover:bg-brand-dark text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {editId ? "Update Report" : "Save Report"}

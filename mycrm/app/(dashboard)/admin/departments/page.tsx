@@ -250,12 +250,12 @@ function SetUnitHeadDialog({
                   onClick={() => setSelectedUserId(selectedUserId === u.id ? null : u.id)}
                   className={cn(
                     "w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left transition-colors",
-                    selectedUserId === u.id && "bg-blue-50 hover:bg-blue-50"
+                    selectedUserId === u.id && "bg-brand/5 hover:bg-brand/5"
                   )}
                 >
                   <div className={cn(
                     "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                    selectedUserId === u.id ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700"
+                    selectedUserId === u.id ? "bg-brand text-white" : "bg-blue-100 text-blue-700"
                   )}>
                     {u.firstName?.[0]}{u.lastName?.[0]}
                   </div>
@@ -264,7 +264,7 @@ function SetUnitHeadDialog({
                     <p className="text-xs text-gray-500 truncate">{u.email}</p>
                   </div>
                   <Badge variant="secondary" className="text-xs shrink-0">{u.role?.replace(/_/g, " ")}</Badge>
-                  {selectedUserId === u.id && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                  {selectedUserId === u.id && <Check className="w-4 h-4 text-brand shrink-0" />}
                 </button>
               ))
             )}
@@ -428,7 +428,7 @@ function PermissionsEditor({ unitId }: { unitId: string }) {
                         <Checkbox
                           checked={!!(permission as any)[key]}
                           onCheckedChange={v => updateModPerm(module.id, key, !!v)}
-                          className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                          className="data-[state=checked]:bg-brand data-[state=checked]:border-brand"
                         />
                       </div>
                     ))}
@@ -737,7 +737,7 @@ export default function UnitsManagementPage() {
                 className={cn(
                   "w-full text-left p-3 rounded-xl border transition-all group",
                   selected?.id === unit.id
-                    ? "border-blue-300 bg-blue-50 shadow-sm"
+                    ? "border-brand/40 bg-brand/5 shadow-sm"
                     : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm"
                 )}
               >

@@ -693,7 +693,7 @@ export default function NewModulePage() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all border",
                   activeCategory === cat.id
-                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                    ? "bg-brand text-white border-brand shadow-sm"
                     : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                 )}
               >
@@ -701,7 +701,7 @@ export default function NewModulePage() {
                 <span>{cat.label}</span>
                 <span className={cn(
                   "text-xs px-1.5 py-0.5 rounded-full font-medium",
-                  activeCategory === cat.id ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-500"
+                  activeCategory === cat.id ? "bg-brand text-white" : "bg-gray-100 text-gray-500"
                 )}>{count}</span>
               </button>
             );
@@ -731,7 +731,7 @@ export default function NewModulePage() {
                       onClick={() => handlePickTemplate(tmpl)}
                       className={cn(
                         "group relative text-left p-4 rounded-xl border transition-all",
-                        "hover:shadow-md hover:border-blue-300 hover:-translate-y-0.5",
+                        "hover:shadow-md hover:border-brand/50 hover:-translate-y-0.5",
                         "bg-white border-gray-200"
                       )}
                     >

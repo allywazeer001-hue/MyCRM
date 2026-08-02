@@ -402,7 +402,7 @@ function ModulePropertiesPanel({
                   const t: LayoutTab = { id: `t-${generateId().slice(0, 8)}`, label: "New Tab", order: tabs.length };
                   onLayoutChange({ ...layoutConfig, tabs: [...tabs, t] } as any);
                 }}
-                className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-gray-300 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-gray-300 text-xs text-gray-400 hover:border-brand/50 hover:text-brand transition-colors"
               >
                 <Plus className="h-3 w-3" /> Add Tab
               </button>
@@ -449,7 +449,7 @@ function ModulePropertiesPanel({
                   className={cn(
                     "px-2.5 py-1 text-[11px] font-medium transition-colors",
                     ((layoutConfig as any).recordDetailStyle ?? "standard") === opt.value
-                      ? "bg-blue-600 text-white"
+                      ? "bg-brand text-white"
                       : "bg-white text-gray-600 hover:bg-gray-50",
                   )}
                 >
@@ -1615,7 +1615,7 @@ function StudioEditorPageInner() {
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border",
               previewMode
-                ? "bg-blue-600 text-white border-blue-600"
+                ? "bg-brand text-white border-brand"
                 : "text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
             )}
           >
@@ -1634,8 +1634,8 @@ function StudioEditorPageInner() {
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50",
               isDirty
-                ? "bg-blue-600 hover:bg-blue-500 text-white ring-2 ring-blue-300 ring-offset-1"
-                : "bg-blue-600 hover:bg-blue-500 text-white"
+                ? "bg-brand hover:bg-brand-dark text-white ring-2 ring-brand/40 ring-offset-1"
+                : "bg-brand hover:bg-brand-dark text-white"
             )}
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -1706,7 +1706,7 @@ function StudioEditorPageInner() {
                   </p>
                 </div>
                 {previewMode && (
-                  <span className="ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-600 text-white uppercase tracking-wider">
+                  <span className="ml-auto text-[10px] font-bold px-2.5 py-1 rounded-full bg-brand text-white uppercase tracking-wider">
                     Preview
                   </span>
                 )}
@@ -1755,7 +1755,7 @@ function StudioEditorPageInner() {
                   className={cn(
                     "flex-1 py-2.5 text-xs font-medium transition-colors relative",
                     rightTab === tab
-                      ? "text-blue-700 border-b-2 border-blue-600 bg-blue-50/50"
+                      ? "text-brand border-b-2 border-brand bg-brand/5"
                       : "text-gray-500 hover:text-gray-700"
                   )}
                 >
@@ -1799,7 +1799,7 @@ function StudioEditorPageInner() {
                         onClick={() => setSummaryEnabled(v => !v)}
                         className={cn(
                           "relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none cursor-pointer",
-                          summaryEnabled ? "bg-blue-600" : "bg-gray-200"
+                          summaryEnabled ? "bg-brand" : "bg-gray-200"
                         )}
                       >
                         <span className={cn(
@@ -1883,8 +1883,8 @@ function StudioEditorPageInner() {
                                       className={cn(
                                         "py-1.5 rounded-lg text-[11px] font-semibold border transition-all",
                                         stat.aggregation === agg
-                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                                          : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                                          ? "bg-brand text-white border-brand shadow-sm"
+                                          : "bg-white text-gray-500 border-gray-200 hover:border-brand/50 hover:text-brand"
                                       )}
                                     >{agg}</button>
                                   ))}
@@ -2002,7 +2002,7 @@ function StudioEditorPageInner() {
                           setSummaryStats(prev => [...prev, newStat]);
                           setEditingStatId(newStat.id);
                         }}
-                        className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-gray-200 rounded-xl text-xs font-medium text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/50 transition"
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-gray-200 rounded-xl text-xs font-medium text-gray-400 hover:border-brand/50 hover:text-brand hover:bg-brand/5 transition"
                       >
                         <Plus className="w-3.5 h-3.5" /> Add stat
                       </button>
@@ -2014,7 +2014,7 @@ function StudioEditorPageInner() {
                   <button
                     onClick={saveSummaryStats}
                     disabled={savingSummary}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-semibold transition"
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-xs font-semibold transition"
                   >
                     {savingSummary ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Saving…</> : <><Save className="w-3.5 h-3.5" />Save Summary</>}
                   </button>
@@ -2147,7 +2147,7 @@ function StudioEditorPageInner() {
                               className={cn(
                                 "h-8 rounded-md border text-xs font-medium transition-colors",
                                 (selectedField as any).isHidden === value
-                                  ? "bg-blue-600 border-blue-600 text-white"
+                                  ? "bg-brand border-brand text-white"
                                   : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
                               )}
                             >
@@ -2176,7 +2176,7 @@ function StudioEditorPageInner() {
                               className={cn(
                                 "h-8 rounded-md border text-xs font-medium transition-colors",
                                 (selectedField as any).isReadonly === value
-                                  ? "bg-blue-600 border-blue-600 text-white"
+                                  ? "bg-brand border-brand text-white"
                                   : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
                               )}
                             >
@@ -2904,7 +2904,7 @@ function FormulaConfig({
                 key={sa.token}
                 type="button"
                 onClick={() => insertToken(sa.token)}
-                className="px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-mono text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                className="px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-[11px] font-mono text-gray-600 hover:border-brand/50 hover:bg-brand/5 hover:text-brand transition-colors"
                 title={`Insert ${sa.token}`}
               >
                 {sa.label}
@@ -3554,7 +3554,7 @@ function SortableOption({ opt, index, totalCount, onUpdateLabel, onUpdateColor, 
       />
       <div className="flex items-center gap-1 shrink-0">
         <button type="button" onClick={onAdd} title="Add option"
-          className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors">
+          className="w-6 h-6 rounded-full bg-brand hover:bg-brand-dark text-white flex items-center justify-center transition-colors">
           <Plus className="w-3.5 h-3.5" />
         </button>
         {totalCount > 1 && (
@@ -4790,7 +4790,7 @@ function SortableStageCard({ stage, stages, fields, expanded, onToggle, onChange
                     className={cn(
                       "px-2 py-0.5 rounded-full text-xs border transition-all",
                       active
-                        ? "bg-blue-600 text-white border-blue-600"
+                        ? "bg-brand text-white border-brand"
                         : "text-gray-500 border-gray-200 hover:border-gray-400"
                     )}
                   >

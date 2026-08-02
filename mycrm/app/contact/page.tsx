@@ -31,7 +31,7 @@ export default function ContactPage() {
       {/* Nav */}
       <nav className="relative z-10 flex items-center justify-between px-6 md:px-14 py-5 border-b border-white/[0.05]">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-xl shadow-blue-900/60">
+          <div className="w-9 h-9 bg-brand rounded-xl flex items-center justify-center shadow-xl shadow-brand-dark/60">
             <LogoMark size={18} />
           </div>
           <span className="font-bold text-lg tracking-tight">{BRAND.name}</span>

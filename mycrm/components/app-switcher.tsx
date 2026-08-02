@@ -129,8 +129,8 @@ export function AppSwitcher() {
         className={cn(
           "relative group flex items-center justify-center w-9 h-9 rounded-xl transition-all duration-200",
           open
-            ? "bg-gradient-to-r from-indigo-950 to-indigo-800 text-white shadow-md shadow-indigo-200"
-            : "text-slate-500 hover:bg-slate-100 hover:text-indigo-800"
+            ? "bg-brand text-white shadow-md shadow-brand/20"
+            : "text-slate-500 hover:bg-slate-100 hover:text-brand"
         )}
       >
         <WaffleIcon className={cn(
@@ -138,7 +138,7 @@ export function AppSwitcher() {
           open ? "scale-90 text-white" : "group-hover:scale-110"
         )} />
         {open && (
-          <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-indigo-800 rounded-full" />
+          <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-brand rounded-full" />
         )}
       </button>
 
@@ -167,7 +167,7 @@ export function AppSwitcher() {
           {/* Panel header */}
           <div className="flex items-center justify-between px-4 pt-4 pb-3">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-gradient-to-br from-indigo-950 to-indigo-800 rounded-lg flex items-center justify-center shadow-sm">
+              <div className="w-6 h-6 bg-brand rounded-lg flex items-center justify-center shadow-sm">
                 <WaffleIcon className="w-3.5 h-3.5 text-white" />
               </div>
               <span className="text-[13px] font-bold text-slate-800 tracking-tight">{BRAND.name} Apps</span>

@@ -40,7 +40,7 @@ export function Footer() {
         {/* Brand */}
         <div>
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
+            <div className="w-8 h-8 bg-brand rounded-xl flex items-center justify-center shadow-lg shadow-brand-dark/50">
               <LogoMark size={16} />
             </div>
             <span className="font-bold text-lg text-white tracking-tight">{BRAND.name}</span>

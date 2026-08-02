@@ -409,7 +409,7 @@ export default function RegisterPage() {
 
           <div className="relative z-10 flex flex-col h-full p-10">
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
+              <div className="w-9 h-9 bg-brand rounded-xl flex items-center justify-center shadow-lg shadow-brand-dark/50">
                 <LogoMark size={18} className="text-white" />
               </div>
               <span className="text-white font-bold text-lg tracking-tight">{BRAND.name}</span>
@@ -500,7 +500,7 @@ export default function RegisterPage() {
 
               {/* Mobile brand */}
               <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-                <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center">
+                <div className="w-8 h-8 bg-brand rounded-xl flex items-center justify-center">
                   <LogoMark size={16} className="text-white" />
                 </div>
                 <span className="font-bold text-gray-900">{BRAND.name}</span>
@@ -952,7 +952,7 @@ export default function RegisterPage() {
                             <p className="text-xs text-gray-400 mt-0.5">{pkg.desc}</p>
                           </div>
                           <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
-                            sel ? "bg-blue-600 border-blue-600" : "border-gray-300")}>
+                            sel ? "bg-brand border-brand" : "border-gray-300")}>
                             {sel && <CheckCircle2 className="w-3.5 h-3.5 text-white fill-white" />}
                           </div>
                         </button>

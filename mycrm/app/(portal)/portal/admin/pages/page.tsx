@@ -121,7 +121,7 @@ function AccessPanel({ page, departments, onUpdate }: {
           className={cn(
             "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left",
             mode === val
-              ? "bg-blue-600 text-white"
+              ? "bg-brand text-white"
               : "text-gray-600 hover:bg-gray-100"
           )}
         >
@@ -141,13 +141,13 @@ function AccessPanel({ page, departments, onUpdate }: {
               className={cn(
                 "w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left",
                 allowedDepts.includes(dept.id)
-                  ? "bg-blue-50 text-blue-700"
+                  ? "bg-brand/5 text-brand"
                   : "text-gray-600 hover:bg-gray-100"
               )}
             >
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dept.color }} />
               {dept.name}
-              {allowedDepts.includes(dept.id) && <CheckCircle2 className="w-3.5 h-3.5 ml-auto text-blue-600" />}
+              {allowedDepts.includes(dept.id) && <CheckCircle2 className="w-3.5 h-3.5 ml-auto text-brand" />}
             </button>
           ))}
         </div>
@@ -192,7 +192,7 @@ function PagePreviewModal({ page, onClose }: { page: PortalPage; onClose: () => 
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all",
                 device === key
-                  ? "bg-white text-blue-600 shadow-sm border border-gray-200"
+                  ? "bg-white text-brand shadow-sm border border-gray-200"
                   : "text-gray-500 hover:text-gray-800 hover:bg-gray-200"
               )}
             >
@@ -387,7 +387,7 @@ export default function PagesListPage() {
           </div>
           <button
             onClick={() => { setShowCreate(true); setError(""); }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand hover:bg-brand-dark text-white text-sm font-medium rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" /> New Page
           </button>
@@ -591,7 +591,7 @@ export default function PagesListPage() {
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="flex gap-2 pt-1">
             <button onClick={handleCreate} disabled={creating}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
+              className="flex items-center gap-2 px-4 py-2 bg-brand hover:bg-brand-dark disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors">
               {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               Create & Edit
             </button>

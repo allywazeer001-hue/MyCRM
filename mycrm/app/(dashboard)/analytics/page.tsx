@@ -293,7 +293,7 @@ function FilterGroupEditor({
               className={cn(
                 "px-3 py-1 text-xs font-medium transition-colors",
                 group.logic === l
-                  ? "bg-blue-600 text-white"
+                  ? "bg-brand text-white"
                   : "bg-white text-gray-600 hover:bg-gray-50"
               )}
             >
@@ -2295,8 +2295,8 @@ function AnalyticsPageInner() {
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors border",
                 activeView?.id === v.id
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                  ? "bg-brand text-white border-brand"
+                  : "bg-white text-gray-700 border-gray-200 hover:border-brand/50 hover:text-brand"
               )}>
               <Pin className="w-2.5 h-2.5" />
               {v.name}
@@ -2763,12 +2763,12 @@ function ViewMenuItem({
   return (
     <div className={cn(
       "flex items-center gap-1 px-2 py-1.5 hover:bg-gray-50 rounded-sm group cursor-pointer",
-      isActive && "bg-blue-50"
+      isActive && "bg-brand/5"
     )}>
       <button className="flex-1 flex items-center gap-2 text-left min-w-0" onClick={onLoad}>
         {view.isPinned && <Pin className="w-3 h-3 text-blue-500 flex-shrink-0" />}
-        <span className={cn("text-sm truncate", isActive && "font-medium text-blue-700")}>{view.name}</span>
-        {isActive && <Check className="w-3 h-3 text-blue-600 flex-shrink-0 ml-auto" />}
+        <span className={cn("text-sm truncate", isActive && "font-medium text-brand")}>{view.name}</span>
+        {isActive && <Check className="w-3 h-3 text-brand flex-shrink-0 ml-auto" />}
       </button>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
         {/* Pin to top of views list */}

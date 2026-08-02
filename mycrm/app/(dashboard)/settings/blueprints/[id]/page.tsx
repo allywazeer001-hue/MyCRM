@@ -1505,7 +1505,7 @@ function EditorPanel({ node, fields, onChange, onDelete, onClose }: {
                       {(["AND", "OR"] as const).map(l => (
                         <button key={l} onClick={() => onChange({ conditionsLogic: l })}
                           className={cn("px-2 py-0.5 rounded text-xs font-semibold border transition-all",
-                            node.conditionsLogic === l ? "bg-blue-600 text-white border-blue-600" : "bg-white border-gray-200 text-gray-400")}>
+                            node.conditionsLogic === l ? "bg-brand text-white border-brand" : "bg-white border-gray-200 text-gray-400")}>
                           {l}
                         </button>
                       ))}
@@ -1799,7 +1799,7 @@ export default function BlueprintBuilderPage() {
             className={cn(
               "flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium transition-colors",
               activeTab === "flow"
-                ? "bg-white text-blue-600 shadow-sm"
+                ? "bg-white text-brand shadow-sm"
                 : "text-gray-500 hover:text-gray-700"
             )}
           >
@@ -1810,7 +1810,7 @@ export default function BlueprintBuilderPage() {
             className={cn(
               "flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium transition-colors",
               activeTab === "tree"
-                ? "bg-white text-blue-600 shadow-sm"
+                ? "bg-white text-brand shadow-sm"
                 : "text-gray-500 hover:text-gray-700"
             )}
           >

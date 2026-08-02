@@ -449,7 +449,7 @@ export default function EditTaskPanelPage({ params }: { params: Promise<{ id: st
                         className={cn(
                           "px-3 py-1 rounded-md text-xs font-semibold transition-colors",
                           logic === l
-                            ? "bg-blue-600 text-white"
+                            ? "bg-brand text-white"
                             : "text-gray-500 hover:text-gray-700",
                         )}
                       >

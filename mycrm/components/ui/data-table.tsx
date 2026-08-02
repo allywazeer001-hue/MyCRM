@@ -195,7 +195,7 @@ export function DataTable<T extends object>({
                     >
                       {isHidden
                         ? <EyeOff className="w-3.5 h-3.5 text-gray-400" />
-                        : <Eye    className="w-3.5 h-3.5 text-blue-500" />}
+                        : <Eye    className="w-3.5 h-3.5 text-brand" />}
                       <span className={cn("flex-1 truncate", isHidden && "text-gray-400")}>{col.header}</span>
                     </button>
                   );
@@ -312,7 +312,7 @@ export function DataTable<T extends object>({
                   className={cn(
                     "w-7 h-7 rounded-lg text-xs font-medium transition",
                     p === safePage
-                      ? "bg-blue-600 text-white shadow-sm"
+                      ? "bg-brand text-white shadow-sm"
                       : "text-gray-600 hover:bg-gray-100"
                   )}
                 >

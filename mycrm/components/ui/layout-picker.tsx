@@ -142,7 +142,7 @@ export function LayoutPicker({
             className={cn(
               "px-3 py-1 rounded-full text-xs font-medium transition-colors",
               activeCategory === c
-                ? "bg-blue-600 text-white"
+                ? "bg-brand text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             )}
           >
@@ -163,13 +163,13 @@ export function LayoutPicker({
               className={cn(
                 "relative rounded-xl border-2 p-3 text-left transition-all hover:shadow-md",
                 selected
-                  ? "border-blue-500 bg-blue-50 shadow-sm"
+                  ? "border-brand bg-brand/5 shadow-sm"
                   : "border-gray-200 bg-white hover:border-gray-300"
               )}
             >
               {/* Selected check */}
               {selected && (
-                <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+                <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-brand flex items-center justify-center">
                   <Check className="w-3 h-3 text-white" />
                 </span>
               )}
@@ -177,7 +177,7 @@ export function LayoutPicker({
               {/* Preview */}
               <div className={cn(
                 "w-full h-14 rounded-lg mb-2.5 overflow-hidden",
-                selected ? "bg-blue-100/60" : "bg-gray-50"
+                selected ? "bg-brand/10" : "bg-gray-50"
               )}>
                 <PreviewThumbnail type={tpl.preview} />
               </div>
@@ -185,7 +185,7 @@ export function LayoutPicker({
               {/* Info */}
               <p className={cn(
                 "text-xs font-semibold leading-tight",
-                selected ? "text-blue-700" : "text-gray-800"
+                selected ? "text-brand" : "text-gray-800"
               )}>
                 {tpl.name}
               </p>

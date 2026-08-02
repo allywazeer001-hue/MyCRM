@@ -269,7 +269,7 @@ function SubformInput({ field, value, onChange }: { field: Field; value: any; on
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead><tr className="bg-gray-50 border-b border-gray-200"><th className="w-8 px-2 py-2 text-gray-400">#</th>{columns.map(c => <th key={c.id} className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">{c.label}{c.required && <span className="text-red-400 ml-0.5">*</span>}</th>)}<th className="w-14" /></tr></thead>
-            <tbody>{rows.map((row, i) => <tr key={row._id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 group"><td className="px-3 py-1.5 text-gray-400 font-mono text-[10px]">{i + 1}</td>{columns.map(c => <td key={c.id} className="px-1.5 py-1.5"><SubformCell col={c} value={row[c.name]} onChange={v => updateCell(row._id, c.name, v)} /></td>)}<td className="px-1.5 py-1.5"><div className="flex items-center gap-1"><button type="button" onClick={addRow} title="Add row" className="w-6 h-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0"><Plus className="w-3.5 h-3.5" /></button>{i > 0 && <button type="button" onClick={() => removeRow(row._id)} title="Remove row" className="w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors shrink-0"><Minus className="w-3.5 h-3.5" /></button>}</div></td></tr>)}</tbody>
+            <tbody>{rows.map((row, i) => <tr key={row._id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 group"><td className="px-3 py-1.5 text-gray-400 font-mono text-[10px]">{i + 1}</td>{columns.map(c => <td key={c.id} className="px-1.5 py-1.5"><SubformCell col={c} value={row[c.name]} onChange={v => updateCell(row._id, c.name, v)} /></td>)}<td className="px-1.5 py-1.5"><div className="flex items-center gap-1"><button type="button" onClick={addRow} title="Add row" className="w-6 h-6 rounded-full bg-brand hover:bg-brand-dark text-white flex items-center justify-center transition-colors shrink-0"><Plus className="w-3.5 h-3.5" /></button>{i > 0 && <button type="button" onClick={() => removeRow(row._id)} title="Remove row" className="w-6 h-6 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors shrink-0"><Minus className="w-3.5 h-3.5" /></button>}</div></td></tr>)}</tbody>
             {rows.length > 0 && columns.some(c => c.aggregate) && (
               <tfoot><tr className="border-t-2 border-gray-200 bg-gray-50/70 font-semibold">
                 <td className="px-3 py-1.5" />
@@ -344,7 +344,7 @@ function renderDynamicFieldInput({ field, value, onChange, externalOptions }: { 
       return <Select value={(Array.isArray(value) ? value[0] : value) || ""} onValueChange={onChange}><SelectTrigger><SelectValue placeholder={field.placeholder || "--select--"} /></SelectTrigger><SelectContent>{field.options?.map((o, i) => <SelectItem key={o.id ?? `${o.value}-${i}`} value={o.value}>{o.label}</SelectItem>)}</SelectContent></Select>;
     }
     case "RADIO": return <div className="flex flex-col gap-2">{field.options?.map((opt, i) => <label key={opt.id ?? `${opt.value}-${i}`} className="flex items-center gap-2.5 cursor-pointer"><input type="radio" name={field.name} value={opt.value} checked={value === opt.value} onChange={() => onChange(opt.value)} className="w-4 h-4 accent-blue-600" /><span className="text-sm text-gray-700">{opt.label}</span></label>)}</div>;
-    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map((o, i) => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.id ?? `${o.value}-${i}`} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"}`}>{o.label}</button>; })}</div>;
+    case "MULTI_SELECT": return <div className="flex flex-wrap gap-2">{field.options?.map((o, i) => { const sel = Array.isArray(value) && value.includes(o.value); return <button key={o.id ?? `${o.value}-${i}`} type="button" onClick={() => { const c = Array.isArray(value) ? value : []; onChange(sel ? c.filter((v: string) => v !== o.value) : [...c, o.value]); }} className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${sel ? "bg-brand text-white border-brand" : "bg-white text-gray-700 border-gray-200 hover:border-brand/50"}`}>{o.label}</button>; })}</div>;
     case "NUMBER": case "DECIMAL": case "CURRENCY": return <Input type="number" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder} step={field.type === "DECIMAL" ? "0.01" : "1"} />;
     case "DATE": case "DATETIME": return <DateFieldInput field={field} value={value} onChange={onChange} />;
     case "EMAIL": return <Input type="email" value={value || ""} onChange={e => onChange(e.target.value)} placeholder={field.placeholder || "email@example.com"} />;
@@ -553,7 +553,7 @@ export default function NewRecordPage() {
       <div className="w-72 xl:w-80 shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
 
         {/* Accent bar using module color */}
-        <div className="h-1 shrink-0" style={{ backgroundColor: mod?.color ?? "#3b82f6" }} />
+        <div className="h-1 shrink-0" style={{ backgroundColor: mod?.color ?? "var(--color-brand)" }} />
 
         {/* Back link */}
         <div className="px-5 pt-5 pb-2">
@@ -566,7 +566,7 @@ export default function NewRecordPage() {
         <div className="px-5 pt-3 pb-5 border-b border-gray-100">
           <div
             className="w-12 h-12 rounded-xl flex items-center justify-center mb-3 text-white"
-            style={{ backgroundColor: mod?.color ?? "#3b82f6" }}
+            style={{ backgroundColor: mod?.color ?? "var(--color-brand)" }}
           >
             <ModuleIcon icon={mod?.icon} slug={slug} size={22} />
           </div>
@@ -601,7 +601,7 @@ export default function NewRecordPage() {
                     width: `${(filledRequired.length / requiredFields.length) * 100}%`,
                     backgroundColor: filledRequired.length === requiredFields.length
                       ? "#10b981"
-                      : (mod?.color ?? "#3b82f6"),
+                      : (mod?.color ?? "var(--color-brand)"),
                   }}
                 />
               </div>
@@ -665,7 +665,7 @@ export default function NewRecordPage() {
           )}
           <Button
             className="w-full gap-2 text-white border-0"
-            style={{ backgroundColor: mod?.color ?? "#3b82f6" }}
+            style={{ backgroundColor: mod?.color ?? "var(--color-brand)" }}
             onClick={handleSubmit}
             disabled={saving}
           >
