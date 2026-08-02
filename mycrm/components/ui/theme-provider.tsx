@@ -7,12 +7,14 @@ import { THEME_STORAGE_KEY, resolveAutoTheme, type ThemeChoice } from "@/lib/the
 
 const AUTO_RECHECK_MS = 15 * 60 * 1000; // re-resolve day/night every 15 min for "Auto"
 
-// Brand-facing routes always render in the Light theme, regardless of the
-// logged-in user's personal workspace preference — they're public/marketing
-// surfaces, not part of the themed app shell, and were never designed against
-// the dark/green-apple/ocean-glass palettes.
+// The public marketing page and auth screens always render in the Light
+// theme, regardless of the logged-in user's personal workspace preference —
+// they're public-facing surfaces an anonymous visitor sees, not part of the
+// themed app shell. /land-admin (the landing page editor) is NOT included
+// here — as an admin tool it should follow the real selected theme like the
+// rest of the app.
 function isBrandRoute(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/land-admin") ||
+  return pathname === "/" ||
     pathname.startsWith("/login") || pathname.startsWith("/register") ||
     pathname.startsWith("/forgot-password");
 }

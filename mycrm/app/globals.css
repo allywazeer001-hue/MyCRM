@@ -229,6 +229,15 @@
 @media screen and (min-width: 2560px) { html { font-size: 11.5px; } }
 @media screen and (min-width: 3840px) { html { font-size: 9px; } }
 
+/* ── Hide scrollbar chrome while keeping the element scrollable ─────────── */
+.scrollbar-hide {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* old Edge/IE */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;               /* Chrome/Safari/new Edge */
+}
+
 /* ── Sidebar nav-icon hover animation ───────────────────────────────────── */
 @keyframes cb-nav-icon-pop {
   0%   { transform: scale(1)    rotate(0deg);  }
