@@ -2,9 +2,9 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import {
-  User, Building2, Shield, Users, Mail,
+  User, Shield, Mail,
   Zap, BarChart3, ArrowRight,
-  CheckCircle2, AlertCircle, GitFork, Plug,
+  CheckCircle2, AlertCircle, GitFork,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -184,44 +184,6 @@ function SecuritySection() {
   );
 }
 
-const ADMIN_QUICK_LINKS = [
-  {
-    href: "/settings/organization",
-    icon: Building2,
-    label: "Organization",
-    description: "Manage organization profile, branding, and view usage statistics.",
-    color: "bg-blue-50 text-blue-600 border-blue-100",
-  },
-  {
-    href: "/admin/departments",
-    icon: Building2,
-    label: "Units",
-    description: "Manage organizational units, assign unit heads, configure unit-level permissions and access control.",
-    color: "bg-blue-50 text-blue-600 border-blue-100",
-  },
-  {
-    href: "/admin/permissions",
-    icon: Shield,
-    label: "Access Control",
-    description: "Configure role-based permissions for modules and actions.",
-    color: "bg-amber-50 text-amber-600 border-amber-100",
-  },
-  {
-    href: "/users",
-    icon: Users,
-    label: "Users",
-    description: "Manage user accounts, roles, and invitations.",
-    color: "bg-green-50 text-green-600 border-green-100",
-  },
-  {
-    href: "/settings/connected-apps",
-    icon: Plug,
-    label: "Connected Applications",
-    description: "Approve external apps, issue API credentials, and control what they can access.",
-    color: "bg-indigo-50 text-indigo-600 border-indigo-100",
-  },
-];
-
 const CONFIG_QUICK_LINKS = [
   {
     href: "/settings/routing",
@@ -373,12 +335,21 @@ export default function SettingsPage() {
           <Separator />
           <div>
             <h2 className="text-base font-semibold text-gray-900 mb-1">Administration</h2>
-            <p className="text-sm text-gray-500 mb-4">Manage users, units, access control, and shared data.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {ADMIN_QUICK_LINKS.map(link => (
-                <QuickLinkCard key={link.href} {...link} />
-              ))}
-            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Organization, units, access control, users, and everything else administrative now lives in one place.
+            </p>
+            <Link href="/admin">
+              <div className="group flex items-center gap-3 p-4 rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all bg-white cursor-pointer">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 bg-amber-50 text-amber-600 border-amber-100">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900">Admin Panel</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Organization, landing page, units, access control, users, and more.</p>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
+              </div>
+            </Link>
           </div>
 
           <Separator />

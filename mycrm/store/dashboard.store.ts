@@ -178,8 +178,7 @@ export const useDashboardStore = create<DashboardStore>()(
               isDefault: true,
               config: {
                 widgets: [
-                  { id: "w5", type: "module_grid",   title: "Modules",         x: 0, y: 0, w: 4, h: 3, config: {} },
-                  { id: "w6", type: "activity_feed", title: "Recent Activity", x: 4, y: 0, w: 3, h: 5, config: { limit: 10 } },
+                  { id: "w5", type: "module_grid", title: "Modules", x: 0, y: 0, w: 4, h: 3, config: {} },
                 ],
               },
             });

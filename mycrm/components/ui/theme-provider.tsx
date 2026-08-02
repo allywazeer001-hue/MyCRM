@@ -1,10 +1,21 @@
 "use client";
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 import { useAuthStore } from "@/store/auth.store";
 import { THEME_STORAGE_KEY, resolveAutoTheme, type ThemeChoice } from "@/lib/themes";
 
 const AUTO_RECHECK_MS = 15 * 60 * 1000; // re-resolve day/night every 15 min for "Auto"
+
+// Brand-facing routes always render in the Light theme, regardless of the
+// logged-in user's personal workspace preference — they're public/marketing
+// surfaces, not part of the themed app shell, and were never designed against
+// the dark/green-apple/ocean-glass palettes.
+function isBrandRoute(pathname: string): boolean {
+  return pathname === "/" || pathname.startsWith("/land-admin") ||
+    pathname.startsWith("/login") || pathname.startsWith("/register") ||
+    pathname.startsWith("/forgot-password");
+}
 
 // Applies the user's stored preference on load/login, and — only when that
 // preference is "auto" — keeps re-resolving it against the local clock so a
@@ -15,8 +26,11 @@ const AUTO_RECHECK_MS = 15 * 60 * 1000; // re-resolve day/night every 15 min for
 function ThemeSync() {
   const { setTheme } = useTheme();
   const user = useAuthStore(s => s.user);
+  const pathname = usePathname();
 
   useEffect(() => {
+    if (isBrandRoute(pathname)) { setTheme("light"); return; }
+
     const stored = typeof window !== "undefined"
       ? (localStorage.getItem(THEME_STORAGE_KEY) as ThemeChoice | null)
       : null;
@@ -28,7 +42,7 @@ function ThemeSync() {
     if (preference !== "auto") return;
     const id = setInterval(apply, AUTO_RECHECK_MS);
     return () => clearInterval(id);
-  }, [user?.theme, setTheme]);
+  }, [user?.theme, setTheme, pathname]);
 
   return null;
 }

@@ -112,7 +112,40 @@ export class RecordsService {
       .sort((a, b) => a.localeCompare(b));
   }
 
-  async findAll(moduleId: string, orgId: string, query: any, canSeeConfidential = false) {
+  // Additive, role-scoped field visibility on top of confidentiality above —
+  // reads Permission.fieldOverrides (set via the Access Control field editor,
+  // see permissions.controller.ts) for this exact role+module, and resolves
+  // its fieldId keys to field names. SUPER_ADMIN always bypasses, matching
+  // the bypass convention used everywhere else permission checks happen.
+  private async getRoleFieldOverrides(orgId: string, moduleId: string, role?: string): Promise<{ hidden: string[]; readonly: string[] }> {
+    if (!role || role === 'SUPER_ADMIN') return { hidden: [], readonly: [] };
+
+    const perm = await this.prisma.permission.findFirst({
+      where: { organizationId: orgId, moduleId, role },
+      select: { fieldOverrides: true },
+    });
+    const overrides = (perm?.fieldOverrides as Record<string, string>) || {};
+    const fieldIds = Object.keys(overrides);
+    if (fieldIds.length === 0) return { hidden: [], readonly: [] };
+
+    const fieldRows = await this.prisma.field.findMany({
+      where: { id: { in: fieldIds } },
+      select: { id: true, name: true },
+    });
+    const idToName = new Map(fieldRows.map((f) => [f.id, f.name]));
+
+    const hidden: string[] = [];
+    const readonly: string[] = [];
+    for (const [fieldId, level] of Object.entries(overrides)) {
+      const name = idToName.get(fieldId);
+      if (!name) continue;
+      if (level === 'hidden') hidden.push(name);
+      else if (level === 'readonly') readonly.push(name);
+    }
+    return { hidden, readonly };
+  }
+
+  async findAll(moduleId: string, orgId: string, query: any, canSeeConfidential = false, viewerRole?: string) {
     const { page = 1, limit = 25, search, filterGroup, sortField, sortDir, showArchived } = query;
     const where: any = { moduleId, organizationId: orgId, isDeleted: false };
     if (!showArchived || showArchived === 'false') where.isArchived = false;
@@ -161,7 +194,8 @@ export class RecordsService {
       : records;
 
     const moduleFields = await this.prisma.field.findMany({ where: { moduleId, isActive: true }, include: { options: true } });
-    const resolvedData = await this.resolver.resolveRecords(paged, moduleFields, canSeeConfidential);
+    const { hidden: roleHidden } = await this.getRoleFieldOverrides(orgId, moduleId, viewerRole);
+    const resolvedData = await this.resolver.resolveRecords(paged, moduleFields, canSeeConfidential, roleHidden);
 
     return {
       data: resolvedData,
@@ -209,7 +243,7 @@ export class RecordsService {
     }
   }
 
-  async findOne(id: string, orgId: string, canSeeConfidential = false) {
+  async findOne(id: string, orgId: string, canSeeConfidential = false, viewerRole?: string) {
     const record = await this.prisma.record.findFirst({
       where: { id, organizationId: orgId, isDeleted: false },
       include: {
@@ -226,7 +260,8 @@ export class RecordsService {
     });
     if (!record) throw new NotFoundException('Record not found');
     const moduleFields = record.module?.fields ?? await this.prisma.field.findMany({ where: { moduleId: record.moduleId, isActive: true }, include: { options: true } });
-    return this.resolver.resolveRecord(record, moduleFields, canSeeConfidential);
+    const { hidden: roleHidden } = await this.getRoleFieldOverrides(orgId, record.moduleId, viewerRole);
+    return this.resolver.resolveRecord(record, moduleFields, canSeeConfidential, roleHidden);
   }
 
   async update(
@@ -270,6 +305,12 @@ export class RecordsService {
       });
       for (const f of confidentialFields) delete submittedData[f.name];
     }
+
+    // Role-scoped field overrides (Access Control field editor): a field
+    // marked "hidden" or "readonly" for this viewer's role is dropped from
+    // the submission the same way — see getRoleFieldOverrides above.
+    const { hidden: roleHidden, readonly: roleReadonly } = await this.getRoleFieldOverrides(auditOrgId, record.moduleId, lockCtx?.role);
+    for (const name of [...roleHidden, ...roleReadonly]) delete submittedData[name];
 
     const existingData = (record.data as Record<string, any>) || {};
 

@@ -95,40 +95,39 @@
     --font-sans: var(--font-inter);
   }
 
-  /* Dark — deep navy background, brighter indigo accent than Light (a solid
-     indigo-800 button reads fine on white but goes muddy on a dark
-     background, so the accent shifts up to indigo-500 here). */
+  /* Dark — a neutral zinc/charcoal scale (the "GitHub/Linear dark" look)
+     with exactly one accent hue (indigo). Earlier revisions mixed in a blue
+     tint on the background, which fought with the indigo accent and read as
+     muddy; going fully neutral on the base scale makes the single accent
+     colour the only thing with any saturation, which is what makes a dark
+     UI read as deliberate/professional rather than a patchwork of tints. */
   .dark {
-    /* Neutral, low-saturation slate instead of a blue-tinted background —
-       a same-hue accent-on-background (indigo accent on a blue-black
-       background) read as muddy/flat; a neutral backdrop makes the
-       indigo accent pop distinctly instead of blending in. */
-    --background: 224 18% 9%;
-    --foreground: 210 20% 96%;
-    --card: 224 16% 13%;
-    --card-foreground: 210 20% 96%;
-    --popover: 224 16% 13%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 243 75% 65%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 224 14% 17%;
-    --secondary-foreground: 210 20% 90%;
-    --muted: 224 14% 17%;
-    --muted-foreground: 220 10% 62%;
-    --accent: 224 14% 19%;
-    --accent-foreground: 210 20% 96%;
-    --destructive: 0 72% 51%;
+    --background: 240 6% 7%;
+    --foreground: 210 20% 98%;
+    --card: 240 5% 11%;
+    --card-foreground: 210 20% 98%;
+    --popover: 240 5% 11%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 210 15% 88%;
+    --muted: 240 5% 16%;
+    --muted-foreground: 220 9% 58%;
+    --accent: 240 5% 18%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 70% 50%;
     --destructive-foreground: 210 40% 98%;
-    --border: 224 12% 22%;
-    --input: 224 12% 22%;
-    --ring: 243 75% 65%;
+    --border: 240 5% 20%;
+    --input: 240 5% 20%;
+    --ring: 239 84% 67%;
 
     --color-brand: #6366f1;      /* indigo-500 */
-    --color-brand-dark: #4338ca; /* indigo-700 */
+    --color-brand-dark: #4f46e5; /* indigo-600 */
 
     /* Opaque, matching --card above — flat theme, not glass. Only Ocean
        Glass below gets a translucent/blurred surface. */
-    --surface-bg: rgba(26, 29, 39, 1);
+    --surface-bg: rgba(24, 24, 27, 1);
     --surface-border: rgba(255, 255, 255, 0.08);
     --surface-blur: 0px;
     --font-sans: var(--font-inter);

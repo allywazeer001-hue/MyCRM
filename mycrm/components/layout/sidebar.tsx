@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Settings, ChevronRight, Database, Workflow, BarChart3,
-  Users, Building2, Plus, ChevronLeft, FileBarChart2, X,
-  Globe, Palette, LayoutGrid, Home,
+  Building2, Plus, ChevronLeft, FileBarChart2, X,
+  Shield, LayoutGrid, Home,
   ChevronDown, ClipboardCheck, TableProperties, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,15 +38,9 @@ const dataManagementItems = [
 ];
 
 const adminNavItems = [
-  { href: "/studio",            label: "Module Studio", icon: Database   },
-  { href: "/users",             label: "Users",         icon: Users      },
-  { href: "/admin/departments", label: "Units",         icon: Building2  },
-  { href: "/settings",          label: "Settings",      icon: Settings   },
-];
-
-const platformNavItems = [
-  { href: "/platform",   label: "Organizations", icon: Globe    },
-  { href: "/land-admin", label: "Landing Page",  icon: Palette  },
+  { href: "/admin",    label: "Admin Panel",   icon: Shield     },
+  { href: "/studio",   label: "Module Studio", icon: Database   },
+  { href: "/settings", label: "Settings",      icon: Settings   },
 ];
 
 // href → package key required to show this item
@@ -358,23 +352,6 @@ function SidebarContent({
           {isAdmin && (
             <NavGroup label="Administration" collapsed={collapsed} defaultOpen={false}>
               {adminNavItems.map(item => (
-                <NavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  icon={item.icon}
-                  active={isActive(item.href)}
-                  collapsed={collapsed}
-                  onClick={onLinkClick}
-                />
-              ))}
-            </NavGroup>
-          )}
-
-          {/* Platform — Super Admin only */}
-          {isSuperAdmin && (
-            <NavGroup label="Platform" collapsed={collapsed} defaultOpen={false}>
-              {platformNavItems.map(item => (
                 <NavLink
                   key={item.href}
                   href={item.href}

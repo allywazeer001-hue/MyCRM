@@ -75,8 +75,11 @@ export class RelationResolverService {
    * pass true for a viewer explicitly confirmed to bypass field-level
    * confidentiality (currently: SUPER_ADMIN/ADMIN). Any caller that omits
    * this gets the masked result, never the raw one.
+   * @param roleHiddenFieldNames Field names hidden from this viewer's role by
+   * an admin-configured Permission.fieldOverrides entry (see PermissionsService)
+   * — a separate, additive mechanism from canSeeConfidential above.
    */
-  async resolveRecords(records: any[], fields: any[], canSeeConfidential = false): Promise<any[]> {
+  async resolveRecords(records: any[], fields: any[], canSeeConfidential = false, roleHiddenFieldNames: string[] = []): Promise<any[]> {
     if (!records || records.length === 0) return records;
 
     // -----------------------------------------------------------------------
@@ -224,9 +227,10 @@ export class RelationResolverService {
 
     // Field-Level Confidentiality: names masked out below unless the caller
     // confirmed the viewer bypasses it. Computed once, applied per record.
-    const confidentialFieldNames = canSeeConfidential
-      ? []
-      : fields.filter((f) => f.isConfidential).map((f) => f.name);
+    const confidentialFieldNames = [
+      ...(canSeeConfidential ? [] : fields.filter((f) => f.isConfidential).map((f) => f.name)),
+      ...roleHiddenFieldNames,
+    ];
 
     // -----------------------------------------------------------------------
     // 4. Enrich each record — SHADOW LABELS only, raw values untouched
@@ -342,8 +346,8 @@ export class RelationResolverService {
   /**
    * Convenience wrapper for a single record.
    */
-  async resolveRecord(record: any, fields: any[], canSeeConfidential = false): Promise<any> {
-    const result = await this.resolveRecords([record], fields, canSeeConfidential);
+  async resolveRecord(record: any, fields: any[], canSeeConfidential = false, roleHiddenFieldNames: string[] = []): Promise<any> {
+    const result = await this.resolveRecords([record], fields, canSeeConfidential, roleHiddenFieldNames);
     return result[0];
   }
 }

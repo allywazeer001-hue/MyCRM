@@ -21,6 +21,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const isAdmin = isSuperAdmin || user?.role === "ADMIN";
   const org = (user as any)?.organization;
   const orgName = org?.name ? toTitleCase(org.name) : null;
 
@@ -47,7 +48,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         {/* Mobile hamburger */}
         <button
           onClick={onMenuToggle}
-          className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors shrink-0"
+          className="lg:hidden p-2 rounded-lg text-muted-foreground hover:bg-accent transition-colors shrink-0"
           aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
@@ -82,29 +83,29 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
       {/* ── CENTER: search (absolutely centered) ───────────────── */}
       <div className="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <input
             type="text"
             placeholder="Search records, modules…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="h-8 pl-9 pr-3 text-sm bg-gray-50 border border-gray-200 rounded-lg w-56 focus:w-72 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all duration-200"
+            className="h-8 pl-9 pr-3 text-sm bg-secondary border border-border rounded-lg w-56 focus:w-72 focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring focus:bg-background transition-all duration-200"
           />
         </div>
       </div>
 
       {/* Mobile search toggle */}
       {searchOpen && (
-        <div className="sm:hidden absolute top-full left-0 right-0 bg-white border-b border-gray-200 px-3 py-2 z-50">
+        <div className="sm:hidden absolute top-full left-0 right-0 bg-background border-b border-border px-3 py-2 z-50">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               autoFocus
               type="text"
               placeholder="Search records, modules…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+              className="w-full pl-9 pr-4 py-2 text-sm bg-secondary border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:bg-background"
             />
           </div>
         </div>
@@ -116,7 +117,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         {/* Mobile search icon */}
         <button
           onClick={() => setSearchOpen(s => !s)}
-          className="sm:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+          className="sm:hidden p-2 rounded-lg text-muted-foreground hover:bg-accent transition-colors"
           aria-label="Search"
         >
           {searchOpen ? <X className="w-5 h-5" /> : <Search className="w-5 h-5" />}
@@ -126,7 +127,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
         {/* Notifications */}
         <Link href="/notifications">
-          <button className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
+          <button className="relative p-2 rounded-lg text-muted-foreground hover:bg-accent transition-colors">
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
@@ -139,27 +140,27 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+            <button className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-accent transition-colors">
               <Avatar className="w-7 h-7">
                 {user?.avatar && <AvatarImage src={user.avatar} alt={initials} className="object-cover" />}
-                <AvatarFallback className={`text-xs font-semibold ${isSuperAdmin ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                <AvatarFallback className={`text-xs font-semibold ${isSuperAdmin ? "bg-brand/15 text-brand" : "bg-secondary text-secondary-foreground"}`}>
                   {initials}
                 </AvatarFallback>
               </Avatar>
               <div className="hidden md:block text-left">
                 <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-semibold text-gray-900 leading-tight">
+                  <p className="text-sm font-semibold text-foreground leading-tight">
                     {user?.firstName} {user?.lastName}
                   </p>
                   {isSuperAdmin && (
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 leading-none">
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-brand/15 text-brand leading-none">
                       <Shield className="w-2.5 h-2.5" />SA
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 leading-tight capitalize">{user?.role?.toLowerCase()}</p>
+                <p className="text-xs text-muted-foreground leading-tight capitalize">{user?.role?.toLowerCase()}</p>
               </div>
-              <ChevronDown className="w-3 h-3 text-gray-400 hidden md:block" />
+              <ChevronDown className="w-3 h-3 text-muted-foreground hidden md:block" />
             </button>
           </DropdownMenuTrigger>
 
@@ -169,12 +170,12 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
                 <div className="flex items-center gap-1.5">
                   <p className="text-sm font-semibold">{user?.firstName} {user?.lastName}</p>
                   {isSuperAdmin && (
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 leading-none">
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-brand/15 text-brand leading-none">
                       <Shield className="w-2.5 h-2.5" />Super Admin
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 font-normal">{user?.email}</p>
+                <p className="text-xs text-muted-foreground font-normal">{user?.email}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -188,6 +189,13 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
                 <Settings className="mr-2 h-4 w-4" />Settings
               </DropdownMenuItem>
             </Link>
+            {isAdmin && (
+              <Link href="/admin">
+                <DropdownMenuItem className="cursor-pointer">
+                  <Shield className="mr-2 h-4 w-4" />Admin Panel
+                </DropdownMenuItem>
+              </Link>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50">
               <LogOut className="mr-2 h-4 w-4" />Sign out

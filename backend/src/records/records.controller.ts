@@ -65,7 +65,7 @@ export class RecordsController {
 
   @Get()
   findAll(@Param('moduleId') moduleId: string, @Query() query: any, @CurrentUser() user: any) {
-    return this.recordsService.findAll(moduleId, user.organizationId, query, this.canSeeConfidential(user));
+    return this.recordsService.findAll(moduleId, user.organizationId, query, this.canSeeConfidential(user), user.role);
   }
 
   // Registered before the ':id' route below — Nest matches in declaration order, and 'id' would
@@ -81,7 +81,7 @@ export class RecordsController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.recordsService.findOne(id, user.organizationId, this.canSeeConfidential(user));
+    return this.recordsService.findOne(id, user.organizationId, this.canSeeConfidential(user), user.role);
   }
 
   @Patch(':id')

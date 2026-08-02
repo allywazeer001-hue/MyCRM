@@ -737,6 +737,11 @@ model Permission {
   canDashboard      Boolean  @default(true)
   canAnalytics      Boolean  @default(true)
   canSettings       Boolean  @default(false)
+  // Optional finer-grained overrides on top of the module-level toggles above —
+  // { [fieldId]: "hidden" | "readonly" }. Absence of a field here means it
+  // follows the module-level canRead/canUpdate toggles as before; this is
+  // purely additive, not a replacement gate.
+  fieldOverrides    Json     @default("{}")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
