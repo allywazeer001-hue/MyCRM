@@ -225,6 +225,25 @@ function SidebarContent({
     ? modules
     : modules.filter(mod => canView(mod.slug));
 
+  // Module Groups — optional, admin-configured labeled sections for the module
+  // list (e.g. "Education" / "Water" / "Health") instead of one flat list.
+  // Stored in Organization.settings.moduleGroups; falls back to the plain flat
+  // list below when none are configured (today's behavior, unchanged).
+  const moduleGroups: { id: string; name: string; order: number }[] =
+    (user?.organization as any)?.settings?.moduleGroups ?? [];
+  const groupedVisibleModules = moduleGroups.length > 0
+    ? (() => {
+        const byGroup: Record<string, typeof visibleModules> = {};
+        const ungrouped: typeof visibleModules = [];
+        for (const mod of visibleModules) {
+          const gid = (mod.settings as any)?.groupId;
+          if (gid && moduleGroups.some(g => g.id === gid)) (byGroup[gid] ??= []).push(mod);
+          else ungrouped.push(mod);
+        }
+        return { byGroup, ungrouped };
+      })()
+    : null;
+
   const isActive = (href: string) => {
     if (href === "/settings")
       return pathname === "/settings" || pathname.startsWith("/settings/") || pathname.startsWith("/admin/");
@@ -325,28 +344,72 @@ function SidebarContent({
             </NavDropdown>
           )}
 
-          {/* Modules */}
-          <NavGroup label="Modules" collapsed={collapsed}>
-            {visibleModules.map(mod => (
-              <NavLink
-                key={mod.id}
-                href={`/m/${mod.slug}`}
-                label={mod.name}
-                icon={(props: any) => <ModuleIcon icon={mod.icon} slug={mod.slug} className={props?.className} />}
-                active={isActive(`/m/${mod.slug}`)}
-                collapsed={collapsed}
-                onClick={onLinkClick}
-              />
-            ))}
-            {!collapsed && (
-              <Link href="/studio/new" onClick={onLinkClick}>
-                <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-blue-200/70 hover:text-white hover:bg-white/10 cursor-pointer transition-all duration-150">
-                  <Plus className="w-[18px] h-[18px] shrink-0" />
-                  <span>New Module</span>
-                </div>
-              </Link>
-            )}
-          </NavGroup>
+          {/* Modules — grouped into labeled sections when Module Groups are
+              configured (Studio → Manage Groups), otherwise one flat list. */}
+          {groupedVisibleModules ? (
+            <>
+              {moduleGroups.map(g => (
+                groupedVisibleModules.byGroup[g.id]?.length ? (
+                  <NavGroup key={g.id} label={g.name} collapsed={collapsed} defaultOpen={false}>
+                    {groupedVisibleModules.byGroup[g.id].map(mod => (
+                      <NavLink
+                        key={mod.id}
+                        href={`/m/${mod.slug}`}
+                        label={mod.name}
+                        icon={(props: any) => <ModuleIcon icon={mod.icon} slug={mod.slug} className={props?.className} />}
+                        active={isActive(`/m/${mod.slug}`)}
+                        collapsed={collapsed}
+                        onClick={onLinkClick}
+                      />
+                    ))}
+                  </NavGroup>
+                ) : null
+              ))}
+              <NavGroup label="Modules" collapsed={collapsed}>
+                {groupedVisibleModules.ungrouped.map(mod => (
+                  <NavLink
+                    key={mod.id}
+                    href={`/m/${mod.slug}`}
+                    label={mod.name}
+                    icon={(props: any) => <ModuleIcon icon={mod.icon} slug={mod.slug} className={props?.className} />}
+                    active={isActive(`/m/${mod.slug}`)}
+                    collapsed={collapsed}
+                    onClick={onLinkClick}
+                  />
+                ))}
+                {!collapsed && (
+                  <Link href="/studio/new" onClick={onLinkClick}>
+                    <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-blue-200/70 hover:text-white hover:bg-white/10 cursor-pointer transition-all duration-150">
+                      <Plus className="w-[18px] h-[18px] shrink-0" />
+                      <span>New Module</span>
+                    </div>
+                  </Link>
+                )}
+              </NavGroup>
+            </>
+          ) : (
+            <NavGroup label="Modules" collapsed={collapsed}>
+              {visibleModules.map(mod => (
+                <NavLink
+                  key={mod.id}
+                  href={`/m/${mod.slug}`}
+                  label={mod.name}
+                  icon={(props: any) => <ModuleIcon icon={mod.icon} slug={mod.slug} className={props?.className} />}
+                  active={isActive(`/m/${mod.slug}`)}
+                  collapsed={collapsed}
+                  onClick={onLinkClick}
+                />
+              ))}
+              {!collapsed && (
+                <Link href="/studio/new" onClick={onLinkClick}>
+                  <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-blue-200/70 hover:text-white hover:bg-white/10 cursor-pointer transition-all duration-150">
+                    <Plus className="w-[18px] h-[18px] shrink-0" />
+                    <span>New Module</span>
+                  </div>
+                </Link>
+              )}
+            </NavGroup>
+          )}
 
           {/* Administration */}
           {isAdmin && (

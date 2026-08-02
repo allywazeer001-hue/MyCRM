@@ -47,6 +47,7 @@ export interface ModuleLayoutCanvasProps {
   selectedFieldId?: string | null;
   onFieldSelect: (field: Field | null) => void;
   onDeleteField: (fieldId: string) => void;
+  onDuplicateField: (fieldId: string) => void;
   previewMode?: boolean;
   // Palette drag support
   draggingFromPalette?: boolean;
@@ -406,6 +407,7 @@ function FieldCard({
   onSelect,
   onRemove,
   onDelete,
+  onDuplicate,
   onSetWidth,
 }: {
   field: Field;
@@ -417,6 +419,7 @@ function FieldCard({
   onSelect: () => void;
   onRemove: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
   onSetWidth: (w: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -568,6 +571,16 @@ function FieldCard({
             <X className="h-3 w-3" />
           </button>
 
+          {/* Duplicate field — copies type/settings/options into a new field right after this one */}
+          <button
+            onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onDuplicate(); }}
+            className="ml-0.5 text-gray-300 hover:text-blue-500 transition-colors"
+            title="Duplicate field"
+          >
+            <Copy className="h-3 w-3" />
+          </button>
+
           {/* Delete field — permanently removes it (with confirmation) */}
           <button
             onPointerDown={e => e.stopPropagation()}
@@ -596,6 +609,7 @@ interface SectionCardProps {
   onDuplicateSection: () => void;
   onRemoveFromSection: (fieldId: string) => void;
   onDeleteField: (fieldId: string) => void;
+  onDuplicateField: (fieldId: string) => void;
   onSetFieldWidth: (fieldId: string, width: string) => void;
   isOver: boolean;
   isPaletteOver?: boolean;
@@ -616,6 +630,7 @@ function SectionCard({
   onDuplicateSection,
   onRemoveFromSection,
   onDeleteField,
+  onDuplicateField,
   onSetFieldWidth,
   isOver,
   isPaletteOver = false,
@@ -820,6 +835,7 @@ function SectionCard({
                     onSelect={() => onFieldSelect(selectedFieldId === field.id ? null : field)}
                     onRemove={() => onRemoveFromSection(field.id)}
                     onDelete={() => onDeleteField(field.id)}
+                    onDuplicate={() => onDuplicateField(field.id)}
                     onSetWidth={w => onSetFieldWidth(field.id, w)}
                   />
                 ))}
@@ -1084,6 +1100,7 @@ export function ModuleLayoutCanvas({
   selectedFieldId,
   onFieldSelect,
   onDeleteField,
+  onDuplicateField,
   previewMode = false,
   draggingFromPalette = false,
   onPaletteHoverSection,
@@ -1473,6 +1490,7 @@ export function ModuleLayoutCanvas({
                 onDuplicateSection={() => duplicateSection(section.id)}
                 onRemoveFromSection={fid => removeFromSection(fid, section.id)}
                 onDeleteField={onDeleteField}
+                onDuplicateField={onDuplicateField}
                 onSetFieldWidth={(fid, w) => setFieldWidth(section.id, fid, w)}
                 isOver={overSectionId === section.id}
                 isPaletteOver={draggingFromPalette && paletteHoverSectionId === section.id}

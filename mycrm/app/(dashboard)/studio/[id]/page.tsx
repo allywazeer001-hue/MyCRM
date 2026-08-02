@@ -1319,6 +1319,50 @@ function StudioEditorPageInner() {
     let name = baseName;
     let c = 2;
     while (usedNames.has(name)) name = `${baseName}_${c++}`;
+
+    // Optimistic insert: the field appears on the canvas the instant it's
+    // dropped, using a temp id that gets swapped for the server's real one
+    // once the POST resolves (or rolled back entirely if it fails) — waiting
+    // on the round-trip before showing anything made drops feel laggy.
+    const tempId = `temp-${generateId()}`;
+    const tempField: Field = {
+      id: tempId, name, label, type, order: fields.length,
+      isRequired: false, isUnique: false, isReadonly: false, isHidden: false,
+    };
+
+    const targetSect = targetSectionOverride !== undefined ? targetSectionOverride : paletteHoverSectionRef.current;
+    const targetField = targetFieldOverride !== undefined ? targetFieldOverride : paletteHoverFieldRef.current;
+
+    setFields(prev => [...prev, tempField]);
+    setSelectedField(tempField);
+
+    if (targetSect) {
+      skipAutoAssignRef.current = true;
+      setLayoutConfig(prev => {
+        const sections = prev.sections ?? [];
+        const target = sections.find(s => s.id === targetSect);
+        const cols = target?.columns ?? 2;
+        const autoWidth = cols >= 2 ? smartWidth(target?.fieldWidths ?? {}, target?.fieldIds ?? [], cols) : "full";
+        // Insert exactly at the hovered field's position when one was detected;
+        // otherwise fall back to appending at the end of the section.
+        const existingIds = target?.fieldIds ?? [];
+        const insertAt = targetField ? existingIds.indexOf(targetField) : -1;
+        const newFieldIds = insertAt !== -1
+          ? [...existingIds.slice(0, insertAt), tempId, ...existingIds.slice(insertAt)]
+          : [...existingIds, tempId];
+        return {
+          ...prev,
+          sections: sections.map(s =>
+            s.id === targetSect
+              ? { ...s, fieldIds: newFieldIds, fieldWidths: { ...(s.fieldWidths ?? {}), [tempId]: autoWidth } }
+              : s
+          ),
+        };
+      });
+      paletteHoverSectionRef.current = null;
+      paletteHoverFieldRef.current = null;
+    }
+
     try {
       const { data } = await api.post(`/modules/${id}/fields`, {
         name,
@@ -1330,42 +1374,76 @@ function StudioEditorPageInner() {
         isHidden: false,
       });
 
-      // If palette was hovering over a specific section, place there directly
-      const targetSect = targetSectionOverride !== undefined ? targetSectionOverride : paletteHoverSectionRef.current;
-      const targetField = targetFieldOverride !== undefined ? targetFieldOverride : paletteHoverFieldRef.current;
+      // Reconcile — swap the temp id for the server's real one everywhere it landed.
+      setFields(prev => prev.map(f => f.id === tempId ? data : f));
+      setSelectedField(prev => (prev?.id === tempId ? data : prev));
       if (targetSect) {
-        skipAutoAssignRef.current = true;
-        setFields(prev => [...prev, data]);
-        setSelectedField(data);
-        setLayoutConfig(prev => {
-          const sections = prev.sections ?? [];
-          const target = sections.find(s => s.id === targetSect);
-          const cols = target?.columns ?? 2;
-          const autoWidth = cols >= 2 ? smartWidth(target?.fieldWidths ?? {}, target?.fieldIds ?? [], cols) : "full";
-          // Insert exactly at the hovered field's position when one was detected;
-          // otherwise fall back to appending at the end of the section.
-          const existingIds = target?.fieldIds ?? [];
-          const insertAt = targetField ? existingIds.indexOf(targetField) : -1;
-          const newFieldIds = insertAt !== -1
-            ? [...existingIds.slice(0, insertAt), data.id, ...existingIds.slice(insertAt)]
-            : [...existingIds, data.id];
-          return {
-            ...prev,
-            sections: sections.map(s =>
-              s.id === targetSect
-                ? { ...s, fieldIds: newFieldIds, fieldWidths: { ...(s.fieldWidths ?? {}), [data.id]: autoWidth } }
-                : s
-            ),
-          };
-        });
-        paletteHoverSectionRef.current = null;
-        paletteHoverFieldRef.current = null;
-        return;
+        setLayoutConfig(prev => ({
+          ...prev,
+          sections: (prev.sections ?? []).map(s => {
+            if (!s.fieldIds?.includes(tempId)) return s;
+            const { [tempId]: tempWidth, ...restWidths } = s.fieldWidths ?? {};
+            return {
+              ...s,
+              fieldIds: s.fieldIds.map(fid => fid === tempId ? data.id : fid),
+              fieldWidths: tempWidth !== undefined ? { ...restWidths, [data.id]: tempWidth } : s.fieldWidths,
+            };
+          }),
+        }));
       }
+    } catch {
+      // Roll back the optimistic insert entirely.
+      setFields(prev => prev.filter(f => f.id !== tempId));
+      setSelectedField(prev => (prev?.id === tempId ? null : prev));
+      if (targetSect) {
+        setLayoutConfig(prev => ({
+          ...prev,
+          sections: (prev.sections ?? []).map(s => {
+            if (!s.fieldIds?.includes(tempId)) return s;
+            const { [tempId]: _drop, ...restWidths } = s.fieldWidths ?? {};
+            return { ...s, fieldIds: s.fieldIds.filter(fid => fid !== tempId), fieldWidths: restWidths };
+          }),
+        }));
+      }
+    }
+  };
 
-      setFields(prev => [...prev, data]);
-      setSelectedField(data);
-    } catch {}
+  const duplicateField = async (field: Field) => {
+    const baseName = field.name.replace(/_copy(_\d+)?$/, "");
+    const usedNames = new Set(fields.map(f => f.name));
+    let name = `${baseName}_copy`;
+    let c = 2;
+    while (usedNames.has(name)) name = `${baseName}_copy_${c++}`;
+    const label = `${field.label} (copy)`;
+
+    const tempId = `temp-${generateId()}`;
+    const tempField: Field = { ...field, id: tempId, name, label };
+    setFields(prev => [...prev, tempField]);
+    setSelectedField(tempField);
+
+    try {
+      const { data } = await api.post(`/modules/${id}/fields`, {
+        name,
+        label,
+        type: field.type,
+        isRequired: field.isRequired,
+        isUnique: false, // a duplicated field can never keep the original's uniqueness constraint
+        isReadonly: field.isReadonly,
+        isHidden: field.isHidden,
+        placeholder: field.placeholder,
+        helpText: field.helpText,
+        defaultValue: field.defaultValue,
+        validation: field.validation,
+        conditionalLogic: field.conditionalLogic,
+        settings: field.settings,
+        options: field.options?.map(o => ({ label: o.label, value: o.value, color: o.color, order: o.order })),
+      });
+      setFields(prev => prev.map(f => f.id === tempId ? data : f));
+      setSelectedField(prev => (prev?.id === tempId ? data : prev));
+    } catch {
+      setFields(prev => prev.filter(f => f.id !== tempId));
+      setSelectedField(prev => (prev?.id === tempId ? null : prev));
+    }
   };
 
   // Releases the auto-assign guard only after the fields-changed effect (which reads it) has
@@ -1725,6 +1803,7 @@ function StudioEditorPageInner() {
                     setRightTab("properties");
                   }}
                   onDeleteField={deleteField}
+                  onDuplicateField={(fieldId) => { const f = fields.find(x => x.id === fieldId); if (f) duplicateField(f); }}
                   previewMode={previewMode}
                   draggingFromPalette={!!draggingPalette}
                   skipAutoAssignRef={skipAutoAssignRef}
