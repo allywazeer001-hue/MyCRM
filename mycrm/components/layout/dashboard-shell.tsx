@@ -77,7 +77,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <OnboardingTour />
-      <div className="flex h-full bg-gray-50 overflow-hidden">
+      <div className="flex h-full bg-muted overflow-hidden">
 
         {/* Mobile backdrop — tap to close sidebar */}
         {mobileMenuOpen && (

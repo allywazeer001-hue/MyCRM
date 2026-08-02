@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Poppins } from "next/font/google";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { AnnouncementBanner } from "@/components/announcement-banner";
 import { BRAND } from "@/lib/core-brand";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+// Exposed as CSS variables (not just .className) so each theme in globals.css
+// can pick which one to use via --font-sans — see the per-theme blocks there.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const poppins = Poppins({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-poppins" });
 
 export const metadata: Metadata = {
   title: BRAND.name,
@@ -19,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className} suppressHydrationWarning>
+      <body className={`${inter.variable} ${poppins.variable} ${inter.className}`} suppressHydrationWarning>
         <ThemeProvider>
           {/*
             Full-screen shells below (dashboard, portal, Cloud Forms) size themselves

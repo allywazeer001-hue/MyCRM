@@ -17,6 +17,8 @@ import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PORTAL_APPEARANCES, getStoredAppearance, setStoredAppearance, AppearanceId, BRAND } from "@/lib/core-brand";
+import { useTheme } from "next-themes";
+import { THEMES, THEME_STORAGE_KEY, resolveAutoTheme, type ThemeChoice } from "@/lib/themes";
 
 function Toast({ msg, type }: { msg: string; type: "success" | "error" }) {
   return (
@@ -306,6 +308,76 @@ function QuickLinkCard({ href, icon: Icon, label, description, color, badge }: {
   return <Link href={href}>{inner}</Link>;
 }
 
+function AppearanceSection() {
+  const { user, setUser } = useAuthStore();
+  const { setTheme } = useTheme();
+  const [choice, setChoice] = useState<ThemeChoice>("light");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const stored = (typeof window !== "undefined" ? localStorage.getItem(THEME_STORAGE_KEY) : null) as ThemeChoice | null;
+    setChoice(((user?.theme as ThemeChoice) || stored || "light"));
+  }, [user?.theme]);
+
+  const pick = async (id: ThemeChoice) => {
+    setChoice(id);
+    setTheme(id === "auto" ? resolveAutoTheme() : id);
+    if (typeof window !== "undefined") localStorage.setItem(THEME_STORAGE_KEY, id);
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/users/${user?.id}`, { theme: id });
+      if (user) setUser({ ...user, ...data, theme: id } as any);
+    } catch {}
+    setSaving(false);
+  };
+
+  const options: { id: ThemeChoice; label: string; description: string; swatches: string[] }[] = [
+    ...THEMES.map(t => ({ id: t.id as ThemeChoice, label: t.label, description: t.description, swatches: t.swatches })),
+    { id: "auto", label: "Auto", description: "Follows local time — Light during the day, Dark at night.", swatches: ["#ffffff", "#0d1220"] },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="text-base font-semibold text-gray-900">Appearance</h2>
+        {saving && <span className="text-xs text-gray-400">Saving…</span>}
+      </div>
+      <p className="text-sm text-gray-500 mb-4">
+        Choose how {BRAND.name} looks for you. Applies immediately and syncs to your account.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {options.map(opt => {
+          const active = choice === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => pick(opt.id)}
+              className={cn(
+                "text-left p-4 rounded-xl border-2 transition-all",
+                active ? "border-brand bg-brand/5 shadow-sm" : "border-gray-200 bg-white hover:border-gray-300"
+              )}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className={cn("text-sm font-semibold flex items-center gap-1.5", active ? "text-brand" : "text-gray-800")}>
+                  <span className="flex -space-x-1">
+                    {opt.swatches.map((c, i) => (
+                      <span key={i} className="w-3 h-3 rounded-full border border-white shadow-sm" style={{ background: c }} />
+                    ))}
+                  </span>
+                  {opt.label}
+                </span>
+                {active && <span className="text-xs px-2 py-0.5 bg-brand text-white rounded-full font-medium">Active</span>}
+              </div>
+              <p className="text-xs text-gray-500 leading-relaxed">{opt.description}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
@@ -327,6 +399,9 @@ export default function SettingsPage() {
 
       <ProfileSection />
       <SecuritySection />
+
+      <Separator />
+      <AppearanceSection />
 
       {isAdmin && (
         <>
@@ -360,16 +435,16 @@ export default function SettingsPage() {
                     className={cn(
                       "text-left p-4 rounded-xl border-2 transition-all",
                       active
-                        ? "border-blue-500 bg-blue-50 shadow-sm"
+                        ? "border-brand bg-brand/5 shadow-sm"
                         : "border-gray-200 bg-white hover:border-gray-300"
                     )}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className={cn("text-sm font-semibold", active ? "text-blue-700" : "text-gray-800")}>
+                      <span className={cn("text-sm font-semibold", active ? "text-brand" : "text-gray-800")}>
                         {appearance.name}
                       </span>
                       {active && (
-                        <span className="text-xs px-2 py-0.5 bg-blue-600 text-white rounded-full font-medium">Active</span>
+                        <span className="text-xs px-2 py-0.5 bg-brand text-white rounded-full font-medium">Active</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-500 leading-relaxed">{appearance.description}</p>

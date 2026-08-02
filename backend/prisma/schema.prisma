@@ -211,6 +211,7 @@ model User {
   avatar         String?
   phone          String?
   jobTitle       String?
+  theme          String   @default("light")
   role           UserRole @default(USER)
   isActive           Boolean   @default(true)
   status             String    @default("ACTIVE")

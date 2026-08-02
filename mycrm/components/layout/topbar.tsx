@@ -39,7 +39,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const initials = user ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase() : "U";
 
   return (
-    <header className="h-13 bg-white border-b border-gray-200 flex items-center shrink-0 relative" style={{ height: 52 }}>
+    <header className="h-13 bg-background border-b border-border flex items-center shrink-0 relative" style={{ height: 52 }}>
 
       {/* ── LEFT: hamburger + org branding ────────────────────── */}
       <div className="flex items-center gap-2 pl-3 sm:pl-4 flex-1 min-w-0">
@@ -72,7 +72,7 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
                 {orgName[0]}
               </div>
             )}
-            <span className="text-sm font-bold text-gray-800 tracking-tight truncate hidden sm:block max-w-[180px]">
+            <span className="text-sm font-bold text-foreground tracking-tight truncate hidden sm:block max-w-[180px]">
               {orgName}
             </span>
           </div>

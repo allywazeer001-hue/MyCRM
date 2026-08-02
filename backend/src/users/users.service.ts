@@ -7,7 +7,7 @@ const USER_SELECT = {
   id: true, email: true, firstName: true, lastName: true,
   role: true, usertype: true, isActive: true, status: true, mustChangePassword: true,
   jobTitle: true, phone: true, teamRole: true, departmentId: true, organizationId: true, createdAt: true,
-  avatar: true, lastLoginAt: true, suspendedAt: true, lockedAt: true,
+  avatar: true, lastLoginAt: true, suspendedAt: true, lockedAt: true, theme: true,
   department: { select: { id: true, name: true, color: true } },
 };
 

@@ -12,6 +12,59 @@
   --color-brand-dark: #1e1b4b; /* indigo-950 — gradient dark end, used on hover */
 }
 
+/* Exposes the shadcn-style HSL variables below as real Tailwind utilities
+   (bg-card, text-foreground, border-border, etc.) — `@theme inline` means
+   "reference the runtime custom property, don't bake in a static value",
+   which is what lets these change per theme class instead of being frozen
+   at build time. Card/Dialog/Input/Badge use these instead of hardcoded
+   bg-white/border-gray-200 so they actually re-theme. */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
+/* Tailwind v4 doesn't wire dark: to a class selector by default (it uses the
+   prefers-color-scheme media query instead) — this makes it follow the
+   .dark class next-themes applies to <html>, matching every theme below. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Multi-theme system ──────────────────────────────────────────────────────
+   Themes are selected by next-themes applying a class to <html> (see
+   components/ui/theme-provider.tsx: themes=["light","dark","green-apple",
+   "ocean-glass"]) and picked by the user in Settings → Appearance (see
+   lib/themes.ts for the picker's metadata — ids there MUST match the class
+   names used here). "light" has no override block below; :root already IS
+   the light theme's values, so it's the implicit default.
+
+   Every theme redefines the SAME set of variables:
+   - --background/--foreground/--card/--popover/--primary/--secondary/
+     --muted/--accent/--destructive/--border/--input/--ring (HSL triplets,
+     no hsl() wrapper — consumed as hsl(var(--x)), the pre-existing shadcn/ui
+     convention every primitive in components/ui/ already reads)
+   - --color-brand/--color-brand-dark (this session's brand tokens — same
+     hex-string convention as the @theme block above)
+   - --surface-bg/--surface-border/--surface-blur (the "glass card" recipe —
+     0px blur = a normal flat card; Ocean Glass is the only theme that turns
+     this into a real translucent/blurred surface)
+   - --font-sans (which loaded font this theme uses — see app/layout.tsx for
+     how --font-inter/--font-poppins get defined) */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -35,6 +88,100 @@
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
     --sidebar-width: 240px;
+
+    --surface-bg: rgba(255, 255, 255, 1);
+    --surface-border: rgba(0, 0, 0, 0.08);
+    --surface-blur: 0px;
+    --font-sans: var(--font-inter);
+  }
+
+  /* Dark — deep navy background, brighter indigo accent than Light (a solid
+     indigo-800 button reads fine on white but goes muddy on a dark
+     background, so the accent shifts up to indigo-500 here). */
+  .dark {
+    --background: 225 39% 8%;
+    --foreground: 210 40% 96%;
+    --card: 225 33% 12%;
+    --card-foreground: 210 40% 96%;
+    --popover: 225 33% 12%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 225 28% 16%;
+    --secondary-foreground: 210 40% 90%;
+    --muted: 225 28% 16%;
+    --muted-foreground: 217 15% 65%;
+    --accent: 225 28% 18%;
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 225 24% 20%;
+    --input: 225 24% 20%;
+    --ring: 239 84% 67%;
+
+    --color-brand: #6366f1;      /* indigo-500 */
+    --color-brand-dark: #3730a3; /* indigo-800 */
+
+    /* Opaque, matching --card above — flat theme, not glass. Only Ocean
+       Glass below gets a translucent/blurred surface. */
+    --surface-bg: rgba(23, 27, 42, 1);
+    --surface-border: rgba(255, 255, 255, 0.08);
+    --surface-blur: 0px;
+    --font-sans: var(--font-inter);
+  }
+
+  /* Green Apple — light theme derivative (white background) with a green
+     brand accent and a friendlier rounded font. */
+  .green-apple {
+    --primary: 142 71% 35%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 138 55% 96%;
+    --accent-foreground: 142 71% 20%;
+    --border: 138 25% 88%;
+    --input: 138 25% 88%;
+    --ring: 142 71% 35%;
+
+    --color-brand: #16a34a;      /* green-600 */
+    --color-brand-dark: #14532d; /* green-900 */
+
+    --surface-bg: rgba(255, 255, 255, 1);
+    --surface-border: rgba(0, 0, 0, 0.08);
+    --surface-blur: 0px;
+    --font-sans: var(--font-poppins);
+  }
+
+  /* Ocean Glass — the one theme with a real glass-card look: deep teal
+     background, translucent blurred surfaces (--surface-*), same visual
+     recipe already used on the portal auth pages (bg-white/10 +
+     backdrop-blur-md + border-white/20) formalized into shared tokens. */
+  .ocean-glass {
+    --background: 199 84% 8%;
+    --foreground: 190 40% 96%;
+    --card: 199 70% 14%;
+    --card-foreground: 190 40% 96%;
+    --popover: 199 70% 14%;
+    --popover-foreground: 190 40% 96%;
+    --primary: 189 94% 43%;
+    --primary-foreground: 199 84% 8%;
+    --secondary: 199 45% 18%;
+    --secondary-foreground: 190 30% 90%;
+    --muted: 199 45% 16%;
+    --muted-foreground: 190 20% 65%;
+    --accent: 199 45% 20%;
+    --accent-foreground: 190 40% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 199 35% 24%;
+    --input: 199 35% 24%;
+    --ring: 189 94% 43%;
+
+    --color-brand: #06b6d4;      /* cyan-500 */
+    --color-brand-dark: #0e7490; /* cyan-700 */
+
+    --surface-bg: rgba(255, 255, 255, 0.08);
+    --surface-border: rgba(255, 255, 255, 0.18);
+    --surface-blur: 12px;
+    --font-sans: var(--font-inter);
   }
 }
 
@@ -53,10 +200,12 @@
   * {
     border-color: hsl(var(--border));
   }
-  body {
+  html body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-sans, var(--font-inter));
     font-feature-settings: "rlig" 1, "calt" 1;
+    transition: background-color 150ms ease, color 150ms ease;
   }
 }
 

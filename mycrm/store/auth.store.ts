@@ -23,6 +23,7 @@ interface User {
     settings?: { packages?: string[]; [key: string]: any };
   };
   avatar?: string;
+  theme?: string;
 }
 
 interface AuthState {
