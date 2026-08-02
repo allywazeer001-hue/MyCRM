@@ -2,9 +2,9 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import {
-  User, Building2, Shield, Globe, Users, Mail,
-  Zap, BarChart3, FileText, ArrowRight,
-  CheckCircle2, AlertCircle, GitFork, ShieldCheck, Plug,
+  User, Building2, Shield, Users, Mail,
+  Zap, BarChart3, ArrowRight,
+  CheckCircle2, AlertCircle, GitFork, Plug,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { useAuthStore } from "@/store/auth.store";
 import { api } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { PORTAL_APPEARANCES, getStoredAppearance, setStoredAppearance, AppearanceId, BRAND } from "@/lib/core-brand";
+import { BRAND } from "@/lib/core-brand";
 import { useTheme } from "next-themes";
 import { THEMES, THEME_STORAGE_KEY, resolveAutoTheme, type ThemeChoice } from "@/lib/themes";
 
@@ -193,13 +193,6 @@ const ADMIN_QUICK_LINKS = [
     color: "bg-blue-50 text-blue-600 border-blue-100",
   },
   {
-    href: "/admin/global-lists",
-    icon: Globe,
-    label: "Global Lists",
-    description: "Manage shared hierarchical lookup data used across modules.",
-    color: "bg-purple-50 text-purple-600 border-purple-100",
-  },
-  {
     href: "/admin/departments",
     icon: Building2,
     label: "Units",
@@ -231,19 +224,6 @@ const ADMIN_QUICK_LINKS = [
 
 const CONFIG_QUICK_LINKS = [
   {
-    href: "/forms",
-    icon: FileText,
-    label: "Forms",
-    description: "Build forms, share public links, and view submissions.",
-  },
-  {
-    href: "/settings/automation",
-    icon: Zap,
-    label: "Automation",
-    description: "Workflows, blueprints, and rule-based process automation.",
-    color: "bg-violet-50 text-violet-600 border-violet-100",
-  },
-  {
     href: "/settings/routing",
     icon: GitFork,
     label: "Request Routing",
@@ -270,13 +250,6 @@ const CONFIG_QUICK_LINKS = [
     label: "Analytics",
     description: "Customize dashboards and reporting preferences.",
     badge: "Coming Soon",
-  },
-  {
-    href: "/settings/data-quality",
-    icon: ShieldCheck,
-    label: "Data Quality",
-    description: "Configure automatic validation, scheduled scans, and duplicate detection rules.",
-    color: "bg-blue-50 text-blue-600 border-blue-100",
   },
 ];
 
@@ -381,14 +354,6 @@ function AppearanceSection() {
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
-  const [activeAppearance, setActiveAppearance] = useState<AppearanceId>("professional-web");
-
-  useEffect(() => { setActiveAppearance(getStoredAppearance()); }, []);
-
-  const handleAppearanceChange = (id: AppearanceId) => {
-    setActiveAppearance(id);
-    setStoredAppearance(id);
-  };
 
   return (
     <div className="space-y-8">
@@ -417,52 +382,9 @@ export default function SettingsPage() {
           </div>
 
           <Separator />
-          {/* ── Portal Appearance ── */}
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Portal Appearance</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Choose how the {BRAND.name} portal looks and feels for your users.
-              Selection is saved automatically and persists across sessions.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {PORTAL_APPEARANCES.map(appearance => {
-                const active = activeAppearance === appearance.id;
-                return (
-                  <button
-                    key={appearance.id}
-                    type="button"
-                    onClick={() => handleAppearanceChange(appearance.id)}
-                    className={cn(
-                      "text-left p-4 rounded-xl border-2 transition-all",
-                      active
-                        ? "border-brand bg-brand/5 shadow-sm"
-                        : "border-gray-200 bg-white hover:border-gray-300"
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className={cn("text-sm font-semibold", active ? "text-brand" : "text-gray-800")}>
-                        {appearance.name}
-                      </span>
-                      {active && (
-                        <span className="text-xs px-2 py-0.5 bg-brand text-white rounded-full font-medium">Active</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 leading-relaxed">{appearance.description}</p>
-                    <div className="mt-3 flex gap-2 flex-wrap">
-                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.navStyle} nav</span>
-                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.layout}</span>
-                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full capitalize">{appearance.density}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <Separator />
           <div>
             <h2 className="text-base font-semibold text-gray-900 mb-1">Configuration</h2>
-            <p className="text-sm text-gray-500 mb-4">Platform-wide settings for email, automation, forms, and analytics.</p>
+            <p className="text-sm text-gray-500 mb-4">Platform-wide settings for request routing and field rules.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CONFIG_QUICK_LINKS.map(link => (
                 <QuickLinkCard key={link.href} {...link} />

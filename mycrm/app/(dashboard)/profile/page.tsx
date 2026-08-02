@@ -159,7 +159,7 @@ function AvatarCropModal({
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-xs">
+      <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Camera className="w-4 h-4" /> Crop Photo</DialogTitle>
           <DialogDescription>Drag to reposition your photo within the circle.</DialogDescription>
@@ -475,7 +475,7 @@ export default function ProfilePage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-5xl space-y-6 pb-10">
+    <div className="max-w-5xl mx-auto space-y-6 pb-10">
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between">

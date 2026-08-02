@@ -188,23 +188,6 @@ export function Topbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
                 <Settings className="mr-2 h-4 w-4" />Settings
               </DropdownMenuItem>
             </Link>
-            {isSuperAdmin && (
-              <>
-                <DropdownMenuSeparator />
-                <Link href="/admin">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <Shield className="mr-2 h-4 w-4 text-purple-600" />
-                    <span className="text-purple-700 font-medium">Admin Panel</span>
-                  </DropdownMenuItem>
-                </Link>
-                <Link href="/admin/users">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <User className="mr-2 h-4 w-4 text-purple-600" />
-                    <span className="text-purple-700 font-medium">User Management</span>
-                  </DropdownMenuItem>
-                </Link>
-              </>
-            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50">
               <LogOut className="mr-2 h-4 w-4" />Sign out
