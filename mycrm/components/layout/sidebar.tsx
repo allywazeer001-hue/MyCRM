@@ -81,17 +81,17 @@ function NavLink({
         className={cn(
           "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none",
           active
-            ? "bg-blue-600/20 text-blue-200 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.25)]"
-            : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+            ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"
+            : "text-blue-100/80 hover:bg-white/10 hover:text-white"
         )}
       >
         {active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-blue-500 rounded-r-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white rounded-r-full shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
         )}
         <span className="cb-nav-icon shrink-0">
           <Icon className={cn(
             "w-[18px] h-[18px] transition-colors duration-150",
-            active ? "text-blue-400" : "text-slate-500 group-hover:text-slate-200"
+            active ? "text-white" : "text-blue-200/70 group-hover:text-white"
           )} />
         </span>
         {!collapsed && <span className="truncate">{label}</span>}
@@ -115,7 +115,7 @@ function NavGroup({
     <div className="pt-1">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 rounded-lg hover:bg-white/[0.06] transition-all duration-150"
+        className="flex items-center justify-between w-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-blue-200/70 hover:text-white rounded-lg hover:bg-white/10 transition-all duration-150"
       >
         <span>{label}</span>
         <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", open && "rotate-180")} />
@@ -153,19 +153,19 @@ function NavDropdown({
         className={cn(
           "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none w-full",
           active
-            ? "bg-blue-600/20 text-blue-200 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.25)]"
-            : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+            ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"
+            : "text-blue-100/80 hover:bg-white/10 hover:text-white"
         )}
       >
         {active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-blue-500 rounded-r-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white rounded-r-full shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
         )}
         <Icon className={cn(
           "w-[18px] h-[18px] shrink-0 transition-colors",
-          active ? "text-blue-400" : "text-slate-500 group-hover:text-slate-200"
+          active ? "text-white" : "text-blue-200/70 group-hover:text-white"
         )} />
         <span className="flex-1 truncate text-left">{label}</span>
-        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200 text-slate-500", open && "rotate-180")} />
+        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200 text-blue-200/70", open && "rotate-180")} />
       </button>
       <div className={cn(
         "overflow-hidden transition-all duration-200 ease-in-out",
@@ -251,13 +251,13 @@ function SidebarContent({
         {!collapsed && (
           <div className="flex flex-col gap-0.5">
             <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-              <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shrink-0 text-white shadow-lg shadow-blue-900/50">
+              <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shrink-0 text-blue-700 shadow-md">
                 <LogoMark size={14} />
               </div>
               <span className="font-bold text-white text-sm tracking-tight">{BRAND.name}</span>
             </Link>
             {isSuperAdmin && (
-              <span className="ml-9 text-[10px] font-bold text-purple-400 uppercase tracking-wider">
+              <span className="ml-9 text-[10px] font-bold text-purple-200 uppercase tracking-wider">
                 Super Admin
               </span>
             )}
@@ -265,7 +265,7 @@ function SidebarContent({
         )}
         {collapsed && (
           <Link href="/" title="Home" className="hover:opacity-80 transition-opacity">
-            <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-900/50">
+            <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center text-blue-700 shadow-md">
               <LogoMark size={14} />
             </div>
           </Link>
@@ -274,7 +274,7 @@ function SidebarContent({
         {!showCloseButton && (
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="text-slate-500 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-all duration-150 hidden lg:flex"
+            className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-white/15 transition-all duration-150 hidden lg:flex"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed
@@ -285,7 +285,7 @@ function SidebarContent({
         {showCloseButton && (
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-all"
+            className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-white/15 transition-all"
             title="Close menu"
           >
             <X className="w-5 h-5" />
@@ -347,7 +347,7 @@ function SidebarContent({
             ))}
             {!collapsed && (
               <Link href="/studio/new" onClick={onLinkClick}>
-                <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-slate-500 hover:text-blue-300 hover:bg-white/[0.06] cursor-pointer transition-all duration-150">
+                <div className="group flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-blue-200/70 hover:text-white hover:bg-white/10 cursor-pointer transition-all duration-150">
                   <Plus className="w-[18px] h-[18px] shrink-0" />
                   <span>New Module</span>
                 </div>
@@ -404,8 +404,8 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
       {/* Desktop sidebar — always in flow, collapsible */}
       <aside
         className={cn(
-          "hidden lg:flex flex-col bg-[#060d1f] border-r border-white/10 shrink-0",
-          "shadow-[4px_0_24px_-8px_rgba(37,99,235,0.15)]",
+          "hidden lg:flex flex-col bg-gradient-to-b from-blue-600 to-blue-800 border-r border-white/10 shrink-0",
+          "shadow-xl",
           "transition-all duration-300 ease-in-out",
           collapsed ? "w-16" : "w-60"
         )}
@@ -416,7 +416,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
       {/* Mobile sidebar — fixed overlay, slides in/out */}
       <aside
         className={cn(
-          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-[#060d1f] border-r border-white/10",
+          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-gradient-to-b from-blue-600 to-blue-800 border-r border-white/10",
           "w-72 transition-transform duration-300 ease-in-out",
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
         )}
