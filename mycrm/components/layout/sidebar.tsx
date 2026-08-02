@@ -238,30 +238,18 @@ function SidebarContent({
 
   return (
     <>
-      {/* Super-admin gradient accent */}
-      {isSuperAdmin && (
-        <div className="h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 shrink-0" />
-      )}
-
       {/* Header */}
       <div className={cn(
         "flex items-center h-12 px-3 border-b border-white/10 shrink-0",
         collapsed ? "justify-center" : "justify-between"
       )}>
         {!collapsed && (
-          <div className="flex flex-col gap-0.5">
-            <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-              <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shrink-0 text-blue-700 shadow-md">
-                <LogoMark size={14} />
-              </div>
-              <span className="font-bold text-white text-sm tracking-tight">{BRAND.name}</span>
-            </Link>
-            {isSuperAdmin && (
-              <span className="ml-9 text-[10px] font-bold text-purple-200 uppercase tracking-wider">
-                Super Admin
-              </span>
-            )}
-          </div>
+          <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+            <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center shrink-0 text-blue-700 shadow-md">
+              <LogoMark size={14} />
+            </div>
+            <span className="font-bold text-white text-sm tracking-tight">{BRAND.name}</span>
+          </Link>
         )}
         {collapsed && (
           <Link href="/" title="Home" className="hover:opacity-80 transition-opacity">
