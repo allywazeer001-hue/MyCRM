@@ -81,8 +81,8 @@ function NavLink({
         className={cn(
           "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none",
           active
-            ? "bg-blue-50 text-blue-700"
-            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            ? "bg-blue-100/80 text-blue-700"
+            : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
         )}
       >
         {active && (
@@ -115,7 +115,7 @@ function NavGroup({
     <div className="pt-1">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 transition-all duration-150"
+        className="flex items-center justify-between w-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white/70 transition-all duration-150"
       >
         <span>{label}</span>
         <ChevronDown className={cn("w-3 h-3 transition-transform duration-200", open && "rotate-180")} />
@@ -153,8 +153,8 @@ function NavDropdown({
         className={cn(
           "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer select-none w-full",
           active
-            ? "bg-blue-50 text-blue-700"
-            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            ? "bg-blue-100/80 text-blue-700"
+            : "text-slate-600 hover:bg-white/70 hover:text-slate-900"
         )}
       >
         {active && (
@@ -404,7 +404,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
       {/* Desktop sidebar — always in flow, collapsible */}
       <aside
         className={cn(
-          "hidden lg:flex flex-col bg-white border-r border-slate-200 shrink-0",
+          "hidden lg:flex flex-col bg-blue-50/50 border-r border-slate-200 shrink-0",
           "transition-all duration-300 ease-in-out",
           collapsed ? "w-16" : "w-60"
         )}
@@ -415,7 +415,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
       {/* Mobile sidebar — fixed overlay, slides in/out */}
       <aside
         className={cn(
-          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-slate-200",
+          "lg:hidden fixed inset-y-0 left-0 z-50 flex flex-col bg-blue-50/50 border-r border-slate-200",
           "w-72 transition-transform duration-300 ease-in-out",
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
         )}
