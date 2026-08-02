@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Plus, Minus, GripVertical, X, Settings, Eye, Save, Loader2,
   ChevronDown, ChevronUp, Search, Workflow, AlertCircle, Trash2,
-  ChevronRight, ArrowRight, CheckCircle2,
+  ChevronRight, ArrowRight, CheckCircle2, Info, Globe, LayoutGrid, LayoutTemplate,
 } from "lucide-react";
 import {
   DndContext, DragEndEvent, DragStartEvent, DragOverEvent,
@@ -40,6 +40,7 @@ import {
   ModuleRuleOperator, ModuleRuleActionType, ModuleRuleTarget, ModuleRuleLogic,
 } from "@/lib/layout-templates";
 import { ModuleLayoutCanvas, TabChip } from "@/components/studio/layout-canvas";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { ConditionTreeBuilder } from "@/components/workflows/ConditionTreeBuilder";
 import { normalizeConditionTree, type ConditionGroup } from "@/lib/condition-tree";
@@ -300,46 +301,48 @@ function ModulePropertiesPanel({
           {saved && <span className="text-xs text-green-600 font-medium">Saved ✓</span>}
         </div>
 
-        {/* Icon */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Module Icon</Label>
-          <div className="flex items-center gap-3">
-            <IconPicker
-              value={activeModule.icon}
-              onChange={ic => onUpdate({ icon: ic })}
-              color={activeModule.color}
-            />
-            <p className="text-xs text-gray-400">Click to change</p>
+        {/* General */}
+        <CollapsibleSection icon={Info} iconClassName="bg-slate-100 text-slate-500" title="General">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Module Icon</Label>
+            <div className="flex items-center gap-3">
+              <IconPicker
+                value={activeModule.icon}
+                onChange={ic => onUpdate({ icon: ic })}
+                color={activeModule.color}
+              />
+              <p className="text-xs text-gray-400">Click to change</p>
+            </div>
           </div>
-        </div>
 
-        {/* Name */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Module Name *</Label>
-          <Input
-            value={activeModule.name}
-            onChange={e => onUpdate({ name: e.target.value })}
-            placeholder="e.g. Students, Contacts, Inventory"
-            className="h-9"
-          />
-        </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Module Name *</Label>
+            <Input
+              value={activeModule.name}
+              onChange={e => onUpdate({ name: e.target.value })}
+              placeholder="e.g. Students, Contacts, Inventory"
+              className="h-9"
+            />
+          </div>
 
-        {/* Description */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Description</Label>
-          <Input
-            value={activeModule.description || ""}
-            onChange={e => onUpdate({ description: e.target.value })}
-            placeholder="Brief description of this module"
-            className="h-9"
-          />
-        </div>
-
-        <Separator />
+          <div className="space-y-1.5">
+            <Label className="text-xs">Description</Label>
+            <Input
+              value={activeModule.description || ""}
+              onChange={e => onUpdate({ description: e.target.value })}
+              placeholder="Brief description of this module"
+              className="h-9"
+            />
+          </div>
+        </CollapsibleSection>
 
         {/* Portal toggle */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Portal Access</p>
+        <CollapsibleSection
+          icon={Globe}
+          iconClassName="bg-blue-100 text-blue-600"
+          title="Portal Access"
+          summary={portalEnabled === null ? undefined : portalEnabled ? "Enabled" : "Disabled"}
+        >
           <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
             <div>
               <p className="text-sm font-medium text-gray-700">Enable Portal</p>
@@ -357,16 +360,20 @@ function ModulePropertiesPanel({
               <a href="/settings/portal" className="underline font-medium">Settings → Portal Settings</a>.
             </div>
           )}
-        </div>
-
-        <Separator />
+        </CollapsibleSection>
 
         {/* Kanban grouping field */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Kanban View</p>
-            {kanbanSaving && <span className="text-xs text-gray-400">Saving…</span>}
-          </div>
+        <CollapsibleSection
+          icon={LayoutGrid}
+          iconClassName="bg-violet-100 text-violet-600"
+          title="Kanban View"
+          summary={
+            kanbanSaving ? "Saving…"
+            : kanbanEligibleFields.length === 0 ? "No eligible fields"
+            : kanbanFieldId ? (kanbanEligibleFields.find(f => f.id === kanbanFieldId)?.label ?? "Auto-detect")
+            : "Auto-detect"
+          }
+        >
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 space-y-2">
             <p className="text-sm font-medium text-gray-700">Group columns by</p>
             {kanbanEligibleFields.length === 0 ? (
@@ -388,15 +395,16 @@ function ModulePropertiesPanel({
               </>
             )}
           </div>
-        </div>
-
-        <Separator />
+        </CollapsibleSection>
 
         {/* Record Layout — Tabs (shared by Standard's custom tabs and Split
             Panel's section tabs), style, and Main Tab (Split Panel only) */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Record Layout</p>
-
+        <CollapsibleSection
+          icon={LayoutTemplate}
+          iconClassName="bg-amber-100 text-amber-600"
+          title="Record Layout"
+          summary={((layoutConfig as any).recordDetailStyle ?? "standard") === "split-panel" ? "Split Panel" : "Standard"}
+        >
           <div className="space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
             <p className="text-sm font-medium text-gray-700">Tabs</p>
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -514,7 +522,7 @@ function ModulePropertiesPanel({
               </div>
             );
           })()}
-        </div>
+        </CollapsibleSection>
 
         <Separator />
 
