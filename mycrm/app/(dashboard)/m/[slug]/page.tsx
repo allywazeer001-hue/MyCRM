@@ -2327,6 +2327,7 @@ export default function ModuleRecordsPage() {
   const [toastType, setToastType] = useState<"success" | "error">("success");
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [analyzeContext, setAnalyzeContext] = useState<AnalysisContext | null>(null);
+  const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToastMsg(msg); setToastType(type); setTimeout(() => setToastMsg(""), 3000);
   };
@@ -2542,25 +2543,53 @@ export default function ModuleRecordsPage() {
           )}
         </Button>
 
-        {/* Analyse — table tool, lives with table controls */}
+        {/* Analyse — table tool, lives with table controls. Fetches every
+            record matching the current filters/search (not just the current
+            page) so the AI has access to the full table, not a 20-row sample. */}
         <Button
           variant="outline" size="sm" className="gap-1.5 shrink-0"
-          onClick={() => {
-            const records = result?.data ?? [];
-            const fields = visibleFields ?? [];
-            const ctx: AnalysisContext = {
-              type: "module",
-              title: mod?.name ?? "Module",
-              contextSummary: `Module: ${mod?.name}\nTotal records: ${result?.meta?.total ?? 0}\n\nFields: ${fields.map((f: any) => f.label || f.name).join(", ")}\n\nSample data (first 20 records):\n${records.slice(0, 20).map((r: any, i: number) => {
-                const vals = fields.slice(0, 5).map((f: any) => `${f.label || f.name}: ${r[f.name] ?? "—"}`).join(", ");
-                return `${i + 1}. ${vals}`;
-              }).join("\n")}`,
-            };
-            setAnalyzeContext(ctx);
-            setAnalyzeOpen(true);
+          disabled={analyzeLoading}
+          onClick={async () => {
+            if (!mod) return;
+            setAnalyzeLoading(true);
+            try {
+              const ANALYZE_ROW_CAP = 5000;
+              const fg = buildFilterGroup(appliedConditions, appliedLogic);
+              const params: any = { page: 1, limit: ANALYZE_ROW_CAP };
+              if (search) params.search = search;
+              if (fg) params.filterGroup = JSON.stringify(fg);
+              if (sortField) { params.sortField = sortField; params.sortDir = sortDir; }
+              if (showArchived) params.showArchived = 'true';
+
+              const { data } = await api.get(`/modules/${mod.id}/records`, { params });
+              const records: any[] = data?.data ?? [];
+              const total: number = data?.meta?.total ?? records.length;
+              const fields = visibleFields ?? [];
+              const fieldNames = fields.map((f: any) => f.label || f.name);
+
+              const header = fieldNames.join(" | ");
+              const rows = records.map((r: any) =>
+                fields.map((f: any) => String(r[f.name] ?? "")).join(" | ")
+              ).join("\n");
+
+              const truncatedNote = total > records.length
+                ? `\n\n(Showing the first ${records.length} of ${total} total records — the rest were left out to stay within the AI's context limit.)`
+                : "";
+
+              const ctx: AnalysisContext = {
+                type: "module",
+                title: mod.name ?? "Module",
+                contextSummary: `Module: ${mod.name}\nTotal records${search || fg ? " matching the current search/filters" : ""}: ${total}\n\nColumns: ${header}\n\n${header}\n${rows}${truncatedNote}`,
+              };
+              setAnalyzeContext(ctx);
+              setAnalyzeOpen(true);
+            } finally {
+              setAnalyzeLoading(false);
+            }
           }}
         >
-          <BrainCircuit className="w-4 h-4" /><span className="hidden sm:inline">Analyse</span>
+          {analyzeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+          <span className="hidden sm:inline">Analyse</span>
         </Button>
 
         {/* Pivot — table tool, lives with table controls */}

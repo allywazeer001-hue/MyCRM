@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Mail, Plus, FileText, Clock,
   Trash2, Edit2, Save, ChevronRight,
-  Palette, ArrowLeft, Search, CalendarClock, Ban, Send,
+  Palette, ArrowLeft, Search, CalendarClock, Ban, Send, Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmailCanvas, renderEmailToHtml, DEFAULT_DESIGN } from "@/components/email/email-canvas";
@@ -195,6 +195,16 @@ export default function EmailSettingsPage() {
     setTemplates(p => p.filter(t => t.id !== id));
   };
 
+  const handleCloneTpl = async (t: EmailTemplate) => {
+    const r = await api.post("/email-templates", {
+      name: `${t.name} (copy)`,
+      subject: t.subject,
+      body: t.body,
+      design: t.design,
+    });
+    setTemplates(p => [r.data, ...p]);
+  };
+
   // Full-screen canvas editor
   if (editingTpl !== null) {
     return (
@@ -372,6 +382,10 @@ export default function EmailSettingsPage() {
                             <Button size="sm" variant="outline" className="h-7 px-2"
                               onClick={() => setEditingTpl(t)}>
                               <Edit2 className="w-3 h-3" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2"
+                              title="Clone template" onClick={() => handleCloneTpl(t)}>
+                              <Copy className="w-3 h-3" />
                             </Button>
                             <Button size="sm" variant="outline"
                               className="h-7 px-2 text-red-500 hover:text-red-600 hover:border-red-300"

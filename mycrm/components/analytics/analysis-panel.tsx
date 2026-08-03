@@ -17,6 +17,9 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   attachmentName?: string;
+  /** The client-side opening question — never sent to the API as prior
+   *  conversation turns, since Claude never actually said it. */
+  isGreeting?: boolean;
 }
 
 interface DocAttachment {
@@ -238,8 +241,9 @@ export function AnalysisPanel({
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       try {
-        // Convert Message[] to Anthropic-compatible format (strip attachmentName)
-        const apiMessages = msgs.map(m => ({ role: m.role, content: m.content }));
+        // Convert Message[] to Anthropic-compatible format (strip attachmentName,
+        // drop the client-side-only opening greeting — Claude never said it).
+        const apiMessages = msgs.filter(m => !m.isGreeting).map(m => ({ role: m.role, content: m.content }));
 
         const body: any = {
           title: context.title,
@@ -300,9 +304,15 @@ export function AnalysisPanel({
     [context, scrollToBottom]
   );
 
+  // Opens with a question rather than auto-running a canned report — the user
+  // picks what they actually want (a summary, a specific breakdown, a chart…)
+  // instead of always getting the same generic analysis first.
   useEffect(() => {
     if (open && context && messages.length === 0) {
-      runAnalysis([]);
+      setMessages([{
+        role: "assistant",
+        content: `I have read-only access to **${context.title}**. What would you like me to look at? For example: a summary, trends, a specific breakdown, or a chart of something in the data.`,
+      }]);
     }
   }, [open, context]); // eslint-disable-line
 
@@ -377,10 +387,14 @@ export function AnalysisPanel({
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // Resets back to the opening question rather than re-firing a canned
+  // report — there's no longer a default analysis to "re-run".
   const handleRerun = () => {
-    setMessages([]);
     setError(null);
-    runAnalysis([]);
+    setMessages(context ? [{
+      role: "assistant",
+      content: `I have read-only access to **${context.title}**. What would you like me to look at? For example: a summary, trends, a specific breakdown, or a chart of something in the data.`,
+    }] : []);
   };
 
   if (!open) return null;
@@ -587,7 +601,7 @@ export function AnalysisPanel({
             </button>
           </div>
           <p className="text-[10px] text-gray-300 text-center mt-1.5">
-            Powered by Claude AI · Attach documents or ask for charts
+            Read-only · Powered by Claude AI · Attach documents or ask for charts
           </p>
         </div>
       </div>

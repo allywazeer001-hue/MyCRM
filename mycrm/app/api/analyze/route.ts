@@ -29,11 +29,22 @@ export async function POST(req: NextRequest) {
 
     const anthropic = new Anthropic({ apiKey });
 
-    const system = `You are an expert data analyst embedded in ${BRAND.name}, an enterprise CRM/ERP platform.
-Analyze the business data provided and give clear, actionable insights in a professional tone.
-Use markdown formatting: ## headings, **bold**, bullet lists where helpful.
-Be concise but thorough. When the user asks follow-up questions, reference the original data.
-When presenting chart/graph data, use this exact format so it can be rendered as a visual chart:
+    // Context lives in the system prompt (not the first user turn) so it's
+    // available on every request — the client asks the user what they want
+    // up front instead of auto-firing a canned first analysis, so the very
+    // first real message here can already be a specific follow-up question.
+    const system = `You are an expert data analyst embedded in ${BRAND.name}, an enterprise CRM/ERP platform, helping analyze the ${type} below.
+
+## ${title}
+
+${contextSummary}
+
+## Rules
+- You are STRICTLY READ-ONLY. You have no ability to create, edit, update, or delete any data, and must never claim otherwise or output instructions framed as having made a change — you can only read, summarize, and explain the data above.
+- Answer the user's actual question directly. Don't restate a generic "Key Insights / Trends / Recommendations" report unless they ask for a full summary — match the scope of what they asked.
+- Use markdown formatting: ## headings, **bold**, bullet lists where helpful. Be concise but thorough.
+- When the user asks follow-up questions, reference the data above.
+- When presenting chart/graph data, use this exact format so it can be rendered as a visual chart:
 \`\`\`chart-bar
 {"title":"Chart Title","labels":["A","B","C"],"values":[10,20,30]}
 \`\`\`
@@ -41,18 +52,10 @@ For line charts use \`\`\`chart-line with the same JSON structure.`;
 
     let allMessages: Anthropic.MessageParam[];
 
-    const initialText = `Analyze the following ${type} data and provide comprehensive business insights.
-
-## ${title}
-
-${contextSummary}
-
-Please structure your response with:
-## Key Insights
-## Trends & Patterns
-## Recommendations`;
-
     if (messages.length === 0) {
+      // Defensive fallback only — the client always seeds an opening question
+      // locally rather than calling this route with an empty history.
+      const fallbackText = "Greet the user in one short sentence and ask what they'd like you to look at in the data above.";
       if (documentBase64 && documentMediaType) {
         const isImage = documentMediaType.startsWith("image/");
         allMessages = [{
@@ -62,11 +65,11 @@ Please structure your response with:
               type: isImage ? "image" : "document",
               source: { type: "base64", media_type: documentMediaType, data: documentBase64 },
             } as any,
-            { type: "text", text: `${documentName ? `[Document: ${documentName}]\n\n` : ""}${initialText}` },
+            { type: "text", text: `${documentName ? `[Document: ${documentName}]\n\n` : ""}${fallbackText}` },
           ],
         }];
       } else {
-        allMessages = [{ role: "user", content: initialText }];
+        allMessages = [{ role: "user", content: fallbackText }];
       }
     } else if (documentBase64 && documentMediaType) {
       // Attach document to the last user message

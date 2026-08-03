@@ -105,11 +105,16 @@ function NavLink({
 // ── Nav group (collapsible section) ──────────────────────────────────────────
 
 function NavGroup({
-  label, children, collapsed, defaultOpen = true,
+  label, children, collapsed, defaultOpen = true, forceOpen = false,
 }: {
   label: string; children: React.ReactNode; collapsed: boolean; defaultOpen?: boolean;
+  /** Auto-expands the group once (e.g. it contains the current route) without
+   *  fighting a manual collapse afterward — the header itself never shows an
+   *  "active" state, it's purely an expand/collapse extender either way. */
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
 
   if (collapsed) return <div className="pt-2">{children}</div>;
 
@@ -350,7 +355,10 @@ function SidebarContent({
             <>
               {moduleGroups.map(g => (
                 groupedVisibleModules.byGroup[g.id]?.length ? (
-                  <NavGroup key={g.id} label={g.name} collapsed={collapsed} defaultOpen={false}>
+                  <NavGroup
+                    key={g.id} label={g.name} collapsed={collapsed} defaultOpen={false}
+                    forceOpen={groupedVisibleModules.byGroup[g.id].some(mod => isActive(`/m/${mod.slug}`))}
+                  >
                     {groupedVisibleModules.byGroup[g.id].map(mod => (
                       <NavLink
                         key={mod.id}
