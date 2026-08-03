@@ -618,7 +618,7 @@ function WidgetBuilderDialog({
     ["NUMBER", "CURRENCY", "RATING", "PROGRESS"].includes(f.type)
   );
   const groupByFields = fields.filter((f) =>
-    ["DROPDOWN", "STATUS", "RADIO", "BOOLEAN", "TEXT", "NUMBER", "DATE"].includes(f.type)
+    ["DROPDOWN", "STATUS", "RADIO", "BOOLEAN", "TEXT", "NUMBER", "DATE", "MULTI_SELECT"].includes(f.type)
   );
 
   const set = (k: keyof WidgetDraft, v: any) => setDraft((d) => ({ ...d, [k]: v }));

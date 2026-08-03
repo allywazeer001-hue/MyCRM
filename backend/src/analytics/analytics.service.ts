@@ -130,12 +130,32 @@ export class AnalyticsService {
       return { total, value, data: [] };
     }
 
+    // Multi-select fields hold an array of values per record — grouping by
+    // one directly (String(["Red","Blue"]) -> "Red,Blue") would bucket by
+    // combination instead of by individual value. Explode each record into
+    // one occurrence per selected value instead, so "Red" and "Blue" each
+    // get their own count — a record tagged with both contributes to both.
+    const groupByFieldMeta = await this.prisma.field.findFirst({
+      where: { moduleId, name: groupByField },
+      select: { type: true },
+    });
+    const isMultiGroupBy = groupByFieldMeta?.type === 'MULTI_SELECT';
+
     // Group by primary field
     const groups: Record<string, any[]> = {};
     for (const r of records) {
-      const key = String((r.data as any)?.[groupByField] ?? '(empty)');
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(r);
+      if (isMultiGroupBy) {
+        const raw = (r.data as any)?.[groupByField];
+        const values: string[] = Array.isArray(raw) ? raw.map(String) : (raw ? [String(raw)] : []);
+        if (values.length === 0) {
+          (groups['(empty)'] ??= []).push(r);
+        } else {
+          for (const v of values) (groups[v] ??= []).push(r);
+        }
+      } else {
+        const key = String((r.data as any)?.[groupByField] ?? '(empty)');
+        (groups[key] ??= []).push(r);
+      }
     }
 
     // ── Single-level grouping (original behaviour) ──────────────────────────

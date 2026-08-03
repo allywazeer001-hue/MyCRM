@@ -147,7 +147,13 @@ function NavDropdown({
   label: string; icon: React.ElementType; children: React.ReactNode;
   collapsed: boolean; active: boolean;
 }) {
+  // `active` (one of the children is the current route) only auto-expands
+  // the group once — the header itself never gets active/highlighted
+  // styling, same as NavGroup. It's purely an expand/collapse extender, so
+  // the actually-selected child link is the only thing that ever looks
+  // "active" — no duplicated highlight between parent and child.
   const [open, setOpen] = useState(active);
+  useEffect(() => { if (active) setOpen(true); }, [active]);
 
   if (collapsed) {
     return <div className="space-y-0.5">{children}</div>;
@@ -157,23 +163,10 @@ function NavDropdown({
     <div>
       <button
         onClick={() => setOpen(o => !o)}
-        className={cn(
-          "group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ease-out cursor-pointer select-none w-full",
-          active
-            ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]"
-            : "text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5 hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
-        )}
+        className="group relative flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ease-out cursor-pointer select-none w-full text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5 hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
       >
-        {active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-white rounded-r-full shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
-        )}
-        {!active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-0 group-hover:h-5 bg-white/40 rounded-r-full transition-all duration-200 ease-out" />
-        )}
-        <Icon className={cn(
-          "w-[18px] h-[18px] shrink-0 transition-colors",
-          active ? "text-white" : "text-blue-200/70 group-hover:text-white"
-        )} />
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-0 group-hover:h-5 bg-white/40 rounded-r-full transition-all duration-200 ease-out" />
+        <Icon className="w-[18px] h-[18px] shrink-0 transition-colors text-blue-200/70 group-hover:text-white" />
         <span className="flex-1 truncate text-left">{label}</span>
         <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200 text-blue-200/70", open && "rotate-180")} />
       </button>
