@@ -54,18 +54,6 @@ const DEFAULTS: LandingConfig = {
   socialLinks: {},
 };
 
-const STORAGE_KEY = "cloudbox-landing-config";
-
-function loadConfig(): LandingConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-
 // ── Logo ──────────────────────────────────────────────────────────────────────
 function LogoMark({ size = 16 }: { size?: number }) {
   return (
@@ -222,7 +210,7 @@ const SECTIONS = [
       </svg>
     ),
   },
-  { id: "theme", label: "Theme",
+  { id: "theme", label: "Colors",
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/>
@@ -448,11 +436,14 @@ export default function LandAdminPage() {
   const [activeSection, setActiveSection] = useState<SectionId>("content");
   const [savedToast, setSavedToast] = useState(false);
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [previewViewport, setPreviewViewport] = useState<"desktop" | "mobile">("desktop");
 
-  // Announcement banner — persisted server-side (unlike the rest of this page,
-  // which is localStorage-only) since it must be visible to every visitor, not
-  // just this browser.
+  // Announcement banner — same singleton-row backend pattern as the rest of
+  // this page's config, both persisted server-side so real visitors actually
+  // see what's configured here (this used to be localStorage-only, which
+  // meant it only ever affected the admin's own browser, never a real
+  // visitor's).
   const [announcement, setAnnouncement] = useState({
     message: "", isActive: false,
     startDate: "", endDate: "", dailyStartTime: "", dailyEndTime: "",
@@ -473,8 +464,10 @@ export default function LandAdminPage() {
       if (payload.exp && payload.exp * 1000 < Date.now()) { setAuthStatus("need-login"); return; }
       if (payload.role !== "SUPER_ADMIN") { setAuthStatus("forbidden"); return; }
     } catch { setAuthStatus("need-login"); return; }
-    setConfig(loadConfig());
     setAuthStatus("ok");
+    api.get("/landing-config")
+      .then(({ data }) => setConfig({ ...DEFAULTS, ...(data || {}) }))
+      .catch(() => {});
     api.get("/announcements")
       .then(({ data }) => {
         setAnnouncement({
@@ -534,19 +527,22 @@ export default function LandAdminPage() {
     setHasUnsaved(true);
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    setSavedToast(true);
-    setHasUnsaved(false);
-    setTimeout(() => setSavedToast(false), 2500);
+  const handlePublish = async () => {
+    setPublishing(true);
+    try {
+      await api.patch("/landing-config", config);
+      setSavedToast(true);
+      setHasUnsaved(false);
+      setTimeout(() => setSavedToast(false), 2500);
+    } catch { /* noop */ } finally { setPublishing(false); }
   };
 
+  // Resets the draft in memory only — nothing changes for real visitors
+  // until Publish is clicked, same as any other edit on this page.
   const handleReset = () => {
-    if (!confirm("Reset all settings to defaults?")) return;
-    const fresh = { ...DEFAULTS };
-    setConfig(fresh);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
-    setHasUnsaved(false);
+    if (!confirm("Reset all settings to defaults? This won't go live until you click Publish.")) return;
+    setConfig({ ...DEFAULTS });
+    setHasUnsaved(true);
   };
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -609,7 +605,7 @@ export default function LandAdminPage() {
           </div>
           {hasUnsaved && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-500 font-semibold">
-              Unsaved
+              Unpublished changes
             </span>
           )}
         </div>
@@ -626,12 +622,16 @@ export default function LandAdminPage() {
             className="text-xs text-muted-foreground/70 hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-accent transition-all">
             Reset
           </button>
-          <button onClick={handleSave}
-            className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-dark transition-all shadow-lg shadow-brand/30">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 16 16">
-              <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Save
+          <button onClick={handlePublish} disabled={publishing}
+            className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-dark disabled:opacity-60 transition-all shadow-lg shadow-brand/30">
+            {publishing ? (
+              <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 16 16">
+                <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+            {publishing ? "Publishing…" : "Publish"}
           </button>
         </div>
       </header>
@@ -658,7 +658,7 @@ export default function LandAdminPage() {
           ))}
 
           <div className="mt-auto pt-3 border-t border-border px-1">
-            <p className="text-[10px] text-muted-foreground/70 leading-relaxed">Changes are saved to local storage and applied to the public landing page.</p>
+            <p className="text-[10px] text-muted-foreground/70 leading-relaxed">Click Publish to make changes live for every visitor.</p>
           </div>
         </aside>
 
@@ -774,7 +774,7 @@ export default function LandAdminPage() {
             {/* ══ THEME ══ */}
             {activeSection === "theme" && (
               <>
-                <SectionHeading title="Theme" subtitle="Set the accent and background colors for the landing page." />
+                <SectionHeading title="Colors" subtitle="This is the public landing page's own brand colors — separate from the app's Light/Dark/Green Apple/Ocean Glass theme, which only affects people signed into the CRM." />
 
                 <Group title="Accent Color">
                   <div className="flex flex-wrap gap-2.5 mb-4">
@@ -981,7 +981,7 @@ export default function LandAdminPage() {
         <svg className="w-4 h-4" fill="none" viewBox="0 0 16 16">
           <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
-        Changes saved
+        Published
       </div>
     </div>
   );

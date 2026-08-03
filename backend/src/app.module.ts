@@ -22,6 +22,7 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { GlobalListsModule } from './global-lists/global-lists.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
+import { LandingConfigModule } from './landing-config/landing-config.module';
 import { MediaModule } from './media/media.module';
 import { FormsModule } from './forms/forms.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -74,6 +75,7 @@ import { ConnectedAppsModule } from './connected-apps/connected-apps.module';
     WebsocketModule,
     GlobalListsModule,
     AnnouncementsModule,
+    LandingConfigModule,
     MediaModule,
     FormsModule,
     AnalyticsModule,

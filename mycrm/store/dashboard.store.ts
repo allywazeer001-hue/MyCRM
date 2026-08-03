@@ -61,12 +61,13 @@ export interface Dashboard {
 
 // ── Widget catalogue ───────────────────────────────────────────────────────────
 
+// "module_grid" is intentionally not offered here — the Organisation Summary
+// view already covers modules, so Analytics Dashboard is for analytics widgets.
 export const BUILTIN_WIDGETS: {
   type: WidgetType; label: string; icon: string; description: string;
   defaultColSpan: 1|2|3|4; defaultRowSpan: 1|2;
 }[] = [
   { type: "activity_feed", label: "Activity Feed", icon: "🔔", description: "Recent audit log entries",           defaultColSpan: 2, defaultRowSpan: 2 },
-  { type: "module_grid",   label: "Module Grid",   icon: "🗂️", description: "Quick-access module launcher grid", defaultColSpan: 2, defaultRowSpan: 1 },
   { type: "section",       label: "Section",       icon: "📂", description: "Collapsible section that groups widgets below it", defaultColSpan: 4, defaultRowSpan: 1 },
 ];
 
@@ -177,9 +178,7 @@ export const useDashboardStore = create<DashboardStore>()(
               description: "Your main workspace overview",
               isDefault: true,
               config: {
-                widgets: [
-                  { id: "w5", type: "module_grid", title: "Modules", x: 0, y: 0, w: 4, h: 3, config: {} },
-                ],
+                widgets: [],
               },
             });
             list = [created];

@@ -2169,6 +2169,19 @@ model PlatformAnnouncement {
   @@map("platform_announcements")
 }
 
+// Singleton row (fixed id "global") — the public marketing landing page's
+// content/theme/style, configured from /land-admin. Same rationale as
+// PlatformAnnouncement above: not tied to an organization, and previously
+// lived in the admin's own localStorage only (never actually reached real
+// visitors) — this is the real, shared, persisted version of that config.
+model PlatformLandingConfig {
+  id       String @id @default("global")
+  config   Json   @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_landing_configs")
+}
+
 model ApiKey {
   id             String    @id @default(cuid())
   name           String

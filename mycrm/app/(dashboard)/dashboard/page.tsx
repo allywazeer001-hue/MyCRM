@@ -372,7 +372,7 @@ function AnalyticsView() {
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const isAdmin  = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
-  const [view, setView] = useState<DashView>("analytics");
+  const [view, setView] = useState<DashView>("org_summary");
 
   return (
     <div className="space-y-5">

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Footer } from "@/components/marketing/footer";
 import { BRAND } from "@/lib/core-brand";
+import { api } from "@/lib/api";
 
 // ── Landing config (editable via /land-admin) ────────────────────────────────
 
@@ -277,12 +278,12 @@ export default function LandingPage() {
   const router = useRouter();
   const [config, setConfig] = useState<LandingConfig>(DEFAULT_CONFIG);
 
-  // Load admin config
+  // Load the config published from /land-admin — same source every visitor sees,
+  // not a per-browser localStorage value.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("cloudbox-landing-config");
-      if (stored) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(stored) });
-    } catch { /* ignore */ }
+    api.get("/public/landing-config")
+      .then(({ data }) => setConfig({ ...DEFAULT_CONFIG, ...(data || {}) }))
+      .catch(() => { /* keep defaults */ });
   }, []);
 
   // Redirect if already authenticated
