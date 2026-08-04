@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Settings, ChevronRight, Database, Workflow, BarChart3,
   Building2, Plus, ChevronLeft, FileBarChart2, X,
-  Shield, LayoutGrid, Home, Megaphone,
+  Shield, LayoutGrid, Home,
   ChevronDown, ClipboardCheck, TableProperties, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,6 @@ const SIDEBAR_GRADIENT = "linear-gradient(180deg, var(--color-brand-dark) 0%, va
 const coreNavItems = [
   { href: "/workspace",          label: "Workspace", icon: LayoutGrid,    permKey: null },
   { href: "/dashboard",          label: "Dashboard", icon: Home,          permKey: "canDashboard" as const },
-  { href: "/campaigns",          label: "Campaigns", icon: Megaphone,     permKey: null },
   { href: "/workflows",          label: "Workflows", icon: Workflow,      permKey: "canWorkflow"  as const },
   { href: "/apps/report-builder",label: "Reports",   icon: FileBarChart2, permKey: null },
 ];

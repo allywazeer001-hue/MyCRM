@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { X, Database, ClipboardList, Globe, BarChart3, Zap, FileBarChart2, ClipboardCheck } from "lucide-react";
+import { X, Database, ClipboardList, Globe, BarChart3, Zap, FileBarChart2, ClipboardCheck, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BRAND } from "@/lib/core-brand";
 
@@ -41,6 +41,14 @@ const APPS = [
     href: "/analytics",
     gradient: "from-amber-500 to-orange-500",
     icon: <BarChart3 className="w-7 h-7 text-white" />,
+  },
+  {
+    id: "campaigns",
+    label: "Campaigns",
+    description: "SMS, WhatsApp & Email",
+    href: "/campaigns",
+    gradient: "from-fuchsia-500 to-purple-600",
+    icon: <Megaphone className="w-7 h-7 text-white" />,
   },
   {
     id: "automations",
