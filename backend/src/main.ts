@@ -1,12 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import * as compression from 'compression';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   // Disable built-in body parser so we can set a higher limit
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  // Gzip every response over ~1kb (compression's own default threshold) —
+  // this app returns large JSON payloads (record lists, module/field
+  // metadata) with no compression at all today, so this is a large,
+  // essentially free reduction in transfer time for every request.
+  app.use(compression());
 
   // Re-add body parsers with generous limit (email HTML + design JSON can be large).
   // `verify` stashes the exact raw bytes on req.rawBody — needed by webhook

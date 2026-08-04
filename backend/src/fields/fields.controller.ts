@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Header } from '@nestjs/common';
 import { FieldsService } from './fields.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,6 +17,9 @@ export class FieldsController {
   }
 
   @Get()
+  // Field definitions only change in Studio, not during normal record work —
+  // same short-cache rationale as the module list above.
+  @Header('Cache-Control', 'private, max-age=30')
   findByModule(@Param('moduleId') moduleId: string, @CurrentUser() user: any) {
     return this.fieldsService.findByModule(moduleId, user.organizationId);
   }

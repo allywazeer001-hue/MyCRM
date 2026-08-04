@@ -369,6 +369,10 @@ model Field {
   options FieldOption[]
 
   @@index([moduleId])
+  // Nearly every field lookup filters `isActive: true` alongside moduleId
+  // (records/relation-resolver/campaigns all do this) — composite index
+  // matches that shape directly.
+  @@index([moduleId, isActive])
   @@map("fields")
 }
 
@@ -434,6 +438,11 @@ model Record {
   @@index([organizationId])
   @@index([isDeleted])
   @@index([isArchived])
+  // Every record list/detail query filters on all three of these together
+  // (RecordsService.findAll/findOne) — the separate single-column indexes
+  // above force an index merge; one composite index matching the actual
+  // WHERE clause is a direct lookup instead.
+  @@index([moduleId, organizationId, isDeleted])
   @@map("records")
 }
 

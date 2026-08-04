@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Header } from '@nestjs/common';
 import { ModulesService } from './modules.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
@@ -19,6 +19,10 @@ export class ModulesController {
   }
 
   @Get()
+  // Module list changes rarely (only when someone edits schema in Studio) —
+  // a short private cache avoids refetching on every page/tab the Sidebar
+  // mounts on, without risking noticeably stale data after a real edit.
+  @Header('Cache-Control', 'private, max-age=30')
   findAll(@CurrentUser() user: any) {
     // Every user — including SUPER_ADMIN — sees only their own org's modules.
     // Platform-wide module listing lives in the /platform admin routes only.
