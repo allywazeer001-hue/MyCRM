@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PageHeaderSkeleton, StatCardsSkeleton, TableSkeleton } from "@/components/ui/page-skeletons";
 
 const CHANNEL_ICON: Record<string, any> = { SMS: Phone, WHATSAPP: MessageSquare, EMAIL: Mail };
 const STATUS_STYLES: Record<string, string> = {
@@ -79,7 +80,13 @@ export default function CampaignDetailPage() {
   };
 
   if (loading || !campaign) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <PageHeaderSkeleton />
+        <StatCardsSkeleton count={6} />
+        <TableSkeleton rows={5} columns={3} />
+      </div>
+    );
   }
 
   return (

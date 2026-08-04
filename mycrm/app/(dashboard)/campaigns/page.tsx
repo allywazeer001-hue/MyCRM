@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { StatCardsSkeleton, TableSkeleton } from "@/components/ui/page-skeletons";
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: "bg-gray-100 text-gray-600",
@@ -77,6 +78,8 @@ export default function CampaignsPage() {
         </Link>
       </div>
 
+      {!stats && <StatCardsSkeleton count={6} className="lg:grid-cols-6" />}
+
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard icon={Megaphone} label="Total Campaigns" value={stats.totalCampaigns} color="bg-indigo-50 text-indigo-600" />
@@ -117,10 +120,9 @@ export default function CampaignsPage() {
         </Select>
       </div>
 
+      {loading ? <TableSkeleton rows={6} columns={3} /> : (
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-50">
-        {loading ? (
-          <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
-        ) : campaigns.length === 0 ? (
+        {campaigns.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Megaphone className="w-8 h-8 text-gray-300" />
             <p className="text-sm text-gray-500">No campaigns yet</p>
@@ -154,6 +156,7 @@ export default function CampaignsPage() {
           </Link>
         ))}
       </div>
+      )}
     </div>
   );
 }

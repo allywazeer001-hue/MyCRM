@@ -32,6 +32,7 @@ import {
 import { AccessControlEditor } from "@/components/ui/access-control-editor";
 import { useModulesStore, Field } from "@/store/modules.store";
 import { api } from "@/lib/api";
+import { DashboardPageSkeleton } from "@/components/ui/page-skeletons";
 import { cn, generateId } from "@/lib/utils";
 import {
   AnalyticsWidgetBody, loadWidgetData as sharedLoadWidgetData,
@@ -1305,7 +1306,7 @@ function WidgetCard({
 
 export default function AnalyticsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>}>
+    <Suspense fallback={<DashboardPageSkeleton statCount={4} tableRows={4} />}>
       <AnalyticsPageInner />
     </Suspense>
   );

@@ -9,6 +9,7 @@ import {
   Archive, Lock, Unlock, History, Plus, Mail, CheckCircle2, XCircle, Eye, EyeOff, Link2,
   Images, QrCode, Megaphone, Phone,
 } from "lucide-react";
+import { DetailPageSkeleton } from "@/components/ui/page-skeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FileUploadInput } from "@/components/ui/file-upload-input";
@@ -1786,7 +1787,7 @@ export default function RecordDetailPage() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 text-blue-600 animate-spin" /></div>;
+    return <DetailPageSkeleton />;
   }
 
   if (error || !record) {

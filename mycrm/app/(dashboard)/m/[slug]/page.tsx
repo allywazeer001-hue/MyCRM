@@ -35,6 +35,7 @@ import { useModulesStore, Field } from "@/store/modules.store";
 import { useViewStore } from "@/store/view.store";
 import { api } from "@/lib/api";
 import { formatDate, cn, generateId } from "@/lib/utils";
+import { TableSkeleton } from "@/components/ui/page-skeletons";
 import { PermissionGate, useModulePermission } from "@/components/ui/permission-gate";
 import { ModuleIcon } from "@/components/ui/module-icon";
 import { useBlueprintRuntimeStore } from "@/store/blueprint-runtime.store";
@@ -2828,9 +2829,7 @@ export default function ModuleRecordsPage() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center h-48">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-        </div>
+        <TableSkeleton rows={8} columns={Math.min(visibleFields?.length || 5, 6)} />
       ) : view === "kanban" ? (
         <div className="overflow-hidden">
           <KanbanView records={allRecords} mod={mod} slug={slug} onRecordMove={handleKanbanMove} cardFieldIds={kanbanFieldIds} />
