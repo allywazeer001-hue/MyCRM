@@ -229,6 +229,26 @@
 @media screen and (min-width: 2560px) { html { font-size: 11.5px; } }
 @media screen and (min-width: 3840px) { html { font-size: 9px; } }
 
+/* ── Skeleton shimmer — a moving highlight sweep instead of a flat opacity
+   pulse, the standard "professional" loading-placeholder look. Uses the
+   theme's own card/border tokens so it looks correct in every theme instead
+   of a hardcoded gray. ───────────────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
+}
+.skeleton-shimmer {
+  background-color: hsl(var(--muted));
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--foreground) / 0.06) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
 /* ── Hide scrollbar chrome while keeping the element scrollable ─────────── */
 .scrollbar-hide {
   scrollbar-width: none;       /* Firefox */
