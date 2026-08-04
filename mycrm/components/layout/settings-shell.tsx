@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   User, Building2, Shield, Globe, Users, Mail, Zap,
   FileText, Layers, ChevronRight, LayoutGrid, LayoutList,
-  Calendar, SlidersHorizontal, Plug,
+  Calendar, SlidersHorizontal, Plug, Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth.store";
@@ -34,6 +34,7 @@ const CONFIG_NAV = [
   { href: "/settings/automation",  label: "Automation",     icon: Zap },
   { href: "/settings/modules",     label: "Module Config",  icon: Layers },
   { href: "/settings/portal",      label: "Portal Settings", icon: LayoutGrid },
+  { href: "/settings/communications", label: "Communications", icon: Megaphone },
   { href: "/settings/task-panels",  label: "Task Panels",     icon: LayoutList },
   { href: "/settings/field-rules",  label: "Field Rules",     icon: SlidersHorizontal },
 ];

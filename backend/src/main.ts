@@ -8,8 +8,14 @@ async function bootstrap() {
   // Disable built-in body parser so we can set a higher limit
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
-  // Re-add body parsers with generous limit (email HTML + design JSON can be large)
-  app.use(require('express').json({ limit: '10mb' }));
+  // Re-add body parsers with generous limit (email HTML + design JSON can be large).
+  // `verify` stashes the exact raw bytes on req.rawBody — needed by webhook
+  // signature checks (e.g. Meta's X-Hub-Signature-256) that must hash the
+  // literal payload as sent, not a JSON.stringify() reconstruction of it.
+  app.use(require('express').json({
+    limit: '10mb',
+    verify: (req: any, _res: any, buf: Buffer) => { req.rawBody = buf; },
+  }));
   app.use(require('express').urlencoded({ extended: true, limit: '10mb' }));
 
   // Trust the Next.js rewrite proxy (see next.config.ts) as the one hop in front

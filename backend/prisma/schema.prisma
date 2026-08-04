@@ -198,6 +198,10 @@ model Organization {
   routingConfigs          RecordRoutingConfig[]
   connectionRequests      ConnectionRequest[]
   connectedApps           ConnectedApp[]
+  campaigns               Campaign[]
+  communicationProviders  CommunicationProvider[]
+  messageTemplates        MessageTemplate[]
+  communicationOptOuts    CommunicationOptOut[]
 
   @@map("organizations")
 }
@@ -273,6 +277,8 @@ model User {
   emailLogsSent          EmailLog[]              @relation("EmailLogSender")
   scheduledEmailsSent    ScheduledEmail[]        @relation("ScheduledEmailSender")
   passwordRecoveryChallenges PasswordRecoveryChallenge[]
+  campaignsCreated        Campaign[]              @relation("CampaignCreator")
+  messageTemplatesCreated MessageTemplate[]       @relation("MessageTemplateCreator")
   @@index([email])
   @@index([organizationId])
   @@map("users")
@@ -2757,5 +2763,234 @@ model WorkflowScheduleLog {
   @@unique([workflowId, triggerKey])
   @@index([workflowId])
   @@map("workflow_schedule_logs")
+}
+
+// ── Campaigns — Omnichannel Messaging (SMS / WhatsApp / Email) ───────────────
+
+enum CampaignType {
+  GENERAL_ANNOUNCEMENT
+  EVENT
+  REMINDER
+  SCHOLARSHIP
+  HEALTH_CAMP
+  REGISTRATION
+  MARKETING
+  NOTIFICATION
+  CUSTOM
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  QUEUED
+  RUNNING
+  PAUSED
+  COMPLETED
+  PARTIALLY_FAILED
+  FAILED
+  CANCELLED
+}
+
+enum CampaignChannelType {
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+  OPENED
+  CLICKED
+  CANCELLED
+}
+
+enum CommunicationProviderKind {
+  BEEM
+  AFRICAS_TALKING
+  TWILIO
+  META_WHATSAPP
+  RESEND
+  SMTP
+}
+
+// A campaign's own row — audience selection + scheduling. Actual per-channel
+// content lives on CampaignChannel, actual per-recipient delivery lives on
+// CampaignRecipient (mirrors the existing EmailLog/ScheduledEmail split).
+model Campaign {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?        @db.Text
+  type           CampaignType   @default(GENERAL_ANNOUNCEMENT)
+  status         CampaignStatus @default(DRAFT)
+  tags           Json           @default("[]")
+  // { mode: "view"|"filter"|"manual", moduleId, viewId?, filterGroup?, recordIds?: string[] }
+  audienceConfig Json           @default("{}")
+  scheduledAt    DateTime?
+  timezone       String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User               @relation("CampaignCreator", fields: [createdById], references: [id])
+  channels     CampaignChannel[]
+  recipients   CampaignRecipient[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("campaigns")
+}
+
+// One row per channel a campaign uses — each channel has its own message
+// content, provider, and cached stats (Section 12: one campaign, multiple
+// channels, each with independent content/provider/status/stats).
+model CampaignChannel {
+  id         String              @id @default(cuid())
+  campaignId String
+  channel    CampaignChannelType
+  providerId String?
+  // message/subject/body/templateId/variables — shape depends on `channel`
+  content    Json                @default("{}")
+
+  sentCount      Int @default(0)
+  deliveredCount Int @default(0)
+  failedCount    Int @default(0)
+  openedCount    Int @default(0)
+  clickedCount   Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign   Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  provider   CommunicationProvider? @relation(fields: [providerId], references: [id])
+  recipients CampaignRecipient[]
+
+  @@index([campaignId])
+  @@map("campaign_channels")
+}
+
+// Per-recipient, per-channel delivery log — generalizes EmailLog across SMS/
+// WhatsApp/Email so every message this system ever sends has one row here,
+// regardless of channel.
+model CampaignRecipient {
+  id                String                   @id @default(cuid())
+  campaignId        String
+  campaignChannelId String
+  moduleId          String?
+  recordId          String?
+  channel           CampaignChannelType
+  providerId        String?
+  providerMessageId String?
+  destination       String
+  personalizedMessage String?                @db.Text
+  status            CampaignRecipientStatus  @default(PENDING)
+  failureReason     String?                  @db.Text
+  retryCount        Int                      @default(0)
+  cost              Decimal?                 @db.Decimal(10, 4)
+  currency          String?
+
+  queuedAt    DateTime?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  campaign        Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([campaignId, status])
+  @@index([providerMessageId])
+  @@map("campaign_recipients")
+}
+
+// Org-scoped provider configuration — one row per configured provider
+// (an org can have several SMS providers, e.g. Beem + a backup). Secrets
+// (API key/secret/access token) are AES-256-GCM encrypted via the existing
+// backend/src/connected-apps/crypto/connected-app-crypto.util.ts, never
+// stored or returned in plaintext.
+model CommunicationProvider {
+  id             String                    @id @default(cuid())
+  organizationId String
+  channel        CampaignChannelType
+  provider       CommunicationProviderKind
+  label          String
+  // Non-secret config only — senderId, phoneNumberId, businessAccountId,
+  // fromEmail, fromName, country, apiUrl, etc. Shape depends on `provider`.
+  config         Json                      @default("{}")
+  secretEnc      String?                   @db.Text
+  isDefault      Boolean                   @default(false)
+  isActive       Boolean                   @default(true)
+  lastTestedAt   DateTime?
+  lastTestStatus String?
+  lastTestError  String?                   @db.Text
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channels     CampaignChannel[]
+
+  @@index([organizationId])
+  @@index([organizationId, channel])
+  @@map("communication_providers")
+}
+
+// Unified, channel-aware message templates (Section 19) — a single logical
+// communication ("Scholar Registration Confirmation") can have one row per
+// channel, each with its own content shape.
+model MessageTemplate {
+  id                      String              @id @default(cuid())
+  organizationId          String
+  name                    String
+  channel                 CampaignChannelType
+  category                String?
+  subject                 String?
+  body                    String?             @db.Text
+  whatsappTemplateName    String?
+  whatsappTemplateLanguage String?
+  // [{ key: "First_Name", label: "First Name" }, ...]
+  variables               Json                @default("[]")
+  status                  String              @default("ACTIVE")
+  createdById             String
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("MessageTemplateCreator", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, channel])
+  @@map("message_templates")
+}
+
+// A simple do-not-contact list, checked before every send regardless of
+// which dynamic module/record a destination came from (Section 22) — kept
+// separate from per-module Record data since opt-out must survive even if
+// the originating record is deleted or belongs to a different module.
+model CommunicationOptOut {
+  id             String              @id @default(cuid())
+  organizationId String
+  channel        CampaignChannelType
+  // Normalized phone (E.164) or lowercased email
+  destination    String
+  reason         String?
+  createdAt      DateTime            @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channel, destination])
+  @@index([organizationId])
+  @@map("communication_opt_outs")
 }
 

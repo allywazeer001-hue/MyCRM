@@ -130,4 +130,16 @@ export class PublicEmailsController {
     const target = await this.svc.trackClick(id, url ?? '');
     res.redirect(302, target);
   }
+
+  // Reuses the EmailLog id as an opaque, unguessable "unsubscribe token" —
+  // same security model as the tracking pixel/click ids above (not signed,
+  // just unguessable), so no new token scheme was needed.
+  @Get('unsubscribe/:id')
+  async unsubscribe(@Param('id') id: string, @Res() res: Response) {
+    const email = await this.svc.unsubscribeByLogId(id);
+    res.set('Content-Type', 'text/html');
+    res.end(`<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+      <p>${email ? `${email} has been unsubscribed from future emails.` : 'This link is no longer valid.'}</p>
+    </body></html>`);
+  }
 }

@@ -7,7 +7,7 @@ import {
   Send, Clock, User, Calendar, Printer, MoreHorizontal, ExternalLink,
   Layers, ChevronRight, UserPlus, CheckCircle, RefreshCw, Save, X, FileText,
   Archive, Lock, Unlock, History, Plus, Mail, CheckCircle2, XCircle, Eye, EyeOff, Link2,
-  Images, QrCode,
+  Images, QrCode, Megaphone, Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -730,6 +730,53 @@ const ACTION_LABEL: Record<string, string> = {
   RECORD_UNLOCKED:   "unlocked this record",
   COMMENT_ADDED:     "commented",
 };
+
+// ── Communications (Campaigns) Tab ──────────────────────────────────────────
+
+const CAMPAIGN_STATUS_STYLE: Record<string, string> = {
+  DELIVERED: "bg-green-100 text-green-700", SENT: "bg-blue-100 text-blue-700",
+  OPENED: "bg-cyan-100 text-cyan-700", CLICKED: "bg-violet-100 text-violet-700",
+  FAILED: "bg-red-100 text-red-700", BOUNCED: "bg-red-100 text-red-700",
+  PENDING: "bg-gray-100 text-gray-500", QUEUED: "bg-indigo-100 text-indigo-700",
+  CANCELLED: "bg-gray-100 text-gray-400",
+};
+
+function CampaignHistoryList({ recordId }: { recordId: string }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/campaigns/records/${recordId}/history`).then(r => setItems(r.data || [])).catch(() => {}).finally(() => setLoading(false));
+  }, [recordId]);
+
+  if (loading) return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>;
+  if (items.length === 0) return <p className="text-sm text-gray-400 text-center py-10">No campaign messages sent to this record yet.</p>;
+
+  return (
+    <div className="space-y-3">
+      {items.map((item: any) => (
+        <div key={item.id} className="flex gap-3.5 p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
+          <span className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+            {item.channel === "SMS" && <Phone className="w-4 h-4 text-gray-500" />}
+            {item.channel === "WHATSAPP" && <MessageSquare className="w-4 h-4 text-gray-500" />}
+            {item.channel === "EMAIL" && <Mail className="w-4 h-4 text-gray-500" />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-gray-800 truncate">{item.campaign?.name ?? "Campaign"}</span>
+              <span className="text-xs text-gray-400 ml-auto shrink-0">{relativeTime(item.createdAt)}</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1 truncate">{item.personalizedMessage || item.destination}</p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <span className={cn("text-[11px] px-1.5 py-0.5 rounded", CAMPAIGN_STATUS_STYLE[item.status] ?? "bg-gray-100 text-gray-500")}>{item.status}</span>
+              {item.failureReason && <span className="text-[11px] text-red-500 truncate">{item.failureReason}</span>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Emails Tab ─────────────────────────────────────────────────────────────
 
@@ -2230,7 +2277,7 @@ export default function RecordDetailPage() {
       <div className="border-b border-gray-200 print:hidden">
         <nav className="-mb-px flex gap-0 overflow-x-auto">
           {[
-            "details", "activity",
+            "details", "activity", "campaigns",
             ...(fields.some(f => f.type === "EMAIL") ? ["emails"] : []),
           ].map(tab => (
             <button
@@ -2245,7 +2292,8 @@ export default function RecordDetailPage() {
             >
               {tab === "activity" && <History className="w-3.5 h-3.5" />}
               {tab === "emails" && <Mail className="w-3.5 h-3.5" />}
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "campaigns" && <Megaphone className="w-3.5 h-3.5" />}
+              {tab === "campaigns" ? "Communications" : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
           {/* Custom tabs from the Module Builder's layout config — each one carries
@@ -2293,6 +2341,22 @@ export default function RecordDetailPage() {
             </CardHeader>
             <CardContent>
               <ActivityTab moduleId={record.module.id} recordId={id} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Communications tab content — every SMS/WhatsApp/Email sent to this record via a Campaign */}
+      {activeTab === "campaigns" && record && (
+        <div className="print:hidden">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Megaphone className="w-4 h-4" /> Communication History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CampaignHistoryList recordId={id} />
             </CardContent>
           </Card>
         </div>

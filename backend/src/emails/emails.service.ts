@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailTemplatesService } from '../email-templates/email-templates.service';
+import { resolveMergeFields } from '../common/merge-fields.util';
 
 export interface Recipient {
   email: string;
@@ -25,6 +26,9 @@ export interface SendEmailDto {
   recordId?: string;
   // Where replies should go, if different from the sending address.
   replyTo?: string;
+  // Campaign bulk sends append a per-recipient unsubscribe footer link;
+  // one-off/transactional sends (e.g. emailing one CRM record) don't.
+  includeUnsubscribeLink?: boolean;
 }
 
 function pctOf(count: number, of: number): number {
@@ -48,9 +52,9 @@ export class EmailsService {
     private templates: EmailTemplatesService,
   ) {}
 
-  // ── resolve {{tag}} placeholders ─────────────────────────────────────────
+  // ── resolve {{tag}} placeholders — shared with SMS/WhatsApp (Campaigns) ──
   private resolve(text: string, data: Record<string, string> = {}): string {
-    return text.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? `{{${key}}}`);
+    return resolveMergeFields(text, data);
   }
 
   // ── send via Resend's HTTPS API ──────────────────────────────────────────
@@ -75,6 +79,14 @@ export class EmailsService {
     const base = this.publicBaseUrl();
     if (!base) return '';
     return `<img src="${base}/api/v1/public/emails/track/${logId}" width="1" height="1" alt="" style="display:none" />`;
+  }
+
+  private unsubscribeFooter(logId: string): string {
+    const base = this.publicBaseUrl();
+    if (!base) return '';
+    return `<p style="margin-top:24px;font-size:11px;color:#9ca3af;text-align:center">
+      <a href="${base}/api/v1/public/emails/unsubscribe/${logId}" style="color:#9ca3af">Unsubscribe from these emails</a>
+    </p>`;
   }
 
   // Images uploaded from the template canvas are stored under the frontend's own
@@ -142,7 +154,8 @@ export class EmailsService {
         const logId = randomUUID();
         const absoluteImageBody = this.rewriteImagesToAbsolute(resolvedBody);
         const linkTrackedBody = this.rewriteLinksForTracking(absoluteImageBody, logId);
-        const bodyWithPixel = linkTrackedBody + this.trackingPixel(logId);
+        const unsubscribeFooter = dto.includeUnsubscribeLink ? this.unsubscribeFooter(logId) : '';
+        const bodyWithPixel = linkTrackedBody + unsubscribeFooter + this.trackingPixel(logId);
 
         let status = 'sent';
         let errorMsg: string | undefined;
@@ -478,6 +491,22 @@ export class EmailsService {
       // A malformed/unknown id must never block the redirect.
     }
     return url || this.publicBaseUrl() || '/';
+  }
+
+  /** Resolves the EmailLog behind an unsubscribe link and records a CommunicationOptOut for that address — returns the email so the page can confirm it, or null if the link is stale/invalid. */
+  async unsubscribeByLogId(logId: string): Promise<string | null> {
+    try {
+      const log = await this.prisma.emailLog.findFirst({ where: { id: logId }, select: { toEmail: true, organizationId: true } });
+      if (!log) return null;
+      await this.prisma.communicationOptOut.upsert({
+        where: { organizationId_channel_destination: { organizationId: log.organizationId, channel: 'EMAIL', destination: log.toEmail.toLowerCase() } },
+        create: { organizationId: log.organizationId, channel: 'EMAIL', destination: log.toEmail.toLowerCase(), reason: 'Unsubscribed via email footer link' },
+        update: {},
+      });
+      return log.toEmail;
+    } catch {
+      return null;
+    }
   }
 
   // ── audience — the organization's own email + every active user's email,

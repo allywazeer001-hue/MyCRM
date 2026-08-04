@@ -23,6 +23,11 @@ import { WebsocketModule } from './websocket/websocket.module';
 import { GlobalListsModule } from './global-lists/global-lists.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { LandingConfigModule } from './landing-config/landing-config.module';
+import { CommunicationProvidersModule } from './communication-providers/communication-providers.module';
+import { MessageTemplatesModule } from './message-templates/message-templates.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
+import { CampaignProcessorModule } from './campaign-processor/campaign-processor.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { MediaModule } from './media/media.module';
 import { FormsModule } from './forms/forms.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -76,6 +81,11 @@ import { ConnectedAppsModule } from './connected-apps/connected-apps.module';
     GlobalListsModule,
     AnnouncementsModule,
     LandingConfigModule,
+    CommunicationProvidersModule,
+    MessageTemplatesModule,
+    CampaignsModule,
+    CampaignProcessorModule,
+    WebhooksModule,
     MediaModule,
     FormsModule,
     AnalyticsModule,
